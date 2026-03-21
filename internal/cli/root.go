@@ -50,6 +50,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", ".spec-graph/graph.db", "path to the SQLite database file")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(entityCmd)
+	rootCmd.AddCommand(relationCmd)
 }
 
 func Execute() {
