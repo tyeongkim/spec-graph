@@ -21,6 +21,12 @@ var rootCmd = &cobra.Command{
 	Long:          `spec-graph manages entities, relations, and dependency graphs for software specifications.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		if appDB != nil {
+			return appDB.Close()
+		}
+		return nil
+	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Name() == "init" {
 			return nil
