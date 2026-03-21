@@ -671,11 +671,11 @@ spec-graph/
 ## Implementation Priorities
 
 ### v0.1 — Core graph
-- [ ] SQLite schema
-- [ ] Entity CRUD
-- [ ] Relation CRUD
-- [ ] Allowed edge matrix validation
-- [ ] JSON stdout contracts
+- [x] SQLite schema
+- [x] Entity CRUD
+- [x] Relation CRUD
+- [x] Allowed edge matrix validation
+- [x] JSON stdout contracts
 
 ### v0.2 — Impact + validate core
 - [ ] `impact` with dimensions
