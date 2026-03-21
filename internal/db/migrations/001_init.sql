@@ -1,4 +1,4 @@
-CREATE TABLE entities (
+CREATE TABLE IF NOT EXISTS entities (
     id           TEXT PRIMARY KEY,
     type         TEXT NOT NULL,
     title        TEXT NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE entities (
     CHECK (status IN ('draft', 'active', 'deprecated', 'resolved', 'deleted'))
 );
 
-CREATE TABLE relations (
+CREATE TABLE IF NOT EXISTS relations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     from_id      TEXT NOT NULL REFERENCES entities(id),
     to_id        TEXT NOT NULL REFERENCES entities(id),
