@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/taeyeong/spec-graph/internal/db"
@@ -35,14 +37,175 @@ func createTestEntity(t *testing.T, database *sql.DB, id string, entityType mode
 	}
 }
 
+func TestRelationStore_CreateRecordsChangeset(t *testing.T) {
+	database := setupRelationTestDB(t)
+	cs := NewChangesetStore(database)
+	hs := NewHistoryStore(database)
+	store := NewRelationStore(database, cs, hs)
+
+	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+
+	rel, err := store.Create(model.Relation{
+		FromID: "REQ-1",
+		ToID:   "DEC-1",
+		Type:   model.RelationDependsOn,
+	}, "test reason", "test-actor", "cli")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Verify changeset was created.
+	changesets, err := cs.List()
+	if err != nil {
+		t.Fatalf("list changesets: %v", err)
+	}
+	if len(changesets) != 1 {
+		t.Fatalf("expected 1 changeset, got %d", len(changesets))
+	}
+	if changesets[0].Reason != "test reason" {
+		t.Errorf("reason = %q; want %q", changesets[0].Reason, "test reason")
+	}
+	if changesets[0].Actor != "test-actor" {
+		t.Errorf("actor = %q; want %q", changesets[0].Actor, "test-actor")
+	}
+	if changesets[0].Source != "cli" {
+		t.Errorf("source = %q; want %q", changesets[0].Source, "cli")
+	}
+
+	// Verify relation history was recorded.
+	relationKey := fmt.Sprintf("%s:%s:%s", rel.FromID, rel.ToID, rel.Type)
+	entries, err := hs.GetRelationHistory(relationKey)
+	if err != nil {
+		t.Fatalf("get relation history: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(entries))
+	}
+	if entries[0].Action != model.ActionCreate {
+		t.Errorf("action = %q; want %q", entries[0].Action, model.ActionCreate)
+	}
+	if entries[0].AfterJSON == nil {
+		t.Fatal("expected after_json to be set")
+	}
+
+	// Verify after_json contains the relation data.
+	var recorded model.Relation
+	if err := json.Unmarshal([]byte(*entries[0].AfterJSON), &recorded); err != nil {
+		t.Fatalf("unmarshal after_json: %v", err)
+	}
+	if recorded.FromID != "REQ-1" {
+		t.Errorf("recorded from_id = %q; want %q", recorded.FromID, "REQ-1")
+	}
+	if recorded.ToID != "DEC-1" {
+		t.Errorf("recorded to_id = %q; want %q", recorded.ToID, "DEC-1")
+	}
+}
+
+func TestRelationStore_DeleteRecordsHistory(t *testing.T) {
+	database := setupRelationTestDB(t)
+	cs := NewChangesetStore(database)
+	hs := NewHistoryStore(database)
+	store := NewRelationStore(database, cs, hs)
+
+	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+
+	_, err := store.Create(model.Relation{
+		FromID: "REQ-1",
+		ToID:   "DEC-1",
+		Type:   model.RelationDependsOn,
+	}, "create reason", "", "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	err = store.Delete("REQ-1", "DEC-1", model.RelationDependsOn, "delete reason", "deleter", "")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Should have 2 changesets (create + delete).
+	changesets, err := cs.List()
+	if err != nil {
+		t.Fatalf("list changesets: %v", err)
+	}
+	if len(changesets) != 2 {
+		t.Fatalf("expected 2 changesets, got %d", len(changesets))
+	}
+
+	// Verify relation history has both create and delete entries.
+	relationKey := "REQ-1:DEC-1:depends_on"
+	entries, err := hs.GetRelationHistory(relationKey)
+	if err != nil {
+		t.Fatalf("get relation history: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 history entries, got %d", len(entries))
+	}
+
+	// Entries are ordered by created_at DESC; find delete entry by action.
+	var deleteEntry model.RelationHistoryEntry
+	found := false
+	for _, e := range entries {
+		if e.Action == model.ActionDelete {
+			deleteEntry = e
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no delete history entry found")
+	}
+	if deleteEntry.BeforeJSON == nil {
+		t.Fatal("expected before_json to be set on delete")
+	}
+
+	var beforeRel model.Relation
+	if err := json.Unmarshal([]byte(*deleteEntry.BeforeJSON), &beforeRel); err != nil {
+		t.Fatalf("unmarshal before_json: %v", err)
+	}
+	if beforeRel.FromID != "REQ-1" {
+		t.Errorf("before from_id = %q; want %q", beforeRel.FromID, "REQ-1")
+	}
+}
+
+func TestRelationStore_InvalidRelationNoChangeset(t *testing.T) {
+	database := setupRelationTestDB(t)
+	cs := NewChangesetStore(database)
+	hs := NewHistoryStore(database)
+	store := NewRelationStore(database, cs, hs)
+
+	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+	createTestEntity(t, database, "TST-1", model.EntityTypeTest)
+
+	// This is an invalid edge (requirement→test for implements).
+	_, err := store.Create(model.Relation{
+		FromID: "REQ-1",
+		ToID:   "TST-1",
+		Type:   model.RelationImplements,
+	}, "should not persist", "", "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// No changeset should have been created.
+	changesets, err := cs.List()
+	if err != nil {
+		t.Fatalf("list changesets: %v", err)
+	}
+	if len(changesets) != 0 {
+		t.Errorf("expected 0 changesets after invalid edge, got %d", len(changesets))
+	}
+}
+
 func strPtr(s string) *string                             { return &s }
 func relTypePtr(r model.RelationType) *model.RelationType { return &r }
 
 func TestRelationStore_Create_ValidEdges(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
-	// Create all entity types needed for valid edge tests.
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "REQ-2", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -84,7 +247,7 @@ func TestRelationStore_Create_ValidEdges(t *testing.T) {
 				FromID: tt.fromID,
 				ToID:   tt.toID,
 				Type:   tt.relType,
-			})
+			}, "", "", "")
 			if err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
@@ -109,7 +272,7 @@ func TestRelationStore_Create_ValidEdges(t *testing.T) {
 
 func TestRelationStore_Create_InvalidEdges(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "REQ-2", model.EntityTypeRequirement)
@@ -150,7 +313,7 @@ func TestRelationStore_Create_InvalidEdges(t *testing.T) {
 				FromID: tt.fromID,
 				ToID:   tt.toID,
 				Type:   tt.relType,
-			})
+			}, "", "", "")
 			if err == nil {
 				t.Fatal("expected ErrInvalidEdge, got nil")
 			}
@@ -164,7 +327,7 @@ func TestRelationStore_Create_InvalidEdges(t *testing.T) {
 
 func TestRelationStore_Create_EntityNotFound(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 
@@ -185,7 +348,7 @@ func TestRelationStore_Create_EntityNotFound(t *testing.T) {
 				FromID: tt.fromID,
 				ToID:   tt.toID,
 				Type:   model.RelationDependsOn,
-			})
+			}, "", "", "")
 			if err == nil {
 				t.Fatal("expected ErrEntityNotFound, got nil")
 			}
@@ -202,7 +365,7 @@ func TestRelationStore_Create_EntityNotFound(t *testing.T) {
 
 func TestRelationStore_Create_SelfLoop(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 
@@ -210,7 +373,7 @@ func TestRelationStore_Create_SelfLoop(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "REQ-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err == nil {
 		t.Fatal("expected ErrSelfLoop, got nil")
 	}
@@ -225,7 +388,7 @@ func TestRelationStore_Create_SelfLoop(t *testing.T) {
 
 func TestRelationStore_Create_Duplicate(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -235,7 +398,7 @@ func TestRelationStore_Create_Duplicate(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
@@ -245,7 +408,7 @@ func TestRelationStore_Create_Duplicate(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err == nil {
 		t.Fatal("expected ErrDuplicateRelation, got nil")
 	}
@@ -257,7 +420,7 @@ func TestRelationStore_Create_Duplicate(t *testing.T) {
 
 func TestRelationStore_Create_DefaultWeightAndMetadata(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -266,7 +429,7 @@ func TestRelationStore_Create_DefaultWeightAndMetadata(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -280,7 +443,7 @@ func TestRelationStore_Create_DefaultWeightAndMetadata(t *testing.T) {
 
 func TestRelationStore_Create_CustomWeightAndMetadata(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -291,7 +454,7 @@ func TestRelationStore_Create_CustomWeightAndMetadata(t *testing.T) {
 		Type:     model.RelationDependsOn,
 		Weight:   0.5,
 		Metadata: []byte(`{"reason":"critical"}`),
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -305,7 +468,7 @@ func TestRelationStore_Create_CustomWeightAndMetadata(t *testing.T) {
 
 func TestRelationStore_Create_ValidationOrder(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	// Only create one entity so we can test order.
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
@@ -315,7 +478,7 @@ func TestRelationStore_Create_ValidationOrder(t *testing.T) {
 		FromID: "NOPE-1",
 		ToID:   "NOPE-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	var notFound *model.ErrEntityNotFound
 	if !errors.As(err, &notFound) {
 		t.Errorf("expected ErrEntityNotFound for from_id check first, got: %T: %v", err, err)
@@ -326,7 +489,7 @@ func TestRelationStore_Create_ValidationOrder(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "NOPE-2",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if !errors.As(err, &notFound) {
 		t.Errorf("expected ErrEntityNotFound for to_id check, got: %T: %v", err, err)
 	}
@@ -334,7 +497,7 @@ func TestRelationStore_Create_ValidationOrder(t *testing.T) {
 
 func TestRelationStore_List(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "REQ-2", model.EntityTypeRequirement)
@@ -344,7 +507,7 @@ func TestRelationStore_List(t *testing.T) {
 	// Create several relations.
 	mustCreate := func(from, to string, rt model.RelationType) {
 		t.Helper()
-		_, err := store.Create(model.Relation{FromID: from, ToID: to, Type: rt})
+		_, err := store.Create(model.Relation{FromID: from, ToID: to, Type: rt}, "", "", "")
 		if err != nil {
 			t.Fatalf("create %s→%s (%s): %v", from, to, rt, err)
 		}
@@ -392,7 +555,7 @@ func TestRelationStore_List(t *testing.T) {
 
 func TestRelationStore_Delete(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -401,13 +564,13 @@ func TestRelationStore_Delete(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
 	t.Run("delete existing", func(t *testing.T) {
-		err := store.Delete("REQ-1", "DEC-1", model.RelationDependsOn)
+		err := store.Delete("REQ-1", "DEC-1", model.RelationDependsOn, "", "", "")
 		if err != nil {
 			t.Fatalf("delete: %v", err)
 		}
@@ -422,7 +585,7 @@ func TestRelationStore_Delete(t *testing.T) {
 	})
 
 	t.Run("delete non-existent", func(t *testing.T) {
-		err := store.Delete("REQ-1", "DEC-1", model.RelationDependsOn)
+		err := store.Delete("REQ-1", "DEC-1", model.RelationDependsOn, "", "", "")
 		if err == nil {
 			t.Fatal("expected ErrRelationNotFound, got nil")
 		}
@@ -435,7 +598,7 @@ func TestRelationStore_Delete(t *testing.T) {
 
 func TestRelationStore_HasRelations(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -456,7 +619,7 @@ func TestRelationStore_HasRelations(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -494,7 +657,7 @@ func TestRelationStore_HasRelations(t *testing.T) {
 
 func TestRelationStore_Create_SameFromToDifferentTypes(t *testing.T) {
 	database := setupRelationTestDB(t)
-	store := NewRelationStore(database)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 
 	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
@@ -504,7 +667,7 @@ func TestRelationStore_Create_SameFromToDifferentTypes(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationDependsOn,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
@@ -513,7 +676,7 @@ func TestRelationStore_Create_SameFromToDifferentTypes(t *testing.T) {
 		FromID: "REQ-1",
 		ToID:   "DEC-1",
 		Type:   model.RelationConflictsWith,
-	})
+	}, "", "", "")
 	if err != nil {
 		t.Fatalf("second create (different type): %v", err)
 	}
@@ -531,7 +694,7 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
 				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
-				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn}, "", "", "")
 				if err != nil {
 					t.Fatalf("create: %v", err)
 				}
@@ -544,7 +707,7 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
 				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
-				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn}, "", "", "")
 				if err != nil {
 					t.Fatalf("create: %v", err)
 				}
@@ -558,11 +721,11 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
 				createTestEntity(t, database, "API-1", model.EntityTypeInterface)
-				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn}, "", "", "")
 				if err != nil {
 					t.Fatalf("create depends_on: %v", err)
 				}
-				_, err = store.Create(model.Relation{FromID: "API-1", ToID: "REQ-1", Type: model.RelationImplements})
+				_, err = store.Create(model.Relation{FromID: "API-1", ToID: "REQ-1", Type: model.RelationImplements}, "", "", "")
 				if err != nil {
 					t.Fatalf("create implements: %v", err)
 				}
@@ -590,11 +753,11 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
 				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
 				createTestEntity(t, database, "PHS-1", model.EntityTypePhase)
-				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn}, "", "", "")
 				if err != nil {
 					t.Fatalf("create depends_on: %v", err)
 				}
-				_, err = store.Create(model.Relation{FromID: "REQ-1", ToID: "PHS-1", Type: model.RelationPlannedIn})
+				_, err = store.Create(model.Relation{FromID: "REQ-1", ToID: "PHS-1", Type: model.RelationPlannedIn}, "", "", "")
 				if err != nil {
 					t.Fatalf("create planned_in: %v", err)
 				}
@@ -607,7 +770,7 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			database := setupRelationTestDB(t)
-			store := NewRelationStore(database)
+			store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
 			tt.setup(t, store, database)
 
 			rels, err := store.GetByEntity(tt.entityID)

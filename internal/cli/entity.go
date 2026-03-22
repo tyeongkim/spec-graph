@@ -48,8 +48,11 @@ var entityAddCmd = &cobra.Command{
 			entity.Status = model.EntityStatus(status)
 		}
 
-		es := store.NewEntityStore(getDB())
-		created, err := es.Create(entity)
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
+		created, err := es.Create(entity, "", "", "")
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -64,7 +67,10 @@ var entityGetCmd = &cobra.Command{
 	Short: "Get an entity by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		es := store.NewEntityStore(getDB())
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
 		entity, err := es.Get(args[0])
 		if err != nil {
 			handleError(cmd, err)
@@ -92,7 +98,10 @@ var entityListCmd = &cobra.Command{
 			filters.Status = &s
 		}
 
-		es := store.NewEntityStore(getDB())
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
 		entities, count, err := es.List(filters)
 		if err != nil {
 			handleError(cmd, err)
@@ -132,8 +141,11 @@ var entityUpdateCmd = &cobra.Command{
 			fields.Metadata = &m
 		}
 
-		es := store.NewEntityStore(getDB())
-		updated, err := es.Update(args[0], fields)
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
+		updated, err := es.Update(args[0], fields, "", "", "", model.ActionUpdate)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -151,8 +163,11 @@ var entityDeprecateCmd = &cobra.Command{
 		status := model.EntityStatusDeprecated
 		fields := store.UpdateFields{Status: &status}
 
-		es := store.NewEntityStore(getDB())
-		updated, err := es.Update(args[0], fields)
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
+		updated, err := es.Update(args[0], fields, "", "", "", model.ActionDeprecate)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -168,8 +183,11 @@ var entityDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
-		es := store.NewEntityStore(getDB())
-		if err := es.Delete(id); err != nil {
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
+		if err := es.Delete(id, "", "", ""); err != nil {
 			handleError(cmd, err)
 		}
 

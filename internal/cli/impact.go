@@ -68,8 +68,11 @@ var impactCmd = &cobra.Command{
 			}
 		}
 
-		rs := store.NewRelationStore(getDB())
-		es := store.NewEntityStore(getDB())
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
+		es := store.NewEntityStore(db, cs, hs)
 
 		for _, src := range args {
 			if _, err := es.Get(src); err != nil {

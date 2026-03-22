@@ -24,8 +24,11 @@ var validateCmd = &cobra.Command{
 			opts.Checks = strings.Split(checkFlag, ",")
 		}
 
-		rs := store.NewRelationStore(getDB())
-		es := store.NewEntityStore(getDB())
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
+		es := store.NewEntityStore(db, cs, hs)
 		ef := &entityStoreAdapter{store: es}
 
 		if phaseFlag != "" {
