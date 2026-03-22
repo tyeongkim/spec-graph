@@ -53,7 +53,10 @@ var relationAddCmd = &cobra.Command{
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		rs := store.NewRelationStore(db, cs, hs)
-		created, err := rs.Create(rel, "", "", "")
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+		created, err := rs.Create(rel, reason, actor, source)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -113,7 +116,10 @@ var relationDeleteCmd = &cobra.Command{
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		rs := store.NewRelationStore(db, cs, hs)
-		if err := rs.Delete(from, to, model.RelationType(relType), "", "", ""); err != nil {
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+		if err := rs.Delete(from, to, model.RelationType(relType), reason, actor, source); err != nil {
 			handleError(cmd, err)
 		}
 
@@ -150,6 +156,9 @@ func init() {
 	relationAddCmd.Flags().String("type", "", "relation type (required)")
 	relationAddCmd.Flags().Float64("weight", 1.0, "relation weight")
 	relationAddCmd.Flags().String("metadata", "", "relation metadata as JSON string")
+	relationAddCmd.Flags().String("reason", "", "reason for creating this relation")
+	relationAddCmd.Flags().String("actor", "", "actor performing the change")
+	relationAddCmd.Flags().String("source", "", "source of the change")
 
 	relationListCmd.Flags().String("from", "", "filter by source entity ID")
 	relationListCmd.Flags().String("to", "", "filter by target entity ID")
@@ -158,6 +167,9 @@ func init() {
 	relationDeleteCmd.Flags().String("from", "", "source entity ID (required)")
 	relationDeleteCmd.Flags().String("to", "", "target entity ID (required)")
 	relationDeleteCmd.Flags().String("type", "", "relation type (required)")
+	relationDeleteCmd.Flags().String("reason", "", "reason for deletion")
+	relationDeleteCmd.Flags().String("actor", "", "actor performing the change")
+	relationDeleteCmd.Flags().String("source", "", "source of the change")
 
 	relationCmd.AddCommand(relationAddCmd)
 	relationCmd.AddCommand(relationListCmd)

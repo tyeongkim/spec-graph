@@ -48,11 +48,15 @@ var entityAddCmd = &cobra.Command{
 			entity.Status = model.EntityStatus(status)
 		}
 
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+
 		db := getDB()
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		es := store.NewEntityStore(db, cs, hs)
-		created, err := es.Create(entity, "", "", "")
+		created, err := es.Create(entity, reason, actor, source)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -141,11 +145,15 @@ var entityUpdateCmd = &cobra.Command{
 			fields.Metadata = &m
 		}
 
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+
 		db := getDB()
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		es := store.NewEntityStore(db, cs, hs)
-		updated, err := es.Update(args[0], fields, "", "", "", model.ActionUpdate)
+		updated, err := es.Update(args[0], fields, reason, actor, source, model.ActionUpdate)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -163,11 +171,15 @@ var entityDeprecateCmd = &cobra.Command{
 		status := model.EntityStatusDeprecated
 		fields := store.UpdateFields{Status: &status}
 
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+
 		db := getDB()
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		es := store.NewEntityStore(db, cs, hs)
-		updated, err := es.Update(args[0], fields, "", "", "", model.ActionDeprecate)
+		updated, err := es.Update(args[0], fields, reason, actor, source, model.ActionDeprecate)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -183,11 +195,14 @@ var entityDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
 		db := getDB()
 		cs := store.NewChangesetStore(db)
 		hs := store.NewHistoryStore(db)
 		es := store.NewEntityStore(db, cs, hs)
-		if err := es.Delete(id, "", "", ""); err != nil {
+		if err := es.Delete(id, reason, actor, source); err != nil {
 			handleError(cmd, err)
 		}
 
@@ -203,6 +218,9 @@ func init() {
 	entityAddCmd.Flags().String("description", "", "entity description")
 	entityAddCmd.Flags().String("metadata", "", "entity metadata as JSON string")
 	entityAddCmd.Flags().String("status", "", "entity status")
+	entityAddCmd.Flags().String("reason", "", "reason for creating this entity")
+	entityAddCmd.Flags().String("actor", "", "actor performing the change")
+	entityAddCmd.Flags().String("source", "", "source of the change")
 
 	entityListCmd.Flags().String("type", "", "filter by entity type")
 	entityListCmd.Flags().String("status", "", "filter by entity status")
@@ -211,9 +229,17 @@ func init() {
 	entityUpdateCmd.Flags().String("description", "", "new description")
 	entityUpdateCmd.Flags().String("status", "", "new status")
 	entityUpdateCmd.Flags().String("metadata", "", "new metadata as JSON string")
-	entityUpdateCmd.Flags().String("reason", "", "reason for update (not persisted in v0.1)")
+	entityUpdateCmd.Flags().String("reason", "", "reason for update")
+	entityUpdateCmd.Flags().String("actor", "", "actor performing the change")
+	entityUpdateCmd.Flags().String("source", "", "source of the change")
 
-	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation (not persisted in v0.1)")
+	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
+	entityDeprecateCmd.Flags().String("actor", "", "actor performing the change")
+	entityDeprecateCmd.Flags().String("source", "", "source of the change")
+
+	entityDeleteCmd.Flags().String("reason", "", "reason for deletion")
+	entityDeleteCmd.Flags().String("actor", "", "actor performing the change")
+	entityDeleteCmd.Flags().String("source", "", "source of the change")
 
 	entityCmd.AddCommand(entityAddCmd)
 	entityCmd.AddCommand(entityGetCmd)
