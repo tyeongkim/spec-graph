@@ -62,6 +62,14 @@ func (e *ErrInvalidInput) Error() string {
 	return fmt.Sprintf("invalid input: %s", e.Message)
 }
 
+type ErrChangesetNotFound struct {
+	ID string
+}
+
+func (e *ErrChangesetNotFound) Error() string {
+	return fmt.Sprintf("changeset %q not found", e.ID)
+}
+
 type ErrNotInitialized struct{}
 
 func (e *ErrNotInitialized) Error() string {
