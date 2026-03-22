@@ -14,6 +14,15 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 		checks = []string{"orphans", "coverage", "invalid_edges", "superseded_refs", "gates"}
 	}
 
+	if opts.Phase != nil {
+		filteredEF, err := newPhaseFilteredEntityFetcher(ef, rf, *opts.Phase)
+		if err != nil {
+			return nil, err
+		}
+		ef = filteredEF
+		rf = newPhaseFilteredRelationFetcher(rf, filteredEF.allowed)
+	}
+
 	var allIssues []ValidationIssue
 
 	for _, check := range checks {

@@ -42,11 +42,114 @@ func (m *mockEntFetcher) List(filters EntityListFilters) ([]model.Entity, error)
 	return result, nil
 }
 
+func TestValidate_PhaseScoped_OrphansFiltered(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"PHS-001": {ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{
+		relations: map[string][]model.Relation{
+			"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+			"PHS-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+		},
+	}
+
+	phaseID := "PHS-001"
+	result, err := Validate(ValidateOptions{Checks: []string{"orphans"}, Phase: &phaseID}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, issue := range result.Issues {
+		if issue.Entity == "REQ-002" {
+			t.Error("REQ-002 should not appear: it is not in phase scope")
+		}
+	}
+}
+
+func TestValidate_PhaseScoped_CoverageFiltered(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"PHS-001": {ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{
+		relations: map[string][]model.Relation{
+			"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+			"PHS-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+		},
+	}
+
+	phaseID := "PHS-001"
+	result, err := Validate(ValidateOptions{Checks: []string{"coverage"}, Phase: &phaseID}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, issue := range result.Issues {
+		if issue.Entity == "REQ-002" {
+			t.Error("REQ-002 should not appear: it is not in phase scope")
+		}
+	}
+
+	foundREQ001 := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "REQ-001" {
+			foundREQ001 = true
+		}
+	}
+	if !foundREQ001 {
+		t.Error("expected coverage issue for REQ-001 (in phase scope, no implementation)")
+	}
+}
+
+func TestValidate_NoPhase_Unchanged(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Error("expected Valid=false for orphaned entity")
+	}
+	if result.Summary.TotalIssues != 3 {
+		t.Errorf("got TotalIssues=%d; want 3", result.Summary.TotalIssues)
+	}
+}
+
 func TestValidateOrphans_NoOrphans(t *testing.T) {
 	ef := &mockEntFetcher{
 		entities: []model.Entity{
 			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
 			{ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"API-001": {ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
 		},
 	}
 	rf := &mockRelFetcher{
