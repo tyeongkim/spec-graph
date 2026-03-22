@@ -182,3 +182,177 @@ func TestInitResponseJSON(t *testing.T) {
 		t.Error("expected top-level 'path' key")
 	}
 }
+
+func TestImpactResponseJSON(t *testing.T) {
+	resp := ImpactResponse{
+		Sources: []string{"REQ-001"},
+		Affected: []ImpactAffected{
+			{
+				ID:            "DEC-001",
+				Type:          "decision",
+				Depth:         1,
+				Path:          []string{"REQ-001", "DEC-001"},
+				RelationChain: []string{"depends_on"},
+				Impact: ImpactScores{
+					Overall:    "high",
+					Structural: "medium",
+					Behavioral: "high",
+					Planning:   "low",
+				},
+				Reason: "direct dependency",
+			},
+		},
+		Summary: ImpactSummary{
+			Total:    1,
+			ByType:   map[string]int{"decision": 1},
+			ByImpact: map[string]int{"high": 1},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"sources", "affected", "summary"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var affected []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["affected"], &affected); err != nil {
+		t.Fatalf("Unmarshal affected failed: %v", err)
+	}
+	for _, key := range []string{"id", "type", "depth", "path", "relation_chain", "impact", "reason"} {
+		if _, ok := affected[0][key]; !ok {
+			t.Errorf("expected affected[0] %q key", key)
+		}
+	}
+
+	var impact map[string]json.RawMessage
+	if err := json.Unmarshal(affected[0]["impact"], &impact); err != nil {
+		t.Fatalf("Unmarshal impact failed: %v", err)
+	}
+	for _, key := range []string{"overall", "structural", "behavioral", "planning"} {
+		if _, ok := impact[key]; !ok {
+			t.Errorf("expected impact %q key", key)
+		}
+	}
+
+	var summary map[string]json.RawMessage
+	if err := json.Unmarshal(raw["summary"], &summary); err != nil {
+		t.Fatalf("Unmarshal summary failed: %v", err)
+	}
+	for _, key := range []string{"total", "by_type", "by_impact"} {
+		if _, ok := summary[key]; !ok {
+			t.Errorf("expected summary %q key", key)
+		}
+	}
+}
+
+func TestValidateResponseJSON(t *testing.T) {
+	resp := ValidateResponse{
+		Valid: false,
+		Issues: []ValidateIssue{
+			{
+				Check:    "orphan_entity",
+				Severity: "warning",
+				Entity:   "REQ-002",
+				Message:  "entity has no relations",
+			},
+		},
+		Summary: ValidateSummary{
+			TotalIssues: 1,
+			BySeverity:  map[string]int{"warning": 1},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"valid", "issues", "summary"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var issues []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["issues"], &issues); err != nil {
+		t.Fatalf("Unmarshal issues failed: %v", err)
+	}
+	for _, key := range []string{"check", "severity", "entity", "message"} {
+		if _, ok := issues[0][key]; !ok {
+			t.Errorf("expected issues[0] %q key", key)
+		}
+	}
+
+	var summary map[string]json.RawMessage
+	if err := json.Unmarshal(raw["summary"], &summary); err != nil {
+		t.Fatalf("Unmarshal summary failed: %v", err)
+	}
+	for _, key := range []string{"total_issues", "by_severity"} {
+		if _, ok := summary[key]; !ok {
+			t.Errorf("expected summary %q key", key)
+		}
+	}
+}
+
+func TestImpactResponseEmptyAffected(t *testing.T) {
+	resp := ImpactResponse{
+		Sources:  []string{"REQ-001"},
+		Affected: make([]ImpactAffected, 0),
+		Summary:  ImpactSummary{Total: 0, ByType: map[string]int{}, ByImpact: map[string]int{}},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if string(raw["affected"]) != "[]" {
+		t.Errorf("expected affected to serialize as [], got %s", raw["affected"])
+	}
+}
+
+func TestValidateResponseNoIssues(t *testing.T) {
+	resp := ValidateResponse{
+		Valid:   true,
+		Issues:  make([]ValidateIssue, 0),
+		Summary: ValidateSummary{TotalIssues: 0, BySeverity: map[string]int{}},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if string(raw["valid"]) != "true" {
+		t.Errorf("expected valid=true, got %s", raw["valid"])
+	}
+	if string(raw["issues"]) != "[]" {
+		t.Errorf("expected issues to serialize as [], got %s", raw["issues"])
+	}
+}

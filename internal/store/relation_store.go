@@ -138,6 +138,35 @@ func (s *RelationStore) List(filters RelationFilters) ([]model.Relation, int, er
 	return rels, len(rels), nil
 }
 
+// GetByEntity returns all relations where the given entity is either from_id or to_id.
+// Returns an empty slice (not nil) when no relations found.
+func (s *RelationStore) GetByEntity(entityID string) ([]model.Relation, error) {
+	rows, err := s.db.Query(
+		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE from_id = ? OR to_id = ? ORDER BY id`,
+		entityID, entityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query relations by entity: %w", err)
+	}
+	defer rows.Close()
+
+	rels := make([]model.Relation, 0)
+	for rows.Next() {
+		var r model.Relation
+		var metadata string
+		if err := rows.Scan(&r.ID, &r.FromID, &r.ToID, &r.Type, &r.Weight, &metadata, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan relation: %w", err)
+		}
+		r.Metadata = []byte(metadata)
+		rels = append(rels, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate relations: %w", err)
+	}
+
+	return rels, nil
+}
+
 // Delete removes a relation by (from_id, to_id, type).
 // Returns ErrRelationNotFound if no matching relation exists.
 func (s *RelationStore) Delete(fromID, toID string, relType model.RelationType) error {

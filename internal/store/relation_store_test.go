@@ -518,3 +518,108 @@ func TestRelationStore_Create_SameFromToDifferentTypes(t *testing.T) {
 		t.Fatalf("second create (different type): %v", err)
 	}
 }
+
+func TestRelationStore_GetByEntity(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, store *RelationStore, database *sql.DB)
+		entityID  string
+		wantCount int
+	}{
+		{
+			name: "entity_as_from_only",
+			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
+				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+			},
+			entityID:  "REQ-1",
+			wantCount: 1,
+		},
+		{
+			name: "entity_as_to_only",
+			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
+				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+			},
+			entityID:  "DEC-1",
+			wantCount: 1,
+		},
+		{
+			name: "entity_as_both",
+			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
+				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+				createTestEntity(t, database, "API-1", model.EntityTypeInterface)
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				if err != nil {
+					t.Fatalf("create depends_on: %v", err)
+				}
+				_, err = store.Create(model.Relation{FromID: "API-1", ToID: "REQ-1", Type: model.RelationImplements})
+				if err != nil {
+					t.Fatalf("create implements: %v", err)
+				}
+			},
+			entityID:  "REQ-1",
+			wantCount: 2,
+		},
+		{
+			name: "entity_with_no_relations",
+			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
+				createTestEntity(t, database, "PHS-1", model.EntityTypePhase)
+			},
+			entityID:  "PHS-1",
+			wantCount: 0,
+		},
+		{
+			name:      "entity_not_found",
+			setup:     func(t *testing.T, store *RelationStore, database *sql.DB) {},
+			entityID:  "NONEXIST-001",
+			wantCount: 0,
+		},
+		{
+			name: "multiple_relation_types",
+			setup: func(t *testing.T, store *RelationStore, database *sql.DB) {
+				createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+				createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+				createTestEntity(t, database, "PHS-1", model.EntityTypePhase)
+				_, err := store.Create(model.Relation{FromID: "REQ-1", ToID: "DEC-1", Type: model.RelationDependsOn})
+				if err != nil {
+					t.Fatalf("create depends_on: %v", err)
+				}
+				_, err = store.Create(model.Relation{FromID: "REQ-1", ToID: "PHS-1", Type: model.RelationPlannedIn})
+				if err != nil {
+					t.Fatalf("create planned_in: %v", err)
+				}
+			},
+			entityID:  "REQ-1",
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			database := setupRelationTestDB(t)
+			store := NewRelationStore(database)
+			tt.setup(t, store, database)
+
+			rels, err := store.GetByEntity(tt.entityID)
+			if err != nil {
+				t.Fatalf("GetByEntity: %v", err)
+			}
+			if len(rels) != tt.wantCount {
+				t.Errorf("len(rels) = %d; want %d", len(rels), tt.wantCount)
+			}
+			if tt.wantCount == 0 && rels == nil {
+				t.Error("expected empty slice, got nil")
+			}
+		})
+	}
+}
