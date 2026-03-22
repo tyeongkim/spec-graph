@@ -332,6 +332,292 @@ func TestImpactResponseEmptyAffected(t *testing.T) {
 	}
 }
 
+func TestChangesetResponseJSON(t *testing.T) {
+	raw1 := json.RawMessage(`{"id":"REQ-001"}`)
+	resp := ChangesetResponse{
+		Changeset: ChangesetDetail{
+			ID:        "cs-001",
+			Reason:    "initial",
+			Actor:     "user1",
+			Source:    "cli",
+			CreatedAt: "2026-01-01T00:00:00Z",
+		},
+		EntityEntries: []EntityHistoryEntry{
+			{
+				ID:          1,
+				ChangesetID: "cs-001",
+				EntityID:    "REQ-001",
+				Action:      "create",
+				Before:      nil,
+				After:       &raw1,
+				CreatedAt:   "2026-01-01T00:00:00Z",
+			},
+		},
+		RelationEntries: []RelationHistoryEntry{},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"changeset", "entity_entries", "relation_entries"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var cs map[string]json.RawMessage
+	if err := json.Unmarshal(out["changeset"], &cs); err != nil {
+		t.Fatalf("Unmarshal changeset failed: %v", err)
+	}
+	for _, key := range []string{"id", "reason", "actor", "source", "created_at"} {
+		if _, ok := cs[key]; !ok {
+			t.Errorf("expected changeset %q key", key)
+		}
+	}
+}
+
+func TestChangesetDetailOmitempty(t *testing.T) {
+	resp := ChangesetDetail{
+		ID:        "cs-002",
+		Reason:    "fix",
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if _, ok := out["actor"]; ok {
+		t.Error("expected 'actor' to be omitted when empty")
+	}
+	if _, ok := out["source"]; ok {
+		t.Error("expected 'source' to be omitted when empty")
+	}
+}
+
+func TestChangesetListResponseJSON(t *testing.T) {
+	resp := ChangesetListResponse{
+		Changesets: []ChangesetDetail{
+			{ID: "cs-001", Reason: "init", CreatedAt: "2026-01-01T00:00:00Z"},
+		},
+		Count: 1,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"changesets", "count"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+}
+
+func TestEntityHistoryResponseJSON(t *testing.T) {
+	after := json.RawMessage(`{"id":"REQ-001","title":"New"}`)
+	resp := EntityHistoryResponse{
+		EntityID: "REQ-001",
+		Entries: []EntityHistoryEntry{
+			{
+				ID:          1,
+				ChangesetID: "cs-001",
+				EntityID:    "REQ-001",
+				Action:      "update",
+				Before:      nil,
+				After:       &after,
+				CreatedAt:   "2026-01-01T00:00:00Z",
+			},
+		},
+		Count: 1,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"entity_id", "entries", "count"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(out["entries"], &entries); err != nil {
+		t.Fatalf("Unmarshal entries failed: %v", err)
+	}
+	for _, key := range []string{"id", "changeset_id", "entity_id", "action", "before", "after", "created_at"} {
+		if _, ok := entries[0][key]; !ok {
+			t.Errorf("expected entries[0] %q key", key)
+		}
+	}
+}
+
+func TestRelationHistoryResponseJSON(t *testing.T) {
+	before := json.RawMessage(`{"from":"REQ-001","to":"DEC-001"}`)
+	resp := RelationHistoryResponse{
+		RelationKey: "REQ-001->DEC-001",
+		Entries: []RelationHistoryEntry{
+			{
+				ID:          1,
+				ChangesetID: "cs-001",
+				RelationKey: "REQ-001->DEC-001",
+				Action:      "delete",
+				Before:      &before,
+				After:       nil,
+				CreatedAt:   "2026-01-01T00:00:00Z",
+			},
+		},
+		Count: 1,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"relation_key", "entries", "count"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(out["entries"], &entries); err != nil {
+		t.Fatalf("Unmarshal entries failed: %v", err)
+	}
+	for _, key := range []string{"id", "changeset_id", "relation_key", "action", "before", "after", "created_at"} {
+		if _, ok := entries[0][key]; !ok {
+			t.Errorf("expected entries[0] %q key", key)
+		}
+	}
+}
+
+func TestBootstrapScanResponseJSON(t *testing.T) {
+	resp := BootstrapScanResponse{
+		Entities: []BootstrapEntityCandidate{
+			{ID: "REQ-001", Type: "requirement", Title: "Auth", Confidence: 0.9, Source: "file.md"},
+		},
+		Relations: []BootstrapRelationCandidate{
+			{From: "REQ-001", To: "DEC-001", Type: "depends_on", Confidence: 0.8, Source: "file.md"},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"entities", "relations"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var entities []map[string]json.RawMessage
+	if err := json.Unmarshal(out["entities"], &entities); err != nil {
+		t.Fatalf("Unmarshal entities failed: %v", err)
+	}
+	for _, key := range []string{"id", "type", "title", "confidence", "source"} {
+		if _, ok := entities[0][key]; !ok {
+			t.Errorf("expected entities[0] %q key", key)
+		}
+	}
+
+	var relations []map[string]json.RawMessage
+	if err := json.Unmarshal(out["relations"], &relations); err != nil {
+		t.Fatalf("Unmarshal relations failed: %v", err)
+	}
+	for _, key := range []string{"from", "to", "type", "confidence", "source"} {
+		if _, ok := relations[0][key]; !ok {
+			t.Errorf("expected relations[0] %q key", key)
+		}
+	}
+}
+
+func TestBootstrapImportResponseJSON(t *testing.T) {
+	resp := BootstrapImportResponse{
+		Created: []string{"REQ-001", "DEC-001"},
+		Skipped: []BootstrapSkippedItem{
+			{ID: "REQ-002", Reason: "already exists"},
+		},
+		Errors: []BootstrapErrorItem{
+			{ID: "REQ-003", Error: "invalid type"},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	for _, key := range []string{"created", "skipped", "errors"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("expected top-level %q key", key)
+		}
+	}
+
+	var skipped []map[string]json.RawMessage
+	if err := json.Unmarshal(out["skipped"], &skipped); err != nil {
+		t.Fatalf("Unmarshal skipped failed: %v", err)
+	}
+	for _, key := range []string{"id", "reason"} {
+		if _, ok := skipped[0][key]; !ok {
+			t.Errorf("expected skipped[0] %q key", key)
+		}
+	}
+
+	var errors []map[string]json.RawMessage
+	if err := json.Unmarshal(out["errors"], &errors); err != nil {
+		t.Fatalf("Unmarshal errors failed: %v", err)
+	}
+	for _, key := range []string{"id", "error"} {
+		if _, ok := errors[0][key]; !ok {
+			t.Errorf("expected errors[0] %q key", key)
+		}
+	}
+}
+
 func TestValidateResponseNoIssues(t *testing.T) {
 	resp := ValidateResponse{
 		Valid:   true,

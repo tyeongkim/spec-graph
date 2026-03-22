@@ -1,6 +1,10 @@
 package jsoncontract
 
-import "github.com/taeyeong/spec-graph/internal/model"
+import (
+	"encoding/json"
+
+	"github.com/taeyeong/spec-graph/internal/model"
+)
 
 type EntityResponse struct {
 	Entity model.Entity `json:"entity"`
@@ -90,4 +94,92 @@ type ValidateIssue struct {
 type ValidateSummary struct {
 	TotalIssues int            `json:"total_issues"`
 	BySeverity  map[string]int `json:"by_severity"`
+}
+
+type ChangesetDetail struct {
+	ID        string `json:"id"`
+	Reason    string `json:"reason"`
+	Actor     string `json:"actor,omitempty"`
+	Source    string `json:"source,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type ChangesetResponse struct {
+	Changeset       ChangesetDetail        `json:"changeset"`
+	EntityEntries   []EntityHistoryEntry   `json:"entity_entries"`
+	RelationEntries []RelationHistoryEntry `json:"relation_entries"`
+}
+
+type ChangesetListResponse struct {
+	Changesets []ChangesetDetail `json:"changesets"`
+	Count      int               `json:"count"`
+}
+
+type EntityHistoryEntry struct {
+	ID          int              `json:"id"`
+	ChangesetID string           `json:"changeset_id"`
+	EntityID    string           `json:"entity_id"`
+	Action      string           `json:"action"`
+	Before      *json.RawMessage `json:"before"`
+	After       *json.RawMessage `json:"after"`
+	CreatedAt   string           `json:"created_at"`
+}
+
+type EntityHistoryResponse struct {
+	EntityID string               `json:"entity_id"`
+	Entries  []EntityHistoryEntry `json:"entries"`
+	Count    int                  `json:"count"`
+}
+
+type RelationHistoryEntry struct {
+	ID          int              `json:"id"`
+	ChangesetID string           `json:"changeset_id"`
+	RelationKey string           `json:"relation_key"`
+	Action      string           `json:"action"`
+	Before      *json.RawMessage `json:"before"`
+	After       *json.RawMessage `json:"after"`
+	CreatedAt   string           `json:"created_at"`
+}
+
+type RelationHistoryResponse struct {
+	RelationKey string                 `json:"relation_key"`
+	Entries     []RelationHistoryEntry `json:"entries"`
+	Count       int                    `json:"count"`
+}
+
+type BootstrapEntityCandidate struct {
+	ID         string  `json:"id"`
+	Type       string  `json:"type"`
+	Title      string  `json:"title"`
+	Confidence float64 `json:"confidence"`
+	Source     string  `json:"source"`
+}
+
+type BootstrapRelationCandidate struct {
+	From       string  `json:"from"`
+	To         string  `json:"to"`
+	Type       string  `json:"type"`
+	Confidence float64 `json:"confidence"`
+	Source     string  `json:"source"`
+}
+
+type BootstrapScanResponse struct {
+	Entities  []BootstrapEntityCandidate   `json:"entities"`
+	Relations []BootstrapRelationCandidate `json:"relations"`
+}
+
+type BootstrapSkippedItem struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+type BootstrapErrorItem struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+type BootstrapImportResponse struct {
+	Created []string               `json:"created"`
+	Skipped []BootstrapSkippedItem `json:"skipped"`
+	Errors  []BootstrapErrorItem   `json:"errors"`
 }
