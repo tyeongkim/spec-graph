@@ -79,7 +79,8 @@ var (
 	entityIDRe = regexp.MustCompile(`(REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+`)
 
 	// headingEntityRe matches entity IDs at the start of a heading line, capturing the title.
-	headingEntityRe = regexp.MustCompile(`^#+\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)\s+(.*)$`)
+	// Supports optional colon after ID: "## REQ-001: Title" or "## REQ-001 Title".
+	headingEntityRe = regexp.MustCompile(`^#+\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)[:\s]\s*(.*)$`)
 
 	// lineStartEntityRe matches entity IDs at the very start of a line (no heading marker).
 	lineStartEntityRe = regexp.MustCompile(`^((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)\s+(.*)$`)

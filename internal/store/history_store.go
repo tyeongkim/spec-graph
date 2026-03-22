@@ -46,7 +46,7 @@ func (s *HistoryStore) RecordRelationChange(tx *sql.Tx, entry model.RelationHist
 // GetEntityHistory returns all history entries for the given entity, ordered by created_at DESC.
 func (s *HistoryStore) GetEntityHistory(entityID string) ([]model.EntityHistoryEntry, error) {
 	rows, err := s.db.Query(
-		"SELECT id, changeset_id, entity_id, action, before_json, after_json, created_at FROM entity_history WHERE entity_id = ? ORDER BY created_at DESC",
+		"SELECT id, changeset_id, entity_id, action, before_json, after_json, created_at FROM entity_history WHERE entity_id = ? ORDER BY id ASC",
 		entityID,
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (s *HistoryStore) GetEntityHistory(entityID string) ([]model.EntityHistoryE
 // GetRelationHistory returns all history entries for the given relation key, ordered by created_at DESC.
 func (s *HistoryStore) GetRelationHistory(relationKey string) ([]model.RelationHistoryEntry, error) {
 	rows, err := s.db.Query(
-		"SELECT id, changeset_id, relation_key, action, before_json, after_json, created_at FROM relation_history WHERE relation_key = ? ORDER BY created_at DESC",
+		"SELECT id, changeset_id, relation_key, action, before_json, after_json, created_at FROM relation_history WHERE relation_key = ? ORDER BY id ASC",
 		relationKey,
 	)
 	if err != nil {
@@ -124,7 +124,7 @@ func (s *HistoryStore) GetChangesetHistory(changesetID string) ([]model.EntityHi
 
 func (s *HistoryStore) queryEntityHistoryByChangeset(changesetID string) ([]model.EntityHistoryEntry, error) {
 	rows, err := s.db.Query(
-		"SELECT id, changeset_id, entity_id, action, before_json, after_json, created_at FROM entity_history WHERE changeset_id = ? ORDER BY created_at DESC",
+		"SELECT id, changeset_id, entity_id, action, before_json, after_json, created_at FROM entity_history WHERE changeset_id = ? ORDER BY id ASC",
 		changesetID,
 	)
 	if err != nil {
@@ -155,7 +155,7 @@ func (s *HistoryStore) queryEntityHistoryByChangeset(changesetID string) ([]mode
 
 func (s *HistoryStore) queryRelationHistoryByChangeset(changesetID string) ([]model.RelationHistoryEntry, error) {
 	rows, err := s.db.Query(
-		"SELECT id, changeset_id, relation_key, action, before_json, after_json, created_at FROM relation_history WHERE changeset_id = ? ORDER BY created_at DESC",
+		"SELECT id, changeset_id, relation_key, action, before_json, after_json, created_at FROM relation_history WHERE changeset_id = ? ORDER BY id ASC",
 		changesetID,
 	)
 	if err != nil {

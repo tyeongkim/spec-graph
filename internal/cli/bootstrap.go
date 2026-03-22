@@ -145,6 +145,7 @@ func toImportResponse(ar bootstrap.ApplyResult) jsoncontract.BootstrapImportResp
 
 func init() {
 	bootstrapScanCmd.Flags().String("input", "", "path to directory or file to scan (required)")
+	bootstrapScanCmd.Flags().String("format", "json", "output format (json)")
 	bootstrapImportCmd.Flags().String("input", "", "path to JSON candidates file (required)")
 	bootstrapImportCmd.Flags().String("mode", "", "import mode: 'review' or 'apply' (required)")
 

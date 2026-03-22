@@ -326,6 +326,54 @@ Some text mentioning REQ-200 inline.
 	}
 }
 
+func TestScanFile_HeadingWithColon(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `## REQ-100: User Authentication
+All users must authenticate.
+
+## DEC-200: Use JWT Tokens
+We decided to use JWT.
+`
+	path := filepath.Join(tmpDir, "colon.md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ScanFile(path)
+	if err != nil {
+		t.Fatalf("ScanFile error: %v", err)
+	}
+
+	entityByID := make(map[string]EntityCandidate)
+	for _, e := range result.Entities {
+		entityByID[e.ID] = e
+	}
+
+	tests := []struct {
+		id        string
+		wantTitle string
+		wantConf  float64
+	}{
+		{"REQ-100", "User Authentication", 0.9},
+		{"DEC-200", "Use JWT Tokens", 0.9},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			e, ok := entityByID[tt.id]
+			if !ok {
+				t.Fatalf("entity %s not found", tt.id)
+			}
+			if e.Title != tt.wantTitle {
+				t.Errorf("Title = %q, want %q", e.Title, tt.wantTitle)
+			}
+			if e.Confidence != tt.wantConf {
+				t.Errorf("Confidence = %v, want %v", e.Confidence, tt.wantConf)
+			}
+		})
+	}
+}
+
 func TestScanDirectory_AllEntityTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 	content := `# REQ-001 Requirement
