@@ -11,7 +11,7 @@ import (
 func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*ValidateResult, error) {
 	checks := opts.Checks
 	if len(checks) == 0 {
-		checks = []string{"orphans", "coverage", "invalid_edges", "superseded_refs"}
+		checks = []string{"orphans", "coverage", "invalid_edges", "superseded_refs", "gates"}
 	}
 
 	var allIssues []ValidationIssue
@@ -28,6 +28,8 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 			issues, err = checkInvalidEdges(ef, rf)
 		case "superseded_refs":
 			issues, err = checkSupersededRefs(ef, rf)
+		case "gates":
+			issues, err = checkGates(ef, rf)
 		default:
 			return nil, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown check: %q", check)}
 		}
@@ -284,6 +286,10 @@ func checkSupersededRefs(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssu
 	}
 
 	return issues, nil
+}
+
+func checkGates(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue, error) {
+	return nil, nil
 }
 
 // checkOrphans finds entities with no relations.

@@ -785,6 +785,35 @@ func TestValidateSupersededRefs_SupersedesChain(t *testing.T) {
 	}
 }
 
+func TestValidate_GatesCheckRegistered(t *testing.T) {
+	ef := &mockEntFetcher{entities: []model.Entity{}, byID: map[string]model.Entity{}}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{Checks: []string{"gates"}}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: gates check should be recognized, got %v", err)
+	}
+	if !result.Valid {
+		t.Error("expected Valid=true for empty graph with gates check")
+	}
+	if result.Summary.TotalIssues != 0 {
+		t.Errorf("got TotalIssues=%d; want 0", result.Summary.TotalIssues)
+	}
+}
+
+func TestValidate_DefaultChecksIncludeGates(t *testing.T) {
+	ef := &mockEntFetcher{entities: []model.Entity{}, byID: map[string]model.Entity{}}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: default checks should include gates without error, got %v", err)
+	}
+	if !result.Valid {
+		t.Error("expected Valid=true for empty graph")
+	}
+}
+
 func TestValidateSupersededRefs_DeprecatedEntityReferencingSuperseded(t *testing.T) {
 	ef := &mockEntFetcher{
 		entities: []model.Entity{
