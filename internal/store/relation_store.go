@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,16 +19,19 @@ type RelationFilters struct {
 // RelationStore manages relation persistence with edge matrix validation.
 type RelationStore struct {
 	db *sql.DB
+	cs *ChangesetStore
+	hs *HistoryStore
 }
 
 // NewRelationStore creates a new RelationStore.
-func NewRelationStore(db *sql.DB) *RelationStore {
-	return &RelationStore{db: db}
+func NewRelationStore(db *sql.DB, cs *ChangesetStore, hs *HistoryStore) *RelationStore {
+	return &RelationStore{db: db, cs: cs, hs: hs}
 }
 
-// Create validates and inserts a relation.
+// Create validates and inserts a relation atomically with changeset and history recording.
 // Validation order: from exists → to exists → self-loop → edge matrix → duplicate.
-func (s *RelationStore) Create(rel model.Relation) (model.Relation, error) {
+func (s *RelationStore) Create(rel model.Relation, reason, actor, source string) (model.Relation, error) {
+	// Validate BEFORE starting transaction (read-only checks).
 	fromType, err := s.getEntityType(rel.FromID)
 	if err != nil {
 		return model.Relation{}, err
@@ -57,7 +61,25 @@ func (s *RelationStore) Create(rel model.Relation) (model.Relation, error) {
 		rel.Metadata = []byte("{}")
 	}
 
-	result, err := s.db.Exec(
+	// Begin transaction for the mutation.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return model.Relation{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Create changeset.
+	csID, err := s.cs.GetNextID(tx)
+	if err != nil {
+		return model.Relation{}, fmt.Errorf("get changeset id: %w", err)
+	}
+	changeset := model.Changeset{ID: csID, Reason: reason, Actor: actor, Source: source}
+	if _, err := s.cs.Create(tx, changeset); err != nil {
+		return model.Relation{}, fmt.Errorf("create changeset: %w", err)
+	}
+
+	// INSERT relation.
+	result, err := tx.Exec(
 		`INSERT INTO relations (from_id, to_id, type, weight, metadata) VALUES (?, ?, ?, ?, ?)`,
 		rel.FromID, rel.ToID, string(rel.Type), rel.Weight, string(rel.Metadata),
 	)
@@ -77,14 +99,37 @@ func (s *RelationStore) Create(rel model.Relation) (model.Relation, error) {
 		return model.Relation{}, fmt.Errorf("last insert id: %w", err)
 	}
 
+	// Read back relation within tx.
 	var out model.Relation
 	var metadata string
-	err = s.db.QueryRow(
+	err = tx.QueryRow(
 		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE id = ?`, id,
 	).Scan(&out.ID, &out.FromID, &out.ToID, &out.Type, &out.Weight, &metadata, &out.CreatedAt)
-	out.Metadata = []byte(metadata)
 	if err != nil {
 		return model.Relation{}, fmt.Errorf("read back relation: %w", err)
+	}
+	out.Metadata = []byte(metadata)
+
+	// Record history.
+	afterJSON, err := json.Marshal(out)
+	if err != nil {
+		return model.Relation{}, fmt.Errorf("marshal relation: %w", err)
+	}
+	afterStr := string(afterJSON)
+	relationKey := fmt.Sprintf("%s:%s:%s", out.FromID, out.ToID, out.Type)
+
+	if err := s.hs.RecordRelationChange(tx, model.RelationHistoryEntry{
+		ChangesetID: csID,
+		RelationKey: relationKey,
+		Action:      model.ActionCreate,
+		AfterJSON:   &afterStr,
+	}); err != nil {
+		return model.Relation{}, fmt.Errorf("record relation history: %w", err)
+	}
+
+	// Commit.
+	if err := tx.Commit(); err != nil {
+		return model.Relation{}, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return out, nil
@@ -167,23 +212,68 @@ func (s *RelationStore) GetByEntity(entityID string) ([]model.Relation, error) {
 	return rels, nil
 }
 
-// Delete removes a relation by (from_id, to_id, type).
+// Delete removes a relation by (from_id, to_id, type) atomically with changeset and history recording.
 // Returns ErrRelationNotFound if no matching relation exists.
-func (s *RelationStore) Delete(fromID, toID string, relType model.RelationType) error {
-	result, err := s.db.Exec(
+func (s *RelationStore) Delete(fromID, toID string, relType model.RelationType, reason, actor, source string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Read current relation state for before_json.
+	var rel model.Relation
+	var metadata string
+	err = tx.QueryRow(
+		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE from_id = ? AND to_id = ? AND type = ?`,
+		fromID, toID, string(relType),
+	).Scan(&rel.ID, &rel.FromID, &rel.ToID, &rel.Type, &rel.Weight, &metadata, &rel.CreatedAt)
+	if err == sql.ErrNoRows {
+		return &model.ErrRelationNotFound{ID: 0}
+	}
+	if err != nil {
+		return fmt.Errorf("read relation for delete: %w", err)
+	}
+	rel.Metadata = []byte(metadata)
+
+	// Create changeset.
+	csID, err := s.cs.GetNextID(tx)
+	if err != nil {
+		return fmt.Errorf("get changeset id: %w", err)
+	}
+	changeset := model.Changeset{ID: csID, Reason: reason, Actor: actor, Source: source}
+	if _, err := s.cs.Create(tx, changeset); err != nil {
+		return fmt.Errorf("create changeset: %w", err)
+	}
+
+	// DELETE relation.
+	if _, err := tx.Exec(
 		`DELETE FROM relations WHERE from_id = ? AND to_id = ? AND type = ?`,
 		fromID, toID, string(relType),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("delete relation: %w", err)
 	}
 
-	n, err := result.RowsAffected()
+	// Record history.
+	beforeJSON, err := json.Marshal(rel)
 	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
+		return fmt.Errorf("marshal relation: %w", err)
 	}
-	if n == 0 {
-		return &model.ErrRelationNotFound{ID: 0}
+	beforeStr := string(beforeJSON)
+	relationKey := fmt.Sprintf("%s:%s:%s", fromID, toID, relType)
+
+	if err := s.hs.RecordRelationChange(tx, model.RelationHistoryEntry{
+		ChangesetID: csID,
+		RelationKey: relationKey,
+		Action:      model.ActionDelete,
+		BeforeJSON:  &beforeStr,
+	}); err != nil {
+		return fmt.Errorf("record relation history: %w", err)
+	}
+
+	// Commit.
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 
 	return nil

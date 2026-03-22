@@ -49,8 +49,11 @@ var relationAddCmd = &cobra.Command{
 			Metadata: metadata,
 		}
 
-		rs := store.NewRelationStore(getDB())
-		created, err := rs.Create(rel)
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
+		created, err := rs.Create(rel, "", "", "")
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -80,7 +83,10 @@ var relationListCmd = &cobra.Command{
 			filters.Type = &t
 		}
 
-		rs := store.NewRelationStore(getDB())
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
 		relations, count, err := rs.List(filters)
 		if err != nil {
 			handleError(cmd, err)
@@ -103,8 +109,11 @@ var relationDeleteCmd = &cobra.Command{
 			handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
 		}
 
-		rs := store.NewRelationStore(getDB())
-		if err := rs.Delete(from, to, model.RelationType(relType)); err != nil {
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
+		if err := rs.Delete(from, to, model.RelationType(relType), "", "", ""); err != nil {
 			handleError(cmd, err)
 		}
 
