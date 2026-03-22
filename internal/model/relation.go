@@ -54,7 +54,7 @@ var edgeMatrix = map[RelationType]edgeRule{
 		To:   []EntityType{EntityTypeCrosscut, EntityTypeDecision, EntityTypeAssumption},
 	},
 	RelationPlannedIn: {
-		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk},
+		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk, EntityTypeCriterion},
 		To:   []EntityType{EntityTypePhase},
 	},
 	RelationDeliveredIn: {

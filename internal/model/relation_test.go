@@ -67,10 +67,11 @@ func TestIsEdgeAllowed(t *testing.T) {
 		{"constrained_by/state→assumption", RelationConstrainedBy, EntityTypeState, EntityTypeAssumption, true},
 		{"constrained_by/test→crosscut INVALID", RelationConstrainedBy, EntityTypeTest, EntityTypeCrosscut, false},
 
-		// planned_in: requirement,decision,interface,test,question,risk → phase
+		// planned_in: requirement,decision,interface,test,question,risk,criterion → phase
 		{"planned_in/requirement→phase", RelationPlannedIn, EntityTypeRequirement, EntityTypePhase, true},
 		{"planned_in/risk→phase", RelationPlannedIn, EntityTypeRisk, EntityTypePhase, true},
 		{"planned_in/question→phase", RelationPlannedIn, EntityTypeQuestion, EntityTypePhase, true},
+		{"planned_in/criterion→phase", RelationPlannedIn, EntityTypeCriterion, EntityTypePhase, true},
 		{"planned_in/phase→phase INVALID", RelationPlannedIn, EntityTypePhase, EntityTypePhase, false},
 		{"planned_in/requirement→decision INVALID", RelationPlannedIn, EntityTypeRequirement, EntityTypeDecision, false},
 

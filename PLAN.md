@@ -183,7 +183,7 @@ CREATE TABLE entities (
 | `verifies` | `test` | `requirement`, `criterion`, `decision`, `interface`, `state` |
 | `depends_on` | `requirement`, `decision`, `interface`, `phase`, `test`, `state` | `requirement`, `decision`, `interface`, `state`, `crosscut`, `assumption` |
 | `constrained_by` | `requirement`, `decision`, `interface`, `phase`, `state` | `crosscut`, `decision`, `assumption` |
-| `planned_in` | `requirement`, `decision`, `interface`, `test`, `question`, `risk` | `phase` |
+| `planned_in` | `requirement`, `decision`, `interface`, `test`, `question`, `risk`, `criterion` | `phase` |
 | `delivered_in` | `interface`, `state`, `test`, `decision` | `phase` |
 | `triggers` | `interface`, `decision` | `state` |
 | `answers` | `decision` | `question` |
@@ -678,11 +678,11 @@ spec-graph/
 - [x] JSON stdout contracts
 
 ### v0.2 — Impact + validate core
-- [ ] `impact` with dimensions
-- [ ] `validate --check orphans`
-- [ ] `validate --check coverage`
-- [ ] `validate --check invalid_edges`
-- [ ] `validate --check superseded_refs`
+- [x] `impact` with dimensions
+- [x] `validate --check orphans`
+- [x] `validate --check coverage`
+- [x] `validate --check invalid_edges`
+- [x] `validate --check superseded_refs`
 
 ### v0.3 — Workflow gates
 - [ ] `validate --check gates`
