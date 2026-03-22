@@ -61,6 +61,8 @@ type ImpactResult struct {
 type ValidateOptions struct {
 	// Checks lists the check names to run. nil = all checks.
 	Checks []string
+	// Phase restricts validation to entities belonging to this phase. nil = all entities.
+	Phase *string
 }
 
 // ValidationIssue represents a single problem found during validation.

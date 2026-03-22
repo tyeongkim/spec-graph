@@ -284,6 +284,78 @@ func TestValidateInvalidCheckName(t *testing.T) {
 	}
 }
 
+func TestValidatePhaseFlag_InvalidID(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "NONEXISTENT")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code=%q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestValidatePhaseFlag_WrongType(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-001", "--title", "Some Req")
+	if r.exitCode != 0 {
+		t.Fatalf("seed entity: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "validate", "--phase", "REQ-001")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code=%q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestValidatePhaseFlag_ValidPhase(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	seedCleanGraph(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "phase", "--id", "PHS-001", "--title", "Phase One")
+	if r.exitCode != 0 {
+		t.Fatalf("seed phase: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+		"--from", "REQ-001", "--to", "PHS-001", "--type", "planned_in")
+	if r.exitCode != 0 {
+		t.Fatalf("seed relation: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "validate", "--phase", "PHS-001")
+	if r.exitCode != 0 {
+		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.ValidateResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal stdout: %v\nraw: %s", err, r.stdout)
+	}
+	if !resp.Valid {
+		t.Errorf("expected valid=true, got issues: %+v", resp.Issues)
+	}
+}
+
 func TestValidateMultipleChecks(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()

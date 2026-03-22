@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/taeyeong/spec-graph/internal/graph"
 	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/taeyeong/spec-graph/internal/model"
 	"github.com/taeyeong/spec-graph/internal/store"
 )
 
@@ -15,6 +17,7 @@ var validateCmd = &cobra.Command{
 	Short: "Validate the specification graph",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		checkFlag, _ := cmd.Flags().GetString("check")
+		phaseFlag, _ := cmd.Flags().GetString("phase")
 
 		var opts graph.ValidateOptions
 		if checkFlag != "" {
@@ -24,6 +27,19 @@ var validateCmd = &cobra.Command{
 		rs := store.NewRelationStore(getDB())
 		es := store.NewEntityStore(getDB())
 		ef := &entityStoreAdapter{store: es}
+
+		if phaseFlag != "" {
+			entity, err := es.Get(phaseFlag)
+			if err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
+				return nil
+			}
+			if entity.Type != model.EntityTypePhase {
+				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("entity %q is type %q, not phase", phaseFlag, entity.Type)})
+				return nil
+			}
+			opts.Phase = &phaseFlag
+		}
 
 		result, err := graph.Validate(opts, rs, ef)
 		if err != nil {
@@ -65,5 +81,6 @@ var validateCmd = &cobra.Command{
 
 func init() {
 	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs")
+	validateCmd.Flags().String("phase", "", "restrict validation to entities in this phase (must be a phase entity ID)")
 	rootCmd.AddCommand(validateCmd)
 }
