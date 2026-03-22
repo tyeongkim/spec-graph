@@ -298,7 +298,172 @@ func checkSupersededRefs(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssu
 }
 
 func checkGates(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue, error) {
-	return nil, nil
+	entities, err := ef.List(EntityListFilters{})
+	if err != nil {
+		return nil, fmt.Errorf("list entities: %w", err)
+	}
+
+	var issues []ValidationIssue
+
+	plannedIn := make(map[string]string)
+	deliveredIn := make(map[string]string)
+	seenRels := make(map[string]bool)
+
+	for _, e := range entities {
+		rels, err := rf.GetByEntity(e.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get relations for %q: %w", e.ID, err)
+		}
+		for _, r := range rels {
+			key := fmt.Sprintf("%d|%s|%s|%s", r.ID, r.FromID, r.ToID, r.Type)
+			if seenRels[key] {
+				continue
+			}
+			seenRels[key] = true
+			if r.Type == model.RelationPlannedIn {
+				plannedIn[r.FromID] = r.ToID
+			}
+			if r.Type == model.RelationDeliveredIn {
+				deliveredIn[r.FromID] = r.ToID
+			}
+		}
+	}
+
+	deliveredSet := make(map[string]bool)
+	for id := range deliveredIn {
+		deliveredSet[id] = true
+	}
+
+	seenAssumptions := make(map[string]bool)
+
+	for _, e := range entities {
+		switch {
+		case e.Type == model.EntityTypeQuestion &&
+			e.Status != model.EntityStatusResolved &&
+			e.Status != model.EntityStatusDeleted:
+			issues = append(issues, ValidationIssue{
+				Check:    "gates",
+				Severity: SeverityHigh,
+				Entity:   e.ID,
+				Message:  fmt.Sprintf("unresolved question %q blocks phase exit", e.ID),
+			})
+
+		case e.Type == model.EntityTypeRisk &&
+			e.Status != model.EntityStatusResolved &&
+			e.Status != model.EntityStatusDeleted:
+			rels, err := rf.GetByEntity(e.ID)
+			if err != nil {
+				return nil, fmt.Errorf("get relations for %q: %w", e.ID, err)
+			}
+			mitigated := false
+			for _, r := range rels {
+				if r.Type == model.RelationMitigates && r.ToID == e.ID {
+					mitigated = true
+					break
+				}
+			}
+			if !mitigated {
+				issues = append(issues, ValidationIssue{
+					Check:    "gates",
+					Severity: SeverityHigh,
+					Entity:   e.ID,
+					Message:  fmt.Sprintf("unmitigated risk %q blocks phase exit", e.ID),
+				})
+			}
+
+		case e.Type == model.EntityTypeRequirement && e.Status == model.EntityStatusActive:
+			rels, err := rf.GetByEntity(e.ID)
+			if err != nil {
+				return nil, fmt.Errorf("get relations for %q: %w", e.ID, err)
+			}
+			for _, r := range rels {
+				if r.Type == model.RelationDependsOn && r.FromID == e.ID {
+					target, err := ef.Get(r.ToID)
+					if err != nil {
+						continue
+					}
+					if target.Type == model.EntityTypeDecision && target.Status == model.EntityStatusDraft {
+						issues = append(issues, ValidationIssue{
+							Check:    "gates",
+							Severity: SeverityHigh,
+							Entity:   e.ID,
+							Message:  fmt.Sprintf("entity depends on draft decision %q", r.ToID),
+						})
+					}
+				}
+				if r.Type == model.RelationAssumes && r.FromID == e.ID && !seenAssumptions[r.ToID] {
+					seenAssumptions[r.ToID] = true
+					assumption, err := ef.Get(r.ToID)
+					if err != nil {
+						continue
+					}
+					if assumption.Status != model.EntityStatusResolved && assumption.Status != model.EntityStatusDeleted {
+						issues = append(issues, ValidationIssue{
+							Check:    "gates",
+							Severity: SeverityMedium,
+							Entity:   assumption.ID,
+							Message:  fmt.Sprintf("unresolved assumption %q blocks phase exit", assumption.ID),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	for entityID, phaseID := range plannedIn {
+		_ = phaseID
+		entity, err := ef.Get(entityID)
+		if err != nil {
+			continue
+		}
+
+		delivered := false
+		switch entity.Type {
+		case model.EntityTypeInterface, model.EntityTypeState, model.EntityTypeTest, model.EntityTypeDecision:
+			delivered = deliveredSet[entityID]
+
+		case model.EntityTypeRequirement:
+			rels, err := rf.GetByEntity(entityID)
+			if err != nil {
+				return nil, fmt.Errorf("get relations for %q: %w", entityID, err)
+			}
+			for _, r := range rels {
+				if r.Type == model.RelationImplements && r.ToID == entityID && deliveredSet[r.FromID] {
+					delivered = true
+					break
+				}
+			}
+
+		case model.EntityTypeQuestion:
+			delivered = entity.Status == model.EntityStatusResolved
+
+		case model.EntityTypeRisk:
+			rels, err := rf.GetByEntity(entityID)
+			if err != nil {
+				return nil, fmt.Errorf("get relations for %q: %w", entityID, err)
+			}
+			for _, r := range rels {
+				if r.Type == model.RelationMitigates && r.ToID == entityID && deliveredSet[r.FromID] {
+					delivered = true
+					break
+				}
+			}
+
+		default:
+			delivered = true
+		}
+
+		if !delivered {
+			issues = append(issues, ValidationIssue{
+				Check:    "gates",
+				Severity: SeverityHigh,
+				Entity:   entityID,
+				Message:  fmt.Sprintf("entity %q is planned but not delivered in phase", entityID),
+			})
+		}
+	}
+
+	return issues, nil
 }
 
 // checkOrphans finds entities with no relations.

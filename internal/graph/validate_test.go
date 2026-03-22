@@ -141,6 +141,359 @@ func TestValidate_NoPhase_Unchanged(t *testing.T) {
 	}
 }
 
+func TestCheckGates_UnresolvedQuestion(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"QST-001": {ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("got %d issues; want 1", len(issues))
+	}
+	if issues[0].Entity != "QST-001" {
+		t.Errorf("entity=%q; want QST-001", issues[0].Entity)
+	}
+	if issues[0].Check != "gates" {
+		t.Errorf("check=%q; want gates", issues[0].Check)
+	}
+	if issues[0].Severity != SeverityHigh {
+		t.Errorf("severity=%q; want high", issues[0].Severity)
+	}
+}
+
+func TestCheckGates_ResolvedQuestion_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusResolved},
+		},
+		byID: map[string]model.Entity{
+			"QST-001": {ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusResolved},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("got %d issues; want 0 (resolved question)", len(issues))
+	}
+}
+
+func TestCheckGates_UnmitigatedRisk(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"RSK-001": {ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"RSK-001": {},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("got %d issues; want 1", len(issues))
+	}
+	if issues[0].Entity != "RSK-001" {
+		t.Errorf("entity=%q; want RSK-001", issues[0].Entity)
+	}
+	if issues[0].Severity != SeverityHigh {
+		t.Errorf("severity=%q; want high", issues[0].Severity)
+	}
+}
+
+func TestCheckGates_MitigatedRisk_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusActive},
+			{ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"RSK-001": {ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusActive},
+			"DEC-001": {ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"RSK-001": {{ID: 1, FromID: "DEC-001", ToID: "RSK-001", Type: model.RelationMitigates}},
+		"DEC-001": {{ID: 1, FromID: "DEC-001", ToID: "RSK-001", Type: model.RelationMitigates}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("got %d issues; want 0 (mitigated risk): %+v", len(issues), issues)
+	}
+}
+
+func TestCheckGates_ResolvedRisk_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusResolved},
+		},
+		byID: map[string]model.Entity{
+			"RSK-001": {ID: "RSK-001", Type: model.EntityTypeRisk, Status: model.EntityStatusResolved},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("got %d issues; want 0 (resolved risk)", len(issues))
+	}
+}
+
+func TestCheckGates_DraftDecisionDependency(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusDraft},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"DEC-001": {ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusDraft},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn}},
+		"DEC-001": {{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("got %d issues; want 1", len(issues))
+	}
+	if issues[0].Entity != "REQ-001" {
+		t.Errorf("entity=%q; want REQ-001", issues[0].Entity)
+	}
+	if issues[0].Severity != SeverityHigh {
+		t.Errorf("severity=%q; want high", issues[0].Severity)
+	}
+}
+
+func TestCheckGates_ActiveDecisionDependency_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"DEC-001": {ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn}},
+		"DEC-001": {{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("got %d issues; want 0 (active decision): %+v", len(issues), issues)
+	}
+}
+
+func TestCheckGates_DraftDecisionNoDependent_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusDraft},
+		},
+		byID: map[string]model.Entity{
+			"DEC-001": {ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusDraft},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("got %d issues; want 0 (draft decision with no active dependents): %+v", len(issues), issues)
+	}
+}
+
+func TestCheckGates_UnresolvedAssumption(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "ASM-001", Type: model.EntityTypeAssumption, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"ASM-001": {ID: "ASM-001", Type: model.EntityTypeAssumption, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "ASM-001", Type: model.RelationAssumes}},
+		"ASM-001": {{ID: 1, FromID: "REQ-001", ToID: "ASM-001", Type: model.RelationAssumes}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, issue := range issues {
+		if issue.Entity == "ASM-001" && issue.Check == "gates" && issue.Severity == SeverityMedium {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected gate issue for ASM-001 (medium severity), got: %+v", issues)
+	}
+}
+
+func TestCheckGates_ResolvedAssumption_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "ASM-001", Type: model.EntityTypeAssumption, Status: model.EntityStatusResolved},
+		},
+		byID: map[string]model.Entity{
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"ASM-001": {ID: "ASM-001", Type: model.EntityTypeAssumption, Status: model.EntityStatusResolved},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "ASM-001", Type: model.RelationAssumes}},
+		"ASM-001": {{ID: 1, FromID: "REQ-001", ToID: "ASM-001", Type: model.RelationAssumes}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, issue := range issues {
+		if issue.Entity == "ASM-001" {
+			t.Errorf("unexpected issue for resolved assumption: %+v", issue)
+		}
+	}
+}
+
+func TestCheckGates_CompletionGap(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"PHS-001": {ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+		"PHS-001": {{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	found := false
+	for _, issue := range issues {
+		if issue.Entity == "REQ-001" && issue.Check == "gates" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected completion gap issue for REQ-001, got: %+v", issues)
+	}
+}
+
+func TestCheckGates_CompletionGap_AllDelivered_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			{ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
+		},
+		byID: map[string]model.Entity{
+			"PHS-001": {ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			"API-001": {ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"REQ-001": {
+			{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+			{ID: 2, FromID: "API-001", ToID: "REQ-001", Type: model.RelationImplements},
+		},
+		"API-001": {
+			{ID: 2, FromID: "API-001", ToID: "REQ-001", Type: model.RelationImplements},
+			{ID: 3, FromID: "API-001", ToID: "PHS-001", Type: model.RelationDeliveredIn},
+		},
+		"PHS-001": {
+			{ID: 1, FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+			{ID: 3, FromID: "API-001", ToID: "PHS-001", Type: model.RelationDeliveredIn},
+		},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, issue := range issues {
+		if issue.Entity == "REQ-001" {
+			t.Errorf("unexpected completion gap issue for REQ-001 (should be delivered): %+v", issue)
+		}
+	}
+}
+
+func TestCheckGates_CompletionGap_QuestionResolved_NoIssue(t *testing.T) {
+	ef := &mockEntFetcher{
+		entities: []model.Entity{
+			{ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			{ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusResolved},
+		},
+		byID: map[string]model.Entity{
+			"PHS-001": {ID: "PHS-001", Type: model.EntityTypePhase, Status: model.EntityStatusActive},
+			"QST-001": {ID: "QST-001", Type: model.EntityTypeQuestion, Status: model.EntityStatusResolved},
+		},
+	}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{
+		"QST-001": {{ID: 1, FromID: "QST-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+		"PHS-001": {{ID: 1, FromID: "QST-001", ToID: "PHS-001", Type: model.RelationPlannedIn}},
+	}}
+
+	issues, err := checkGates(ef, rf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, issue := range issues {
+		if issue.Entity == "QST-001" {
+			t.Errorf("unexpected issue for resolved question (should count as delivered): %+v", issue)
+		}
+	}
+}
+
 func TestValidateOrphans_NoOrphans(t *testing.T) {
 	ef := &mockEntFetcher{
 		entities: []model.Entity{
