@@ -42,6 +42,7 @@ func handleError(cmd *cobra.Command, err error) {
 		selfLoop          *model.ErrSelfLoop
 		duplicateRelation *model.ErrDuplicateRelation
 		relationNotFound  *model.ErrRelationNotFound
+		changesetNotFound *model.ErrChangesetNotFound
 	)
 
 	switch {
@@ -61,6 +62,8 @@ func handleError(cmd *cobra.Command, err error) {
 		writeError(cmd, err, 2)
 	case errors.As(err, &relationNotFound):
 		writeError(cmd, err, 2)
+	case errors.As(err, &changesetNotFound):
+		writeError(cmd, err, 2)
 	default:
 		writeError(cmd, err, 1)
 	}
@@ -76,6 +79,7 @@ func errorCode(err error) string {
 		selfLoop          *model.ErrSelfLoop
 		duplicateRelation *model.ErrDuplicateRelation
 		relationNotFound  *model.ErrRelationNotFound
+		changesetNotFound *model.ErrChangesetNotFound
 	)
 
 	switch {
@@ -95,6 +99,8 @@ func errorCode(err error) string {
 		return "DUPLICATE_RELATION"
 	case errors.As(err, &relationNotFound):
 		return "RELATION_NOT_FOUND"
+	case errors.As(err, &changesetNotFound):
+		return "CHANGESET_NOT_FOUND"
 	default:
 		return "INTERNAL_ERROR"
 	}

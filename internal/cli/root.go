@@ -51,6 +51,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(entityCmd)
 	rootCmd.AddCommand(relationCmd)
+	rootCmd.AddCommand(historyCmd)
 }
 
 func Execute() {
