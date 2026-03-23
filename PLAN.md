@@ -685,20 +685,20 @@ spec-graph/
 - [x] `validate --check superseded_refs`
 
 ### v0.3 — Workflow gates
-- [ ] `validate --check gates`
-- [ ] phase-scoped validation
-- [ ] unresolved questions / assumptions detection
+- [x] `validate --check gates`
+- [x] phase-scoped validation
+- [x] unresolved questions / assumptions detection
 
 ### v0.4 — History + bootstrap
-- [ ] changeset recording
-- [ ] relation history
-- [ ] `bootstrap scan`
-- [ ] review-mode import
+- [x] changeset recording
+- [x] relation history
+- [x] `bootstrap scan`
+- [x] review-mode import
 
 ### v0.5 — Query / export / agent integration
-- [ ] `query scope / path / unresolved`
-- [ ] DOT / Mermaid export
-- [ ] MCP server mode
+- [x] `query scope / path / unresolved`
+- [x] DOT / Mermaid export
+- [x] MCP server mode
 
 ---
 
