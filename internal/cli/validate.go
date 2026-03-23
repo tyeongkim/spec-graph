@@ -18,6 +18,12 @@ var validateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		checkFlag, _ := cmd.Flags().GetString("check")
 		phaseFlag, _ := cmd.Flags().GetString("phase")
+		entityFlag, _ := cmd.Flags().GetString("entity")
+
+		if entityFlag != "" && phaseFlag != "" {
+			handleError(cmd, &model.ErrInvalidInput{Message: "--entity and --phase are mutually exclusive"})
+			return nil
+		}
 
 		var opts graph.ValidateOptions
 		if checkFlag != "" {
@@ -42,6 +48,14 @@ var validateCmd = &cobra.Command{
 				return nil
 			}
 			opts.Phase = &phaseFlag
+		}
+
+		if entityFlag != "" {
+			if _, err := es.Get(entityFlag); err != nil {
+				handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
+				return nil
+			}
+			opts.EntityID = entityFlag
 		}
 
 		result, err := graph.Validate(opts, rs, ef)
@@ -85,5 +99,6 @@ var validateCmd = &cobra.Command{
 func init() {
 	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs,gates,cycles,conflicts")
 	validateCmd.Flags().String("phase", "", "restrict validation to entities in this phase (must be a phase entity ID)")
+	validateCmd.Flags().String("entity", "", "restrict validation to issues for this entity ID")
 	rootCmd.AddCommand(validateCmd)
 }

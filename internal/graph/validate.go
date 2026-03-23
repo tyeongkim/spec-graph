@@ -52,6 +52,16 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 		allIssues = append(allIssues, issues...)
 	}
 
+	if opts.EntityID != "" {
+		filtered := allIssues[:0]
+		for _, issue := range allIssues {
+			if issue.Entity == opts.EntityID {
+				filtered = append(filtered, issue)
+			}
+		}
+		allIssues = filtered
+	}
+
 	bySeverity := make(map[Severity]int)
 	for _, issue := range allIssues {
 		bySeverity[issue.Severity]++

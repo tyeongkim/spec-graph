@@ -63,6 +63,8 @@ type ValidateOptions struct {
 	Checks []string
 	// Phase restricts validation to entities belonging to this phase. nil = all entities.
 	Phase *string
+	// EntityID restricts reported issues to those for this specific entity. "" = all entities.
+	EntityID string
 }
 
 // ValidationIssue represents a single problem found during validation.
@@ -121,6 +123,19 @@ type QueryPathResult struct {
 	ToID   string     `json:"to_id"`
 	Path   []PathNode `json:"path"`
 	Found  bool       `json:"found"`
+}
+
+// NeighborEntity pairs an entity with its BFS depth from the center.
+type NeighborEntity struct {
+	Entity model.Entity
+	Depth  int
+}
+
+// NeighborResult holds the result of a neighbor traversal from a center entity.
+type NeighborResult struct {
+	Center    string
+	Entities  []NeighborEntity
+	Relations []model.Relation
 }
 
 // QueryUnresolvedOptions controls optional filtering for unresolved entity queries.

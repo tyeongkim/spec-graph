@@ -531,3 +531,73 @@ func TestValidateMultipleChecks(t *testing.T) {
 		t.Error("expected orphan issues from --check orphans,coverage")
 	}
 }
+
+func TestValidateEntityFlag_FiltersIssues(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	seedOrphanGraph(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "validate", "--entity", "REQ-002")
+	if r.exitCode != 2 {
+		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.ValidateResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+	if resp.Valid {
+		t.Error("expected valid=false")
+	}
+	for _, issue := range resp.Issues {
+		if issue.Entity != "REQ-002" {
+			t.Errorf("expected only issues for REQ-002, got entity=%q", issue.Entity)
+		}
+	}
+	if len(resp.Issues) == 0 {
+		t.Error("expected at least one issue for REQ-002")
+	}
+}
+
+func TestValidateEntityFlag_NonExistent(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "validate", "--entity", "NONEXIST")
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "ENTITY_NOT_FOUND" {
+		t.Errorf("code=%q; want ENTITY_NOT_FOUND", errResp.Error.Code)
+	}
+}
+
+func TestValidateEntityFlag_MutualExclusionWithPhase(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	seedCleanGraph(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "phase", "--id", "PHS-001", "--title", "Phase One")
+	if r.exitCode != 0 {
+		t.Fatalf("seed phase: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "validate", "--entity", "REQ-001", "--phase", "PHS-001")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code=%q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
