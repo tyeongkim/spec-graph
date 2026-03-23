@@ -209,6 +209,93 @@ func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*Qu
 	}, nil
 }
 
+// Neighbors performs a BFS from entityID up to the given depth, traversing
+// relations in both directions. Depth 0 returns only the center entity.
+func Neighbors(entityID string, depth int, rf RelationFetcher, ef EntityFetcher) (*NeighborResult, error) {
+	center, err := ef.Get(entityID)
+	if err != nil {
+		return nil, fmt.Errorf("center entity: %w", err)
+	}
+
+	visited := map[string]int{entityID: 0}
+	entities := []NeighborEntity{{Entity: center, Depth: 0}}
+	var relations []model.Relation
+	relSeen := make(map[string]bool)
+
+	queue := []string{entityID}
+
+	for d := 0; d < depth && len(queue) > 0; d++ {
+		var nextQueue []string
+
+		for _, current := range queue {
+			rels, relErr := rf.GetByEntity(current)
+			if relErr != nil {
+				return nil, fmt.Errorf("fetching relations for %s: %w", current, relErr)
+			}
+
+			for _, rel := range rels {
+				relKey := rel.FromID + "|" + string(rel.Type) + "|" + rel.ToID
+				if !relSeen[relKey] {
+					relSeen[relKey] = true
+					relations = append(relations, rel)
+				}
+
+				var neighbor string
+				if rel.FromID == current {
+					neighbor = rel.ToID
+				} else {
+					neighbor = rel.FromID
+				}
+
+				if _, seen := visited[neighbor]; seen {
+					continue
+				}
+
+				ent, entErr := ef.Get(neighbor)
+				if entErr != nil {
+					continue
+				}
+
+				visited[neighbor] = d + 1
+				entities = append(entities, NeighborEntity{Entity: ent, Depth: d + 1})
+				nextQueue = append(nextQueue, neighbor)
+			}
+		}
+
+		queue = nextQueue
+	}
+
+	// Collect relations between already-visited nodes that we haven't seen yet
+	// (edges within the last depth layer).
+	for _, current := range queue {
+		rels, relErr := rf.GetByEntity(current)
+		if relErr != nil {
+			continue
+		}
+		for _, rel := range rels {
+			_, fromIn := visited[rel.FromID]
+			_, toIn := visited[rel.ToID]
+			if fromIn && toIn {
+				relKey := rel.FromID + "|" + string(rel.Type) + "|" + rel.ToID
+				if !relSeen[relKey] {
+					relSeen[relKey] = true
+					relations = append(relations, rel)
+				}
+			}
+		}
+	}
+
+	if relations == nil {
+		relations = []model.Relation{}
+	}
+
+	return &NeighborResult{
+		Center:    entityID,
+		Entities:  entities,
+		Relations: relations,
+	}, nil
+}
+
 // reconstructPath walks parent pointers from toID back to fromID and reverses.
 func reconstructPath(visited map[string]*bfsNode, fromID, toID string) []PathNode {
 	var path []PathNode
