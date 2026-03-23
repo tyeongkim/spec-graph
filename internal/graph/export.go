@@ -1,10 +1,12 @@
 package graph
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/taeyeong/spec-graph/internal/jsoncontract"
 	"github.com/taeyeong/spec-graph/internal/model"
 )
 
@@ -122,4 +124,55 @@ func mermaidEscape(s string) string {
 	s = strings.ReplaceAll(s, "]", "&#93;")
 	s = strings.ReplaceAll(s, "|", "&#124;")
 	return s
+}
+
+func ExportJSON(entities []model.Entity, relations []model.Relation) jsoncontract.ExportJSONResult {
+	sorted := make([]model.Entity, len(entities))
+	copy(sorted, entities)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+
+	jsonEntities := make([]jsoncontract.ExportJSONEntity, len(sorted))
+	for i, e := range sorted {
+		var meta map[string]interface{}
+		if len(e.Metadata) > 0 {
+			_ = json.Unmarshal(e.Metadata, &meta)
+		}
+		if meta == nil {
+			meta = map[string]interface{}{}
+		}
+		jsonEntities[i] = jsoncontract.ExportJSONEntity{
+			ID:       e.ID,
+			Type:     string(e.Type),
+			Title:    e.Title,
+			Status:   string(e.Status),
+			Metadata: meta,
+		}
+	}
+
+	sortedRels := make([]model.Relation, len(relations))
+	copy(sortedRels, relations)
+	sort.Slice(sortedRels, func(i, j int) bool {
+		if sortedRels[i].FromID != sortedRels[j].FromID {
+			return sortedRels[i].FromID < sortedRels[j].FromID
+		}
+		if sortedRels[i].ToID != sortedRels[j].ToID {
+			return sortedRels[i].ToID < sortedRels[j].ToID
+		}
+		return sortedRels[i].Type < sortedRels[j].Type
+	})
+
+	jsonRelations := make([]jsoncontract.ExportJSONRelation, len(sortedRels))
+	for i, r := range sortedRels {
+		jsonRelations[i] = jsoncontract.ExportJSONRelation{
+			FromID: r.FromID,
+			ToID:   r.ToID,
+			Type:   string(r.Type),
+			Weight: r.Weight,
+		}
+	}
+
+	return jsoncontract.ExportJSONResult{
+		Entities:  jsonEntities,
+		Relations: jsonRelations,
+	}
 }

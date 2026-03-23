@@ -267,3 +267,23 @@ type ExportResponse struct {
 	Format string `json:"format"`
 	Output string `json:"output"`
 }
+
+type ExportJSONEntity struct {
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Title    string                 `json:"title"`
+	Status   string                 `json:"status"`
+	Metadata map[string]interface{} `json:"metadata"`
+}
+
+type ExportJSONRelation struct {
+	FromID string  `json:"from_id"`
+	ToID   string  `json:"to_id"`
+	Type   string  `json:"type"`
+	Weight float64 `json:"weight"`
+}
+
+type ExportJSONResult struct {
+	Entities  []ExportJSONEntity   `json:"entities"`
+	Relations []ExportJSONRelation `json:"relations"`
+}

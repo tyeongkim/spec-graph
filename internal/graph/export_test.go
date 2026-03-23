@@ -1,8 +1,10 @@
 package graph
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/taeyeong/spec-graph/internal/jsoncontract"
 	"github.com/taeyeong/spec-graph/internal/model"
 )
 
@@ -217,5 +219,75 @@ func TestExportDeterminism(t *testing.T) {
 		if got := ExportMermaid(entities, relations); got != mermaidFirst {
 			t.Fatalf("ExportMermaid non-deterministic on iteration %d", i)
 		}
+	}
+}
+
+func TestExportJSON(t *testing.T) {
+	tests := []struct {
+		name      string
+		entities  []model.Entity
+		relations []model.Relation
+		want      jsoncontract.ExportJSONResult
+	}{
+		{
+			name:     "empty graph",
+			entities: nil,
+			want: jsoncontract.ExportJSONResult{
+				Entities:  []jsoncontract.ExportJSONEntity{},
+				Relations: []jsoncontract.ExportJSONRelation{},
+			},
+		},
+		{
+			name: "entities with metadata",
+			entities: []model.Entity{
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Title: "Signup", Status: model.EntityStatusDraft, Metadata: json.RawMessage(`{"priority":"high"}`)},
+				{ID: "DEC-001", Type: model.EntityTypeDecision, Title: "Use OAuth", Status: model.EntityStatusActive, Metadata: nil},
+			},
+			relations: []model.Relation{
+				{FromID: "REQ-002", ToID: "DEC-001", Type: model.RelationDependsOn, Weight: 0.8},
+			},
+			want: jsoncontract.ExportJSONResult{
+				Entities: []jsoncontract.ExportJSONEntity{
+					{ID: "DEC-001", Type: "decision", Title: "Use OAuth", Status: "active", Metadata: map[string]interface{}{}},
+					{ID: "REQ-002", Type: "requirement", Title: "Signup", Status: "draft", Metadata: map[string]interface{}{"priority": "high"}},
+				},
+				Relations: []jsoncontract.ExportJSONRelation{
+					{FromID: "REQ-002", ToID: "DEC-001", Type: "depends_on", Weight: 0.8},
+				},
+			},
+		},
+		{
+			name: "sorted deterministically",
+			entities: []model.Entity{
+				{ID: "TST-001", Type: model.EntityTypeTest, Title: "T1", Status: model.EntityStatusActive},
+				{ID: "API-001", Type: model.EntityTypeInterface, Title: "A1", Status: model.EntityStatusActive},
+			},
+			relations: []model.Relation{
+				{FromID: "TST-001", ToID: "API-001", Type: model.RelationVerifies, Weight: 1.0},
+				{FromID: "API-001", ToID: "TST-001", Type: model.RelationDependsOn, Weight: 0.5},
+			},
+			want: jsoncontract.ExportJSONResult{
+				Entities: []jsoncontract.ExportJSONEntity{
+					{ID: "API-001", Type: "interface", Title: "A1", Status: "active", Metadata: map[string]interface{}{}},
+					{ID: "TST-001", Type: "test", Title: "T1", Status: "active", Metadata: map[string]interface{}{}},
+				},
+				Relations: []jsoncontract.ExportJSONRelation{
+					{FromID: "API-001", ToID: "TST-001", Type: "depends_on", Weight: 0.5},
+					{FromID: "TST-001", ToID: "API-001", Type: "verifies", Weight: 1.0},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExportJSON(tt.entities, tt.relations)
+
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(tt.want)
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("ExportJSON() =\n%s\nwant:\n%s", gotJSON, wantJSON)
+			}
+		})
 	}
 }
