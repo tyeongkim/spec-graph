@@ -10,11 +10,20 @@ import (
 	"github.com/taeyeong/spec-graph/internal/jsoncontract"
 )
 
+var initPath string
+
+func init() {
+	initCmd.Flags().StringVar(&initPath, "path", "", "Directory to initialize (creates .spec-graph/graph.db inside it)")
+}
+
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a spec-graph project",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target := dbPath
+		if initPath != "" {
+			target = filepath.Join(initPath, ".spec-graph", "graph.db")
+		}
 
 		dir := filepath.Dir(target)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
