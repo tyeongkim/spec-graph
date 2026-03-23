@@ -11,7 +11,7 @@ import (
 func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*ValidateResult, error) {
 	checks := opts.Checks
 	if len(checks) == 0 {
-		checks = []string{"orphans", "coverage", "invalid_edges", "superseded_refs", "gates"}
+		checks = []string{"orphans", "coverage", "invalid_edges", "superseded_refs", "gates", "cycles", "conflicts"}
 	}
 
 	if opts.Phase != nil {
@@ -39,6 +39,10 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 			issues, err = checkSupersededRefs(ef, rf)
 		case "gates":
 			issues, err = checkGates(ef, rf)
+		case "cycles":
+			issues, err = checkCycles(ef, rf)
+		case "conflicts":
+			issues, err = checkConflicts(ef, rf)
 		default:
 			return nil, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown check: %q", check)}
 		}
@@ -459,6 +463,155 @@ func checkGates(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue, error)
 				Severity: SeverityHigh,
 				Entity:   entityID,
 				Message:  fmt.Sprintf("entity %q is planned but not delivered in phase", entityID),
+			})
+		}
+	}
+
+	return issues, nil
+}
+
+// checkCycles detects circular references in depends_on relation chains using DFS.
+func checkCycles(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue, error) {
+	entities, err := ef.List(EntityListFilters{})
+	if err != nil {
+		return nil, fmt.Errorf("list entities: %w", err)
+	}
+
+	adj := make(map[string][]string)
+	seen := make(map[string]bool)
+	for _, e := range entities {
+		seen[e.ID] = true
+		rels, err := rf.GetByEntity(e.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get relations for %q: %w", e.ID, err)
+		}
+		for _, r := range rels {
+			if r.Type == model.RelationDependsOn && r.FromID == e.ID {
+				adj[e.ID] = append(adj[e.ID], r.ToID)
+			}
+		}
+	}
+
+	var issues []ValidationIssue
+	visited := make(map[string]bool)
+	recStack := make(map[string]bool)
+
+	var dfs func(node string, path []string) bool
+	dfs = func(node string, path []string) bool {
+		visited[node] = true
+		recStack[node] = true
+		path = append(path, node)
+
+		for _, next := range adj[node] {
+			if !seen[next] {
+				continue
+			}
+			if !visited[next] {
+				if dfs(next, path) {
+					return true
+				}
+			} else if recStack[next] {
+				// Found cycle — extract the cycle portion from path.
+				cycleStart := -1
+				for i, id := range path {
+					if id == next {
+						cycleStart = i
+						break
+					}
+				}
+				cycle := path[cycleStart:]
+				cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
+				for _, id := range cycle {
+					issues = append(issues, ValidationIssue{
+						Check:    "cycles",
+						Severity: SeverityHigh,
+						Entity:   id,
+						Message:  fmt.Sprintf("circular dependency detected: %s", cycleDesc),
+					})
+				}
+				return true
+			}
+		}
+
+		recStack[node] = false
+		return false
+	}
+
+	for _, e := range entities {
+		if !visited[e.ID] {
+			dfs(e.ID, nil)
+		}
+	}
+
+	return issues, nil
+}
+
+// formatCyclePath joins entity IDs with arrows for display.
+func formatCyclePath(ids []string) string {
+	result := ""
+	for i, id := range ids {
+		if i > 0 {
+			result += " → "
+		}
+		result += id
+	}
+	return result
+}
+
+// checkConflicts finds pairs of active entities connected by conflicts_with relations.
+// If both sides of a conflicts_with relation are active, it's reported as a high-severity issue.
+func checkConflicts(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue, error) {
+	entities, err := ef.List(EntityListFilters{})
+	if err != nil {
+		return nil, fmt.Errorf("list entities: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	var issues []ValidationIssue
+
+	for _, e := range entities {
+		if e.Status != model.EntityStatusActive {
+			continue
+		}
+
+		rels, err := rf.GetByEntity(e.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get relations for %q: %w", e.ID, err)
+		}
+
+		for _, r := range rels {
+			if r.Type != model.RelationConflictsWith {
+				continue
+			}
+
+			// Build canonical key to avoid reporting A↔B twice.
+			key := r.FromID + "|" + r.ToID
+			if r.ToID < r.FromID {
+				key = r.ToID + "|" + r.FromID
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			// Check that the other side is also active.
+			otherID := r.ToID
+			if otherID == e.ID {
+				otherID = r.FromID
+			}
+			other, err := ef.Get(otherID)
+			if err != nil {
+				return nil, fmt.Errorf("get entity %q: %w", otherID, err)
+			}
+			if other.Status != model.EntityStatusActive {
+				continue
+			}
+
+			issues = append(issues, ValidationIssue{
+				Check:    "conflicts",
+				Severity: SeverityHigh,
+				Entity:   e.ID,
+				Message:  fmt.Sprintf("active conflict between %s and %s", r.FromID, r.ToID),
 			})
 		}
 	}

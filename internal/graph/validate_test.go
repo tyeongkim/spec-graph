@@ -1306,3 +1306,254 @@ func TestValidateSupersededRefs_DeprecatedEntityReferencingSuperseded(t *testing
 		t.Errorf("got %d issues; want 0 (deprecated entity should not be flagged): %+v", len(issues), issues)
 	}
 }
+
+func TestCheckCycles(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		byID       map[string]model.Entity
+		relations  map[string][]model.Relation
+		wantIssues bool
+		wantCheck  string
+	}{
+		{
+			name: "no cycle linear chain",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationDependsOn}},
+				"REQ-002": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationDependsOn}},
+			},
+			wantIssues: false,
+		},
+		{
+			name: "simple 2-node cycle",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {
+					{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationDependsOn},
+					{ID: 2, FromID: "REQ-002", ToID: "REQ-001", Type: model.RelationDependsOn},
+				},
+				"REQ-002": {
+					{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationDependsOn},
+					{ID: 2, FromID: "REQ-002", ToID: "REQ-001", Type: model.RelationDependsOn},
+				},
+			},
+			wantIssues: true,
+			wantCheck:  "cycles",
+		},
+		{
+			name: "3-node cycle",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+				{ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"DEC-001": {ID: "DEC-001", Type: model.EntityTypeDecision, Status: model.EntityStatusActive},
+				"API-001": {ID: "API-001", Type: model.EntityTypeInterface, Status: model.EntityStatusActive},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {
+					{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn},
+					{ID: 3, FromID: "API-001", ToID: "REQ-001", Type: model.RelationDependsOn},
+				},
+				"DEC-001": {
+					{ID: 1, FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn},
+					{ID: 2, FromID: "DEC-001", ToID: "API-001", Type: model.RelationDependsOn},
+				},
+				"API-001": {
+					{ID: 2, FromID: "DEC-001", ToID: "API-001", Type: model.RelationDependsOn},
+					{ID: 3, FromID: "API-001", ToID: "REQ-001", Type: model.RelationDependsOn},
+				},
+			},
+			wantIssues: true,
+			wantCheck:  "cycles",
+		},
+		{
+			name: "non-depends_on cycle not detected",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {
+					{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationReferences},
+					{ID: 2, FromID: "REQ-002", ToID: "REQ-001", Type: model.RelationReferences},
+				},
+				"REQ-002": {
+					{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationReferences},
+					{ID: 2, FromID: "REQ-002", ToID: "REQ-001", Type: model.RelationReferences},
+				},
+			},
+			wantIssues: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := &mockEntFetcher{entities: tt.entities, byID: tt.byID}
+			rf := &mockRelFetcher{relations: tt.relations}
+
+			issues, err := checkCycles(ef, rf)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantIssues && len(issues) == 0 {
+				t.Error("expected cycle issues, got none")
+			}
+			if !tt.wantIssues && len(issues) != 0 {
+				t.Errorf("expected no issues, got %d: %+v", len(issues), issues)
+			}
+			if tt.wantCheck != "" {
+				for _, issue := range issues {
+					if issue.Check != tt.wantCheck {
+						t.Errorf("got check %q; want %q", issue.Check, tt.wantCheck)
+					}
+					if issue.Severity != SeverityHigh {
+						t.Errorf("got severity %q; want %q", issue.Severity, SeverityHigh)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestValidate_CyclesCheckRegistered(t *testing.T) {
+	ef := &mockEntFetcher{entities: []model.Entity{}, byID: map[string]model.Entity{}}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{Checks: []string{"cycles"}}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: cycles check should be recognized, got %v", err)
+	}
+	if !result.Valid {
+		t.Error("expected Valid=true for empty graph with cycles check")
+	}
+}
+
+func TestValidate_DefaultChecksIncludeCycles(t *testing.T) {
+	ef := &mockEntFetcher{entities: []model.Entity{}, byID: map[string]model.Entity{}}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: default checks should include cycles without error, got %v", err)
+	}
+	if !result.Valid {
+		t.Error("expected Valid=true for empty graph")
+	}
+}
+
+func TestCheckConflicts(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		byID       map[string]model.Entity
+		relations  map[string][]model.Relation
+		wantIssues int
+		wantValid  bool
+	}{
+		{
+			name: "active conflict both active",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationConflictsWith}},
+				"REQ-002": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationConflictsWith}},
+			},
+			wantIssues: 1,
+			wantValid:  false,
+		},
+		{
+			name: "deprecated conflict no issue",
+			entities: []model.Entity{
+				{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				{ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusDeprecated},
+			},
+			byID: map[string]model.Entity{
+				"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive},
+				"REQ-002": {ID: "REQ-002", Type: model.EntityTypeRequirement, Status: model.EntityStatusDeprecated},
+			},
+			relations: map[string][]model.Relation{
+				"REQ-001": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationConflictsWith}},
+				"REQ-002": {{ID: 1, FromID: "REQ-001", ToID: "REQ-002", Type: model.RelationConflictsWith}},
+			},
+			wantIssues: 0,
+			wantValid:  true,
+		},
+		{
+			name:       "no conflicts at all",
+			entities:   []model.Entity{{ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive}},
+			byID:       map[string]model.Entity{"REQ-001": {ID: "REQ-001", Type: model.EntityTypeRequirement, Status: model.EntityStatusActive}},
+			relations:  map[string][]model.Relation{},
+			wantIssues: 0,
+			wantValid:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := &mockEntFetcher{entities: tt.entities, byID: tt.byID}
+			rf := &mockRelFetcher{relations: tt.relations}
+
+			issues, err := checkConflicts(ef, rf)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(issues) != tt.wantIssues {
+				t.Fatalf("got %d issues; want %d: %+v", len(issues), tt.wantIssues, issues)
+			}
+			valid := len(issues) == 0
+			if valid != tt.wantValid {
+				t.Errorf("got valid=%v; want %v", valid, tt.wantValid)
+			}
+			for _, issue := range issues {
+				if issue.Check != "conflicts" {
+					t.Errorf("got check %q; want %q", issue.Check, "conflicts")
+				}
+				if issue.Severity != SeverityHigh {
+					t.Errorf("got severity %q; want %q", issue.Severity, SeverityHigh)
+				}
+			}
+		})
+	}
+}
+
+func TestValidate_ConflictsCheckRegistered(t *testing.T) {
+	ef := &mockEntFetcher{entities: []model.Entity{}, byID: map[string]model.Entity{}}
+	rf := &mockRelFetcher{relations: map[string][]model.Relation{}}
+
+	result, err := Validate(ValidateOptions{Checks: []string{"conflicts"}}, rf, ef)
+	if err != nil {
+		t.Fatalf("unexpected error: conflicts check should be recognized, got %v", err)
+	}
+	if !result.Valid {
+		t.Error("expected Valid=true for empty graph with conflicts check")
+	}
+}
