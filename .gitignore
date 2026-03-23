@@ -1,4 +1,4 @@
 .agents/
 .sisyphus/
-
 bin/
+.DS_Store

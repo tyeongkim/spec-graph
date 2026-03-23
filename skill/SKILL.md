@@ -201,6 +201,41 @@ spec-graph validate --phase PHS-002 --check gates
 
 If validate reports issues, do not complete the phase. Resolve issues first.
 
+#### Handling "planned but not delivered" gate failures
+
+Some entity types (e.g. `requirement`) cannot hold `delivered_in` directly per the edge matrix.
+When the gate reports a requirement as "planned but not delivered," this is a **model-level signal**,
+not a cue to bulk-add relations. Follow this procedure:
+
+```bash
+# 1. Identify the requirement the gate is complaining about
+spec-graph query neighbors REQ-001 --depth 1
+
+# 2. Find its implementing entities (interface, test, state)
+spec-graph relation list --from REQ-001   # or --to REQ-001 for verifies/implements
+
+# 3. Determine the MINIMAL proxy set — only the entities that directly
+#    satisfy this requirement's delivery in this phase
+#    Ask: "Which implementing entities are necessary and sufficient
+#    to consider REQ-001 delivered in PHS-002?"
+
+# 4. Add delivered_in ONLY for that minimal set
+spec-graph relation add --from API-005 --to PHS-002 --type delivered_in
+spec-graph relation add --from TST-001 --to PHS-002 --type delivered_in
+
+# 5. Re-validate
+spec-graph validate --phase PHS-002 --check gates
+```
+
+**Critical rules for delivery proxy resolution:**
+- Compute the minimum set of implementing entities per requirement. Do not add all related entities.
+- If the gate still fails after adding the minimal proxy set, investigate the validator semantics
+  or the graph model before expanding further. Do not blindly widen the delivered set.
+- Apply the same precision level consistently across all phases. If Phase 3 uses minimal proxies,
+  Phase 2 must use the same standard.
+- After adding proxy relations, verify semantic correctness: does each `delivered_in` accurately
+  represent work completed in this phase, or is it just silencing the gate?
+
 ### Pattern 4: Full Patch Orchestration (recommended)
 
 The safest change-handling flow:
@@ -210,12 +245,18 @@ The safest change-handling flow:
 2. spec-graph impact → compute affected set
 3. spec-graph validate → check currently broken rules
 4. Modify only affected targets (entity update, relation add/delete, etc.)
-5. spec-graph validate → re-verify after modifications
-6. spec-graph history → review changeset records
+5. Semantic review → does each added relation accurately represent the intended meaning?
+6. spec-graph validate → re-verify after modifications
+7. spec-graph history → review changeset records
 ```
 
 The agent modifies only entities in the `affected` list from step 2.
 If an entity outside the list needs modification, first run `query neighbors` to verify the relationship.
+
+**Step 5 (semantic review) is critical.** Before re-validating, review every relation you added
+and ask: "Does this relation reflect a real semantic relationship, or am I adding it to pass a gate?"
+Gate passage alone does not prove graph correctness. A graph that passes all gates but contains
+over-broad relations is worse than one that fails a gate with an honest gap.
 
 ### Pattern 5: Adding a Requirement
 
@@ -353,3 +394,40 @@ Key fields in `impact` JSON output:
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.
   On failure, consult the edge matrix in `references/data-model.md`.
 - `metadata` is a JSON string. Each type has required fields — see `references/data-model.md`.
+
+## Anti-Patterns
+
+These are known failure modes. If you catch yourself doing any of these, stop and reconsider.
+
+### 1. Gate-driven patching
+**Symptom**: gate fails → add relations broadly until gate passes → commit.
+**Why it's wrong**: passing a gate does not mean the graph is correct. Over-broad relations
+pollute the graph and produce inaccurate impact analysis downstream.
+**Correct approach**: diagnose *why* the gate fails, compute the minimal fix, verify semantic
+accuracy, then re-validate.
+
+### 2. Bulk delivered_in expansion
+**Symptom**: a requirement is "planned but not delivered" → add `delivered_in` for every
+related interface, state, and test to the phase.
+**Why it's wrong**: not all implementing entities belong to every phase. Each `delivered_in`
+must represent actual delivery in that specific phase.
+**Correct approach**: identify the minimal proxy set per requirement. Only entities whose
+delivery in this phase is necessary and sufficient to consider the requirement fulfilled.
+
+### 3. Semantic ambiguity bypass
+**Symptom**: discover a model-level conflict (e.g. edge matrix prevents a relation type
+the gate seems to require) → work around it by expanding other relations instead of
+investigating the conflict.
+**Why it's wrong**: the conflict is a signal that either (a) the graph model needs revision,
+(b) the validator semantics need clarification, or (c) the agent's understanding is incomplete.
+Expanding relations without resolving the ambiguity compounds the error.
+**Correct approach**: when you encounter a semantic conflict between edge matrix constraints
+and validator expectations, stop and investigate. Check `references/data-model.md` for the
+intended semantics. If the conflict is genuine, report it to the user rather than working around it.
+
+### 4. Inconsistent precision across phases
+**Symptom**: Phase N uses broad relation additions, Phase N+1 uses precise minimal additions.
+**Why it's wrong**: the same rules must apply uniformly. If Phase 3 adds only 3 delivery
+proxies, Phase 2 should not have added 15 for a similar scope.
+**Correct approach**: establish the precision standard on the first phase, then apply it
+consistently to all subsequent phases.
