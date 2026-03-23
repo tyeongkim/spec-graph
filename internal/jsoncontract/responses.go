@@ -241,6 +241,27 @@ type QueryUnresolvedResponse struct {
 	Summary  QueryUnresolvedSummary `json:"summary"`
 }
 
+type NeighborEntityResponse struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Depth  int    `json:"depth"`
+}
+
+type QueryNeighborsResponse struct {
+	Center    string                   `json:"center"`
+	Entities  []NeighborEntityResponse `json:"entities"`
+	Relations []RelationSummary        `json:"relations"`
+}
+
+// QuerySQLResponse is the top-level JSON response for the query sql command.
+type QuerySQLResponse struct {
+	Columns []string                 `json:"columns"`
+	Rows    []map[string]interface{} `json:"rows"`
+	Count   int                      `json:"count"`
+}
+
 // ExportResponse is the top-level JSON response for the export command.
 type ExportResponse struct {
 	Format string `json:"format"`

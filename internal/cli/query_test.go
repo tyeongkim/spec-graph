@@ -386,3 +386,203 @@ func TestQueryPathNonexistentEntity(t *testing.T) {
 		t.Errorf("code = %q; want ENTITY_NOT_FOUND", errResp.Error.Code)
 	}
 }
+
+func TestQuerySQLSelectRows(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "interface", "--id", "API-001", "--title", "API 1")
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "SELECT id, type FROM entities ORDER BY id")
+	if r.exitCode != 0 {
+		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var resp jsoncontract.QuerySQLResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+
+	if resp.Count != 2 {
+		t.Errorf("count = %d; want 2", resp.Count)
+	}
+	if len(resp.Columns) < 2 {
+		t.Fatalf("columns = %v; want at least [id, type]", resp.Columns)
+	}
+	if len(resp.Rows) != 2 {
+		t.Fatalf("len(rows) = %d; want 2", len(resp.Rows))
+	}
+}
+
+func TestQuerySQLRejectsDelete(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "DELETE FROM entities")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestQuerySQLRejectsDrop(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "DROP TABLE entities")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestQuerySQLRejectsPragma(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "PRAGMA table_info(entities)")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestQuerySQLRejectsCaseInsensitive(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "delete FROM entities")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestQueryNeighborsDepth1(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "interface", "--id", "API-001", "--title", "API 1")
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "test", "--id", "TST-001", "--title", "Test 1")
+
+	runCLI(t, dir, "--db", dbFile, "relation", "add",
+		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
+	runCLI(t, dir, "--db", dbFile, "relation", "add",
+		"--from", "TST-001", "--to", "API-001", "--type", "verifies")
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "REQ-001", "--depth", "1")
+	if r.exitCode != 0 {
+		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var resp jsoncontract.QueryNeighborsResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+
+	if resp.Center != "REQ-001" {
+		t.Errorf("center = %q; want REQ-001", resp.Center)
+	}
+
+	ids := make(map[string]int)
+	for _, e := range resp.Entities {
+		ids[e.ID] = e.Depth
+	}
+
+	if len(ids) != 2 {
+		t.Fatalf("len(entities) = %d; want 2 (REQ-001, API-001)", len(ids))
+	}
+	if ids["REQ-001"] != 0 {
+		t.Errorf("REQ-001 depth = %d; want 0", ids["REQ-001"])
+	}
+	if ids["API-001"] != 1 {
+		t.Errorf("API-001 depth = %d; want 1", ids["API-001"])
+	}
+	if _, ok := ids["TST-001"]; ok {
+		t.Error("TST-001 should not appear at depth 1")
+	}
+
+	if len(resp.Relations) != 1 {
+		t.Errorf("len(relations) = %d; want 1", len(resp.Relations))
+	}
+}
+
+func TestQueryNeighborsDefaultDepth(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
+	runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "interface", "--id", "API-001", "--title", "API 1")
+
+	runCLI(t, dir, "--db", dbFile, "relation", "add",
+		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "REQ-001")
+	if r.exitCode != 0 {
+		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var resp jsoncontract.QueryNeighborsResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+
+	if len(resp.Entities) != 2 {
+		t.Fatalf("len(entities) = %d; want 2 (default depth=1)", len(resp.Entities))
+	}
+}
+
+func TestQueryNeighborsNonexistent(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "NONEXIST-001")
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "ENTITY_NOT_FOUND" {
+		t.Errorf("code = %q; want ENTITY_NOT_FOUND", errResp.Error.Code)
+	}
+}

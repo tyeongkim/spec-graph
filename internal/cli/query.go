@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/taeyeong/spec-graph/internal/graph"
@@ -82,6 +84,9 @@ func init() {
 	queryCmd.AddCommand(queryPathCmd)
 	queryUnresolvedCmd.Flags().String("type", "", "filter by entity type (question, assumption, risk)")
 	queryCmd.AddCommand(queryUnresolvedCmd)
+	queryCmd.AddCommand(querySQLCmd)
+	queryNeighborsCmd.Flags().Int("depth", 1, "traversal depth (0 = center only)")
+	queryCmd.AddCommand(queryNeighborsCmd)
 }
 
 var validUnresolvedTypes = map[string]model.EntityType{
@@ -199,4 +204,134 @@ func convertQueryPathResult(r *graph.QueryPathResult) jsoncontract.QueryPathResp
 		Path:   steps,
 		Length: length,
 	}
+}
+
+var queryNeighborsCmd = &cobra.Command{
+	Use:   "neighbors <entity-id>",
+	Short: "Find neighboring entities within a given depth",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		entityID := args[0]
+		depth, _ := cmd.Flags().GetInt("depth")
+
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		rs := store.NewRelationStore(db, cs, hs)
+		es := store.NewEntityStore(db, cs, hs)
+
+		result, err := graph.Neighbors(entityID, depth, rs, &entityStoreAdapter{store: es})
+		if err != nil {
+			handleError(cmd, err)
+			return nil
+		}
+
+		response := convertNeighborsResult(result)
+		writeJSON(cmd, response)
+		return nil
+	},
+}
+
+func convertNeighborsResult(r *graph.NeighborResult) jsoncontract.QueryNeighborsResponse {
+	entities := make([]jsoncontract.NeighborEntityResponse, 0, len(r.Entities))
+	for _, ne := range r.Entities {
+		entities = append(entities, jsoncontract.NeighborEntityResponse{
+			ID:     ne.Entity.ID,
+			Type:   string(ne.Entity.Type),
+			Title:  ne.Entity.Title,
+			Status: string(ne.Entity.Status),
+			Depth:  ne.Depth,
+		})
+	}
+
+	relations := make([]jsoncontract.RelationSummary, 0, len(r.Relations))
+	for _, rel := range r.Relations {
+		relations = append(relations, jsoncontract.RelationSummary{
+			FromID: rel.FromID,
+			ToID:   rel.ToID,
+			Type:   string(rel.Type),
+		})
+	}
+
+	return jsoncontract.QueryNeighborsResponse{
+		Center:    r.Center,
+		Entities:  entities,
+		Relations: relations,
+	}
+}
+
+var forbiddenSQLPrefixes = []string{
+	"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "PRAGMA",
+}
+
+var querySQLCmd = &cobra.Command{
+	Use:   "sql <query>",
+	Short: "Execute a read-only SQL query against the graph database",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		query := strings.TrimSpace(args[0])
+		upper := strings.ToUpper(query)
+
+		if !strings.HasPrefix(upper, "SELECT") {
+			handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
+			return nil
+		}
+		for _, prefix := range forbiddenSQLPrefixes {
+			if strings.HasPrefix(upper, prefix) {
+				handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
+				return nil
+			}
+		}
+
+		rows, err := getDB().QueryContext(context.Background(), query)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("query execution: %w", err))
+			return nil
+		}
+		defer rows.Close()
+
+		columns, err := rows.Columns()
+		if err != nil {
+			handleError(cmd, fmt.Errorf("read columns: %w", err))
+			return nil
+		}
+
+		var result []map[string]interface{}
+		for rows.Next() {
+			vals := make([]interface{}, len(columns))
+			ptrs := make([]interface{}, len(columns))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				handleError(cmd, fmt.Errorf("scan row: %w", err))
+				return nil
+			}
+			row := make(map[string]interface{}, len(columns))
+			for i, col := range columns {
+				switch v := vals[i].(type) {
+				case []byte:
+					row[col] = string(v)
+				default:
+					row[col] = v
+				}
+			}
+			result = append(result, row)
+		}
+		if err := rows.Err(); err != nil {
+			handleError(cmd, fmt.Errorf("iterate rows: %w", err))
+			return nil
+		}
+
+		if result == nil {
+			result = []map[string]interface{}{}
+		}
+
+		writeJSON(cmd, jsoncontract.QuerySQLResponse{
+			Columns: columns,
+			Rows:    result,
+			Count:   len(result),
+		})
+		return nil
+	},
 }
