@@ -93,11 +93,11 @@ func TestExportCenterSubgraph(t *testing.T) {
 	runCLI(t, dir, "--db", dbFile, "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Dec One")
 	runCLI(t, dir, "--db", dbFile, "entity", "add",
-		"--type", "interface", "--id", "IF-001", "--title", "Interface One")
+		"--type", "interface", "--id", "API-001", "--title", "Interface One")
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "REQ-001", "--to", "DEC-001", "--type", "decides")
+		"--from", "REQ-001", "--to", "DEC-001", "--type", "depends_on")
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "DEC-001", "--to", "IF-001", "--type", "references")
+		"--from", "DEC-001", "--to", "API-001", "--type", "references")
 
 	r := runCLI(t, dir, "--db", dbFile, "export", "--format", "dot",
 		"--center", "DEC-001", "--depth", "1")
@@ -110,8 +110,8 @@ func TestExportCenterSubgraph(t *testing.T) {
 	if !strings.Contains(r.stdout, "REQ-001") {
 		t.Errorf("expected neighbor REQ-001 in output, got:\n%s", r.stdout)
 	}
-	if !strings.Contains(r.stdout, "IF-001") {
-		t.Errorf("expected neighbor IF-001 in output, got:\n%s", r.stdout)
+	if !strings.Contains(r.stdout, "API-001") {
+		t.Errorf("expected neighbor API-001 in output, got:\n%s", r.stdout)
 	}
 
 	r = runCLI(t, dir, "--db", dbFile, "export", "--format", "mermaid",
@@ -125,8 +125,8 @@ func TestExportCenterSubgraph(t *testing.T) {
 	if !strings.Contains(r.stdout, "DEC-001") {
 		t.Errorf("expected neighbor DEC-001 in output, got:\n%s", r.stdout)
 	}
-	if strings.Contains(r.stdout, "IF-001") {
-		t.Errorf("expected IF-001 to be excluded at depth 1, got:\n%s", r.stdout)
+	if strings.Contains(r.stdout, "API-001") {
+		t.Errorf("expected API-001 to be excluded at depth 1, got:\n%s", r.stdout)
 	}
 }
 
