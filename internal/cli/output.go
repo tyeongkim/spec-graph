@@ -47,7 +47,7 @@ func handleError(cmd *cobra.Command, err error) {
 
 	switch {
 	case errors.As(err, &entityNotFound):
-		writeError(cmd, err, 2)
+		writeError(cmd, err, 1)
 	case errors.As(err, &duplicateEntity):
 		writeError(cmd, err, 2)
 	case errors.As(err, &invalidInput):
@@ -55,15 +55,15 @@ func handleError(cmd *cobra.Command, err error) {
 	case errors.As(err, &notInitialized):
 		writeError(cmd, err, 1)
 	case errors.As(err, &invalidEdge):
-		writeError(cmd, err, 2)
+		writeError(cmd, err, 3)
 	case errors.As(err, &selfLoop):
-		writeError(cmd, err, 2)
+		writeError(cmd, err, 3)
 	case errors.As(err, &duplicateRelation):
 		writeError(cmd, err, 2)
 	case errors.As(err, &relationNotFound):
-		writeError(cmd, err, 2)
+		writeError(cmd, err, 1)
 	case errors.As(err, &changesetNotFound):
-		writeError(cmd, err, 2)
+		writeError(cmd, err, 1)
 	default:
 		writeError(cmd, err, 1)
 	}

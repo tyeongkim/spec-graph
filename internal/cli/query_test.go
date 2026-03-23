@@ -83,8 +83,8 @@ func TestQueryScopeNotFound(t *testing.T) {
 	dir := t.TempDir()
 
 	r := runCLI(t, dir, "--db", dbFile, "query", "scope", "PHS-999")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr=%s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -374,8 +374,8 @@ func TestQueryPathNonexistentEntity(t *testing.T) {
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
 
 	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "NONEXISTENT-001")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr=%s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse

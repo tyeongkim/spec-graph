@@ -125,8 +125,8 @@ func TestHistoryChangesetNotFound(t *testing.T) {
 	dir := t.TempDir()
 
 	r := runCLI(t, dir, "--db", dbFile, "history", "changeset", "CHG-999")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr=%s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse

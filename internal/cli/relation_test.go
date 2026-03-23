@@ -110,8 +110,8 @@ func TestRelationAddSelfLoop(t *testing.T) {
 
 	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "REQ-001", "--to", "REQ-001", "--type", "implements")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -130,8 +130,8 @@ func TestRelationAddInvalidEdge(t *testing.T) {
 
 	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "REQ-001", "--to", "API-005", "--type", "implements")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -150,8 +150,8 @@ func TestRelationAddEntityNotFound(t *testing.T) {
 
 	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "API-005", "--to", "REQ-999", "--type", "implements")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -369,8 +369,8 @@ func TestRelationDeleteNotFound(t *testing.T) {
 
 	r := runCLI(t, dir, "--db", dbFile, "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -434,7 +434,7 @@ func TestRelationFullLifecycle(t *testing.T) {
 
 	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2 for double delete, got %d", r.exitCode)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1 for double delete, got %d", r.exitCode)
 	}
 }

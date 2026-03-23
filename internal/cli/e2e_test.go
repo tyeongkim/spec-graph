@@ -304,7 +304,7 @@ func TestE2E_ErrorConsistency(t *testing.T) {
 		{
 			name:     "entity_not_found",
 			args:     []string{"--db", dbFile, "entity", "get", "REQ-999"},
-			wantExit: 2,
+			wantExit: 1,
 			wantCode: "ENTITY_NOT_FOUND",
 		},
 		{
@@ -322,19 +322,19 @@ func TestE2E_ErrorConsistency(t *testing.T) {
 		{
 			name:     "invalid_edge",
 			args:     []string{"--db", dbFile, "relation", "add", "--from", "REQ-001", "--to", "API-001", "--type", "implements"},
-			wantExit: 2,
+			wantExit: 3,
 			wantCode: "INVALID_EDGE",
 		},
 		{
 			name:     "self_loop",
 			args:     []string{"--db", dbFile, "relation", "add", "--from", "REQ-001", "--to", "REQ-001", "--type", "depends_on"},
-			wantExit: 2,
+			wantExit: 3,
 			wantCode: "SELF_LOOP",
 		},
 		{
 			name:     "relation_not_found",
 			args:     []string{"--db", dbFile, "relation", "delete", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
-			wantExit: 2,
+			wantExit: 1,
 			wantCode: "RELATION_NOT_FOUND",
 		},
 	}

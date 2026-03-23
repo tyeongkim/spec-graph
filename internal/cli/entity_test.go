@@ -309,8 +309,8 @@ func TestEntityGetNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
 	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "get", "REQ-999")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d", r.exitCode)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d", r.exitCode)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -487,8 +487,8 @@ func TestEntityUpdateNotFound(t *testing.T) {
 
 	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-999",
 		"--title", "Nope")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d", r.exitCode)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d", r.exitCode)
 	}
 }
 
@@ -536,8 +536,8 @@ func TestEntityDeleteNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
 	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "delete", "REQ-999")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
@@ -591,7 +591,7 @@ func TestEntityFullLifecycle(t *testing.T) {
 	}
 
 	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
-	if r.exitCode != 2 {
-		t.Fatalf("expected exit 2 after delete, got %d", r.exitCode)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1 after delete, got %d", r.exitCode)
 	}
 }
