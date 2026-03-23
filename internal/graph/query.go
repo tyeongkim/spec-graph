@@ -1,0 +1,237 @@
+package graph
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/taeyeong/spec-graph/internal/model"
+)
+
+// QueryScope returns all entities and relations belonging to the given phase.
+// It finds direct planned_in and delivered_in relations pointing to the phase,
+// then collects the source entities of those relations.
+func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*QueryScopeResult, error) {
+	// Verify phase entity exists and is of type "phase".
+	phase, err := ef.Get(opts.PhaseID)
+	if err != nil {
+		return nil, err
+	}
+	if phase.Type != model.EntityTypePhase {
+		return nil, &model.ErrInvalidInput{
+			Message: fmt.Sprintf("entity %q is type %q, not phase", opts.PhaseID, phase.Type),
+		}
+	}
+
+	// Get all relations where the phase is involved.
+	rels, err := rf.GetByEntity(opts.PhaseID)
+	if err != nil {
+		return nil, fmt.Errorf("fetching relations for phase %s: %w", opts.PhaseID, err)
+	}
+
+	// Filter to planned_in / delivered_in where to_id == phaseID.
+	var matchedRels []model.Relation
+	entityIDs := make(map[string]bool)
+
+	for _, rel := range rels {
+		if rel.ToID != opts.PhaseID {
+			continue
+		}
+		if rel.Type != model.RelationPlannedIn && rel.Type != model.RelationDeliveredIn {
+			continue
+		}
+		matchedRels = append(matchedRels, rel)
+		entityIDs[rel.FromID] = true
+	}
+
+	// Collect source entities.
+	entities := make([]model.Entity, 0, len(entityIDs))
+	for id := range entityIDs {
+		ent, err := ef.Get(id)
+		if err != nil {
+			return nil, fmt.Errorf("fetching entity %s: %w", id, err)
+		}
+		entities = append(entities, ent)
+	}
+
+	if matchedRels == nil {
+		matchedRels = []model.Relation{}
+	}
+
+	return &QueryScopeResult{
+		PhaseID:   opts.PhaseID,
+		Entities:  entities,
+		Relations: matchedRels,
+	}, nil
+}
+
+// unresolvedTypes lists the entity types considered "unresolved".
+var unresolvedTypes = []model.EntityType{
+	model.EntityTypeQuestion,
+	model.EntityTypeAssumption,
+	model.EntityTypeRisk,
+}
+
+// QueryUnresolved returns entities of type question, assumption, or risk that
+// have status draft or active. If opts.Type is set, only that type is returned.
+// Results are sorted by type then by ID.
+func QueryUnresolved(opts QueryUnresolvedOptions, ef EntityFetcher) (*QueryUnresolvedResult, error) {
+	types := unresolvedTypes
+	if opts.Type != nil {
+		types = []model.EntityType{*opts.Type}
+	}
+
+	var all []model.Entity
+	for _, t := range types {
+		entities, err := ef.List(EntityListFilters{Type: &t})
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entities {
+			if e.Status == model.EntityStatusDraft || e.Status == model.EntityStatusActive {
+				all = append(all, e)
+			}
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Type != all[j].Type {
+			return all[i].Type < all[j].Type
+		}
+		return all[i].ID < all[j].ID
+	})
+
+	if all == nil {
+		all = []model.Entity{}
+	}
+
+	return &QueryUnresolvedResult{
+		Entities: all,
+		Count:    len(all),
+	}, nil
+}
+
+const maxPathDepth = 50
+
+type bfsNode struct {
+	entityID   string
+	parentID   string
+	relation   model.RelationType
+	entityType model.EntityType
+}
+
+// QueryPath performs a BFS from opts.FromID to opts.ToID across all relation
+// types (bidirectional traversal). It returns the shortest path if one exists.
+func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*QueryPathResult, error) {
+	fromEntity, err := ef.Get(opts.FromID)
+	if err != nil {
+		return nil, fmt.Errorf("source entity: %w", err)
+	}
+	toEntity, err := ef.Get(opts.ToID)
+	if err != nil {
+		return nil, fmt.Errorf("target entity: %w", err)
+	}
+
+	if opts.FromID == opts.ToID {
+		return &QueryPathResult{
+			FromID: opts.FromID,
+			ToID:   opts.ToID,
+			Found:  true,
+			Path: []PathNode{
+				{EntityID: opts.FromID, EntityType: fromEntity.Type},
+			},
+		}, nil
+	}
+
+	visited := map[string]*bfsNode{
+		opts.FromID: {
+			entityID:   opts.FromID,
+			parentID:   "",
+			entityType: fromEntity.Type,
+		},
+	}
+	queue := []string{opts.FromID}
+	_ = toEntity
+
+	for depth := 0; depth < maxPathDepth && len(queue) > 0; depth++ {
+		nextQueue := make([]string, 0)
+
+		for _, current := range queue {
+			rels, relErr := rf.GetByEntity(current)
+			if relErr != nil {
+				return nil, fmt.Errorf("fetching relations for %s: %w", current, relErr)
+			}
+
+			for _, rel := range rels {
+				var neighbor string
+				if rel.FromID == current {
+					neighbor = rel.ToID
+				} else {
+					neighbor = rel.FromID
+				}
+
+				if _, seen := visited[neighbor]; seen {
+					continue
+				}
+
+				ent, entErr := ef.Get(neighbor)
+				if entErr != nil {
+					continue
+				}
+
+				visited[neighbor] = &bfsNode{
+					entityID:   neighbor,
+					parentID:   current,
+					relation:   rel.Type,
+					entityType: ent.Type,
+				}
+
+				if neighbor == opts.ToID {
+					return &QueryPathResult{
+						FromID: opts.FromID,
+						ToID:   opts.ToID,
+						Found:  true,
+						Path:   reconstructPath(visited, opts.FromID, opts.ToID),
+					}, nil
+				}
+
+				nextQueue = append(nextQueue, neighbor)
+			}
+		}
+
+		queue = nextQueue
+	}
+
+	return &QueryPathResult{
+		FromID: opts.FromID,
+		ToID:   opts.ToID,
+		Found:  false,
+		Path:   []PathNode{},
+	}, nil
+}
+
+// reconstructPath walks parent pointers from toID back to fromID and reverses.
+func reconstructPath(visited map[string]*bfsNode, fromID, toID string) []PathNode {
+	var path []PathNode
+	for current := toID; current != ""; {
+		node := visited[current]
+		path = append(path, PathNode{
+			EntityID:   node.entityID,
+			EntityType: node.entityType,
+			Relation:   node.relation,
+		})
+		if current == fromID {
+			break
+		}
+		current = node.parentID
+	}
+
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+
+	if len(path) > 0 {
+		path[0].Relation = ""
+	}
+
+	return path
+}
