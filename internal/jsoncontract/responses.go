@@ -183,3 +183,66 @@ type BootstrapImportResponse struct {
 	Skipped []BootstrapSkippedItem `json:"skipped"`
 	Errors  []BootstrapErrorItem   `json:"errors"`
 }
+
+// EntitySummary is a lightweight entity representation used in query responses.
+type EntitySummary struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// RelationSummary describes a single relation edge in query responses.
+type RelationSummary struct {
+	FromID string `json:"from_id"`
+	ToID   string `json:"to_id"`
+	Type   string `json:"type"`
+}
+
+// PathStep represents one node in a path traversal result.
+type PathStep struct {
+	EntityID   string `json:"entity_id"`
+	EntityType string `json:"entity_type"`
+	Relation   string `json:"relation"`
+}
+
+// QueryScopeSummary holds aggregated counts for query scope output.
+type QueryScopeSummary struct {
+	Total  int            `json:"total"`
+	ByType map[string]int `json:"by_type"`
+}
+
+// QueryUnresolvedSummary holds aggregated counts for unresolved query output.
+type QueryUnresolvedSummary struct {
+	Total  int            `json:"total"`
+	ByType map[string]int `json:"by_type"`
+}
+
+// QueryScopeResponse is the top-level JSON response for the query scope command.
+type QueryScopeResponse struct {
+	PhaseID   string            `json:"phase_id"`
+	Entities  []EntitySummary   `json:"entities"`
+	Relations []RelationSummary `json:"relations"`
+	Summary   QueryScopeSummary `json:"summary"`
+}
+
+// QueryPathResponse is the top-level JSON response for the query path command.
+type QueryPathResponse struct {
+	From   string     `json:"from"`
+	To     string     `json:"to"`
+	Found  bool       `json:"found"`
+	Path   []PathStep `json:"path"`
+	Length int        `json:"length"`
+}
+
+// QueryUnresolvedResponse is the top-level JSON response for the query unresolved command.
+type QueryUnresolvedResponse struct {
+	Entities []EntitySummary        `json:"entities"`
+	Summary  QueryUnresolvedSummary `json:"summary"`
+}
+
+// ExportResponse is the top-level JSON response for the export command.
+type ExportResponse struct {
+	Format string `json:"format"`
+	Output string `json:"output"`
+}

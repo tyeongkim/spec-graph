@@ -85,3 +85,52 @@ type ValidateResult struct {
 	Issues  []ValidationIssue `json:"issues"`
 	Summary ValidateSummary   `json:"summary"`
 }
+
+// QueryScopeOptions controls which phase to scope the query to.
+type QueryScopeOptions struct {
+	// PhaseID is the ID of the phase entity to scope by.
+	PhaseID string
+}
+
+// QueryScopeResult holds entities and relations belonging to a phase scope.
+type QueryScopeResult struct {
+	PhaseID   string           `json:"phase_id"`
+	Entities  []model.Entity   `json:"entities"`
+	Relations []model.Relation `json:"relations"`
+}
+
+// QueryPathOptions specifies the source and destination for a path query.
+type QueryPathOptions struct {
+	// FromID is the starting entity ID.
+	FromID string
+	// ToID is the target entity ID.
+	ToID string
+}
+
+// PathNode represents a single step in a traversal path.
+type PathNode struct {
+	EntityID   string           `json:"entity_id"`
+	EntityType model.EntityType `json:"entity_type"`
+	// Relation is the relation type used to reach this node (empty for the first node).
+	Relation model.RelationType `json:"relation"`
+}
+
+// QueryPathResult holds the result of a path query between two entities.
+type QueryPathResult struct {
+	FromID string     `json:"from_id"`
+	ToID   string     `json:"to_id"`
+	Path   []PathNode `json:"path"`
+	Found  bool       `json:"found"`
+}
+
+// QueryUnresolvedOptions controls optional filtering for unresolved entity queries.
+type QueryUnresolvedOptions struct {
+	// Type filters results to a specific entity type. nil = all types.
+	Type *model.EntityType
+}
+
+// QueryUnresolvedResult holds entities that are in an unresolved (draft) state.
+type QueryUnresolvedResult struct {
+	Entities []model.Entity `json:"entities"`
+	Count    int            `json:"count"`
+}
