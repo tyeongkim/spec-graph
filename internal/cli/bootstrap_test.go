@@ -196,6 +196,51 @@ func TestBootstrapImportApply(t *testing.T) {
 	}
 }
 
+func TestBootstrapImportDefaultMode(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	fixture := filepath.Join(dir, "spec.md")
+	if err := os.WriteFile(fixture, []byte("# REQ-001 Auth requirement\n"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", fixture)
+	if r.exitCode != 0 {
+		t.Fatalf("scan failed: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	candidatesFile := filepath.Join(dir, "candidates.json")
+	if err := os.WriteFile(candidatesFile, []byte(r.stdout), 0644); err != nil {
+		t.Fatalf("write candidates: %v", err)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "bootstrap", "import", "--input", candidatesFile)
+	if r.exitCode != 0 {
+		t.Fatalf("import without --mode failed: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var resp jsoncontract.BootstrapScanResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+	if len(resp.Entities) == 0 {
+		t.Fatal("expected at least one entity in default (review) output")
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	if r.exitCode != 0 {
+		t.Fatalf("entity list failed: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+	var listResp jsoncontract.EntityListResponse
+	if err := json.Unmarshal([]byte(r.stdout), &listResp); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if listResp.Count != 0 {
+		t.Errorf("default mode (review) should not create entities; count = %d", listResp.Count)
+	}
+}
+
 func TestBootstrapImportInvalidMode(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
