@@ -141,8 +141,6 @@ func isValidRelationType(t model.RelationType) bool {
 		model.RelationVerifies,
 		model.RelationDependsOn,
 		model.RelationConstrainedBy,
-		model.RelationPlannedIn,
-		model.RelationDeliveredIn,
 		model.RelationTriggers,
 		model.RelationAnswers,
 		model.RelationAssumes,
@@ -150,7 +148,12 @@ func isValidRelationType(t model.RelationType) bool {
 		model.RelationMitigates,
 		model.RelationSupersedes,
 		model.RelationConflictsWith,
-		model.RelationReferences:
+		model.RelationReferences,
+		model.RelationBelongsTo,
+		model.RelationPrecedes,
+		model.RelationBlocks,
+		model.RelationCovers,
+		model.RelationDelivers:
 		return true
 	default:
 		return false

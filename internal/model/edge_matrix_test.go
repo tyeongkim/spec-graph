@@ -126,12 +126,6 @@ func TestIsEdgeAllowed_LayerScoped(t *testing.T) {
 		{"supersedes diff type with arch layer", RelationSupersedes, EntityTypeRequirement, EntityTypeDecision, &arch, false},
 		{"conflicts_with with exec layer", RelationConflictsWith, EntityTypeRequirement, EntityTypeDecision, &exec, true},
 		{"references with mapping layer", RelationReferences, EntityTypeRequirement, EntityTypePhase, &mapping, true},
-
-		// planned_in and delivered_in are in arch matrix (until Phase 6)
-		{"planned_in in arch layer", RelationPlannedIn, EntityTypeRequirement, EntityTypePhase, &arch, true},
-		{"planned_in in exec layer", RelationPlannedIn, EntityTypeRequirement, EntityTypePhase, &exec, false},
-		{"delivered_in in arch layer", RelationDeliveredIn, EntityTypeInterface, EntityTypePhase, &arch, true},
-		{"delivered_in in mapping layer", RelationDeliveredIn, EntityTypeInterface, EntityTypePhase, &mapping, false},
 	}
 
 	for _, tc := range tests {

@@ -54,8 +54,6 @@ func TestLayerForRelationType(t *testing.T) {
 		{"belongs_to", RelationType("belongs_to"), LayerExec},
 		{"precedes", RelationType("precedes"), LayerExec},
 		{"blocks", RelationType("blocks"), LayerExec},
-		{"planned_in", RelationPlannedIn, LayerMapping},
-		{"delivered_in", RelationDeliveredIn, LayerMapping},
 		{"covers", RelationType("covers"), LayerMapping},
 		{"delivers", RelationType("delivers"), LayerMapping},
 		{"unknown", RelationType("nonexistent"), ""},

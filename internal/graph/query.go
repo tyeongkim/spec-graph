@@ -8,8 +8,7 @@ import (
 )
 
 // QueryScope returns all entities and relations belonging to the given phase.
-// It finds direct planned_in and delivered_in relations pointing to the phase,
-// then collects the source entities of those relations.
+// It finds covers/delivers relations from the phase to arch entities.
 func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*QueryScopeResult, error) {
 	// Verify phase entity exists and is of type "phase".
 	phase, err := ef.Get(opts.PhaseID)
@@ -28,21 +27,13 @@ func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*
 		return nil, fmt.Errorf("fetching relations for phase %s: %w", opts.PhaseID, err)
 	}
 
-	// Filter to planned_in / delivered_in (arch→phase) and covers / delivers (phase→arch).
+	// Filter to covers / delivers (phase→arch).
 	var matchedRels []model.Relation
 	entityIDs := make(map[string]bool)
 
 	for _, rel := range rels {
-		switch {
-		// Legacy: planned_in / delivered_in — arch entity is FromID, phase is ToID.
-		case rel.ToID == opts.PhaseID &&
-			(rel.Type == model.RelationPlannedIn || rel.Type == model.RelationDeliveredIn):
-			matchedRels = append(matchedRels, rel)
-			entityIDs[rel.FromID] = true
-
-		// Mapping layer: covers / delivers — phase is FromID, arch entity is ToID.
-		case rel.FromID == opts.PhaseID &&
-			(rel.Type == model.RelationCovers || rel.Type == model.RelationDelivers):
+		if rel.FromID == opts.PhaseID &&
+			(rel.Type == model.RelationCovers || rel.Type == model.RelationDelivers) {
 			matchedRels = append(matchedRels, rel)
 			entityIDs[rel.ToID] = true
 		}

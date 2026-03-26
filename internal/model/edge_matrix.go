@@ -8,9 +8,6 @@ type edgeRule struct {
 	To   []EntityType
 }
 
-// archEdgeMatrix defines edge rules for the architecture layer.
-// NOTE: planned_in and delivered_in remain here until Phase 6 cleanup.
-// NOTE: phase remains in From lists for depends_on/constrained_by/assumes/mitigates for backward compat.
 var archEdgeMatrix = map[RelationType]edgeRule{
 	RelationImplements: {
 		From: []EntityType{EntityTypeInterface},
@@ -21,20 +18,12 @@ var archEdgeMatrix = map[RelationType]edgeRule{
 		To:   []EntityType{EntityTypeRequirement, EntityTypeCriterion, EntityTypeDecision, EntityTypeInterface, EntityTypeState},
 	},
 	RelationDependsOn: {
-		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypePhase, EntityTypeTest, EntityTypeState},
+		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeState},
 		To:   []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeState, EntityTypeCrosscut, EntityTypeAssumption},
 	},
 	RelationConstrainedBy: {
-		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypePhase, EntityTypeState},
+		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeState},
 		To:   []EntityType{EntityTypeCrosscut, EntityTypeDecision, EntityTypeAssumption},
-	},
-	RelationPlannedIn: {
-		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk, EntityTypeCriterion},
-		To:   []EntityType{EntityTypePhase},
-	},
-	RelationDeliveredIn: {
-		From: []EntityType{EntityTypeInterface, EntityTypeState, EntityTypeTest, EntityTypeDecision},
-		To:   []EntityType{EntityTypePhase},
 	},
 	RelationTriggers: {
 		From: []EntityType{EntityTypeInterface, EntityTypeDecision},
@@ -45,7 +34,7 @@ var archEdgeMatrix = map[RelationType]edgeRule{
 		To:   []EntityType{EntityTypeQuestion},
 	},
 	RelationAssumes: {
-		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypePhase, EntityTypeInterface},
+		From: []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface},
 		To:   []EntityType{EntityTypeAssumption},
 	},
 	RelationHasCriterion: {
@@ -53,7 +42,7 @@ var archEdgeMatrix = map[RelationType]edgeRule{
 		To:   []EntityType{EntityTypeCriterion},
 	},
 	RelationMitigates: {
-		From: []EntityType{EntityTypeDecision, EntityTypeTest, EntityTypeCrosscut, EntityTypePhase},
+		From: []EntityType{EntityTypeDecision, EntityTypeTest, EntityTypeCrosscut},
 		To:   []EntityType{EntityTypeRisk},
 	},
 }

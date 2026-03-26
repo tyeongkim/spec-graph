@@ -264,8 +264,9 @@ func TestValidRelationInsert(t *testing.T) {
 
 	validRelTypes := []string{
 		"implements", "verifies", "depends_on", "constrained_by",
-		"planned_in", "delivered_in", "triggers", "answers", "assumes",
+		"triggers", "answers", "assumes",
 		"has_criterion", "mitigates", "supersedes", "conflicts_with", "references",
+		"belongs_to", "precedes", "blocks", "covers", "delivers",
 	}
 
 	for _, rt := range validRelTypes {

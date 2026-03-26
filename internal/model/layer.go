@@ -54,10 +54,8 @@ var relationLayerMap = map[RelationType]Layer{
 	RelationPrecedes:  LayerExec,
 	RelationBlocks:    LayerExec,
 
-	RelationPlannedIn:   LayerMapping,
-	RelationDeliveredIn: LayerMapping,
-	RelationCovers:      LayerMapping,
-	RelationDelivers:    LayerMapping,
+	RelationCovers:   LayerMapping,
+	RelationDelivers: LayerMapping,
 }
 
 // LayerForEntityType returns the layer for the given entity type.

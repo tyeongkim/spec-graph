@@ -75,8 +75,8 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		{"API-001", "REQ-001", "implements"},
 		{"TST-001", "REQ-001", "verifies"},
 		{"TST-001", "ACT-001", "verifies"},
-		{"REQ-001", "PHS-001", "planned_in"},
-		{"API-001", "PHS-001", "delivered_in"},
+		{"PHS-001", "REQ-001", "covers"},
+		{"PHS-001", "API-001", "delivers"},
 		{"DEC-001", "QST-001", "answers"},
 		{"API-001", "STT-001", "triggers"},
 		{"REQ-001", "ASM-001", "assumes"},
@@ -428,7 +428,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	}{
 		{"API-005", "REQ-001", "implements"},
 		{"TST-012", "REQ-001", "verifies"},
-		{"REQ-001", "PHS-001", "planned_in"},
+		{"PHS-001", "REQ-001", "covers"},
 		{"REQ-001", "ACT-001", "has_criterion"},
 		{"API-005", "STT-001", "triggers"},
 	}

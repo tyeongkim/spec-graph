@@ -229,8 +229,8 @@ func TestRelationStore_Create_ValidEdges(t *testing.T) {
 		{"verifies: test→requirement", "TST-1", "REQ-1", model.RelationVerifies},
 		{"depends_on: requirement→decision", "REQ-1", "DEC-1", model.RelationDependsOn},
 		{"constrained_by: requirement→crosscut", "REQ-1", "XCT-1", model.RelationConstrainedBy},
-		{"planned_in: requirement→phase", "REQ-1", "PHS-1", model.RelationPlannedIn},
-		{"delivered_in: interface→phase", "API-1", "PHS-1", model.RelationDeliveredIn},
+		{"covers: phase→requirement", "PHS-1", "REQ-1", model.RelationCovers},
+		{"delivers: phase→interface", "PHS-1", "API-1", model.RelationDelivers},
 		{"triggers: interface→state", "API-1", "STT-1", model.RelationTriggers},
 		{"answers: decision→question", "DEC-1", "QST-1", model.RelationAnswers},
 		{"assumes: requirement→assumption", "REQ-1", "ASM-1", model.RelationAssumes},
@@ -297,8 +297,8 @@ func TestRelationStore_Create_InvalidEdges(t *testing.T) {
 		{"verifies: requirement→test ✗", "REQ-1", "TST-1", model.RelationVerifies},
 		{"depends_on: test→phase ✗ (phase not in to)", "TST-1", "PHS-1", model.RelationDependsOn},
 		{"constrained_by: test→crosscut ✗ (test not in from)", "TST-1", "XCT-1", model.RelationConstrainedBy},
-		{"planned_in: crosscut→phase ✗", "XCT-1", "PHS-1", model.RelationPlannedIn},
-		{"delivered_in: requirement→phase ✗", "REQ-1", "PHS-1", model.RelationDeliveredIn},
+		{"covers: crosscut→phase ✗", "XCT-1", "PHS-1", model.RelationCovers},
+		{"delivers: requirement→phase ✗", "REQ-1", "PHS-1", model.RelationDelivers},
 		{"triggers: test→state ✗", "TST-1", "STT-1", model.RelationTriggers},
 		{"answers: requirement→question ✗", "REQ-1", "QST-1", model.RelationAnswers},
 		{"assumes: test→assumption ✗", "TST-1", "ASM-1", model.RelationAssumes},
@@ -514,7 +514,7 @@ func TestRelationStore_List(t *testing.T) {
 	}
 	mustCreate("REQ-1", "DEC-1", model.RelationDependsOn)
 	mustCreate("REQ-2", "DEC-1", model.RelationDependsOn)
-	mustCreate("REQ-1", "PHS-1", model.RelationPlannedIn)
+	mustCreate("PHS-1", "REQ-1", model.RelationCovers)
 
 	tests := []struct {
 		name      string
@@ -522,12 +522,13 @@ func TestRelationStore_List(t *testing.T) {
 		wantCount int
 	}{
 		{"no filters → all", RelationFilters{}, 3},
-		{"by from_id REQ-1", RelationFilters{FromID: strPtr("REQ-1")}, 2},
+		{"by from_id REQ-1", RelationFilters{FromID: strPtr("REQ-1")}, 1},
 		{"by from_id REQ-2", RelationFilters{FromID: strPtr("REQ-2")}, 1},
+		{"by from_id PHS-1", RelationFilters{FromID: strPtr("PHS-1")}, 1},
 		{"by to_id DEC-1", RelationFilters{ToID: strPtr("DEC-1")}, 2},
-		{"by to_id PHS-1", RelationFilters{ToID: strPtr("PHS-1")}, 1},
+		{"by to_id REQ-1", RelationFilters{ToID: strPtr("REQ-1")}, 1},
 		{"by type depends_on", RelationFilters{Type: relTypePtr(model.RelationDependsOn)}, 2},
-		{"by type planned_in", RelationFilters{Type: relTypePtr(model.RelationPlannedIn)}, 1},
+		{"by type covers", RelationFilters{Type: relTypePtr(model.RelationCovers)}, 1},
 		{"combined from+type", RelationFilters{FromID: strPtr("REQ-1"), Type: relTypePtr(model.RelationDependsOn)}, 1},
 		{"combined from+to", RelationFilters{FromID: strPtr("REQ-1"), ToID: strPtr("DEC-1")}, 1},
 		{"no match", RelationFilters{FromID: strPtr("DEC-1")}, 0},
@@ -701,8 +702,8 @@ func TestRelationStore_CreateSetsLayer(t *testing.T) {
 		wantLayer model.Layer
 	}{
 		{"arch: depends_on", "REQ-1", "DEC-1", model.RelationDependsOn, model.LayerArch},
-		{"mapping: planned_in", "REQ-1", "PHS-1", model.RelationPlannedIn, model.LayerMapping},
-		{"mapping: delivered_in", "API-1", "PHS-1", model.RelationDeliveredIn, model.LayerMapping},
+		{"mapping: covers", "PHS-1", "REQ-1", model.RelationCovers, model.LayerMapping},
+		{"mapping: delivers", "PHS-1", "API-1", model.RelationDelivers, model.LayerMapping},
 	}
 
 	for _, tt := range tests {
@@ -740,7 +741,7 @@ func TestRelationStore_ListFilterByLayer(t *testing.T) {
 	}
 	mustCreate("REQ-1", "DEC-1", model.RelationDependsOn)
 	mustCreate("REQ-2", "DEC-1", model.RelationDependsOn)
-	mustCreate("REQ-1", "PHS-1", model.RelationPlannedIn)
+	mustCreate("PHS-1", "REQ-1", model.RelationCovers)
 
 	t.Run("filter_arch", func(t *testing.T) {
 		rels, count, err := store.List(RelationFilters{Layer: layerPtr(model.LayerArch)})
@@ -763,8 +764,8 @@ func TestRelationStore_ListFilterByLayer(t *testing.T) {
 		if count != 1 {
 			t.Errorf("count = %d; want 1", count)
 		}
-		if len(rels) > 0 && rels[0].Type != model.RelationPlannedIn {
-			t.Errorf("Type = %q; want %q", rels[0].Type, model.RelationPlannedIn)
+		if len(rels) > 0 && rels[0].Type != model.RelationCovers {
+			t.Errorf("Type = %q; want %q", rels[0].Type, model.RelationCovers)
 		}
 	})
 
@@ -873,9 +874,9 @@ func TestRelationStore_GetByEntity(t *testing.T) {
 				if err != nil {
 					t.Fatalf("create depends_on: %v", err)
 				}
-				_, err = store.Create(model.Relation{FromID: "REQ-1", ToID: "PHS-1", Type: model.RelationPlannedIn}, "", "", "")
+				_, err = store.Create(model.Relation{FromID: "PHS-1", ToID: "REQ-1", Type: model.RelationCovers}, "", "", "")
 				if err != nil {
-					t.Fatalf("create planned_in: %v", err)
+					t.Fatalf("create covers: %v", err)
 				}
 			},
 			entityID:  "REQ-1",

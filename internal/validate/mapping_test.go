@@ -27,19 +27,6 @@ func TestCheckPlanCoverage(t *testing.T) {
 			wantIssues: 0,
 		},
 		{
-			name: "requirement covered via planned_in — no issue",
-			entities: []model.Entity{
-				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
-				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
-				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
-			},
-			relations: []model.Relation{
-				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
-				rel(2, "REQ-1", "PHS-1", model.RelationPlannedIn),
-			},
-			wantIssues: 0,
-		},
-		{
 			name: "requirement not covered by any phase",
 			entities: []model.Entity{
 				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
@@ -124,14 +111,14 @@ func TestCheckDeliveryCompleteness(t *testing.T) {
 			wantIssues: 0,
 		},
 		{
-			name: "delivered via delivered_in — no issue",
+			name: "delivered via delivers — no issue",
 			entities: []model.Entity{
 				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
 				archEntity("API-1", model.EntityTypeInterface, model.EntityStatusActive),
 			},
 			relations: []model.Relation{
 				rel(1, "PHS-1", "API-1", model.RelationCovers),
-				rel(2, "API-1", "PHS-1", model.RelationDeliveredIn),
+				rel(2, "PHS-1", "API-1", model.RelationDelivers),
 			},
 			wantIssues: 0,
 		},

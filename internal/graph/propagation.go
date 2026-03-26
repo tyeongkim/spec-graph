@@ -68,14 +68,6 @@ var PropagationTable = map[model.RelationType]PropagationRule{
 		Direction: Forward,
 		Scores:    DimensionScores{Structural: 0.5, Behavioral: 0.8, Planning: 0.4},
 	},
-	model.RelationPlannedIn: {
-		Direction: Forward,
-		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.2, Planning: 0.8},
-	},
-	model.RelationDeliveredIn: {
-		Direction: Forward,
-		Scores:    DimensionScores{Structural: 0.3, Behavioral: 0.3, Planning: 0.9},
-	},
 	model.RelationTriggers: {
 		Direction: Forward,
 		Scores:    DimensionScores{Structural: 0.6, Behavioral: 0.9, Planning: 0.2},
@@ -138,8 +130,6 @@ var ReasonTemplates = map[model.RelationType]string{
 	model.RelationVerifies:      "verification dependency",
 	model.RelationDependsOn:     "direct dependency",
 	model.RelationConstrainedBy: "constraint dependency",
-	model.RelationPlannedIn:     "planning scope",
-	model.RelationDeliveredIn:   "delivery scope",
 	model.RelationTriggers:      "state transition trigger",
 	model.RelationAnswers:       "question resolution",
 	model.RelationAssumes:       "assumption dependency",

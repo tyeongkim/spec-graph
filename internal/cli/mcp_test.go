@@ -174,7 +174,7 @@ func TestMCPToolCallQueryScope(t *testing.T) {
 		t.Fatalf("add req: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "REQ-001", "--to", "PHS-001", "--type", "planned_in")
+		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
 		t.Fatalf("add relation: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}

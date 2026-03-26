@@ -9,8 +9,6 @@ const (
 	RelationVerifies      RelationType = "verifies"
 	RelationDependsOn     RelationType = "depends_on"
 	RelationConstrainedBy RelationType = "constrained_by"
-	RelationPlannedIn     RelationType = "planned_in"
-	RelationDeliveredIn   RelationType = "delivered_in"
 	RelationTriggers      RelationType = "triggers"
 	RelationAnswers       RelationType = "answers"
 	RelationAssumes       RelationType = "assumes"
@@ -35,8 +33,6 @@ var ValidRelationTypes = []RelationType{
 	RelationVerifies,
 	RelationDependsOn,
 	RelationConstrainedBy,
-	RelationPlannedIn,
-	RelationDeliveredIn,
 	RelationTriggers,
 	RelationAnswers,
 	RelationAssumes,

@@ -8,8 +8,6 @@ func TestRelationTypeConstants(t *testing.T) {
 		RelationVerifies:      "verifies",
 		RelationDependsOn:     "depends_on",
 		RelationConstrainedBy: "constrained_by",
-		RelationPlannedIn:     "planned_in",
-		RelationDeliveredIn:   "delivered_in",
 		RelationTriggers:      "triggers",
 		RelationAnswers:       "answers",
 		RelationAssumes:       "assumes",
@@ -25,8 +23,8 @@ func TestRelationTypeConstants(t *testing.T) {
 		RelationDelivers:      "delivers",
 	}
 
-	if len(expected) != 19 {
-		t.Fatalf("expected 19 relation types, got %d", len(expected))
+	if len(expected) != 17 {
+		t.Fatalf("expected 17 relation types, got %d", len(expected))
 	}
 
 	for rt, want := range expected {
@@ -58,32 +56,17 @@ func TestIsEdgeAllowed(t *testing.T) {
 		{"verifies/test→state", RelationVerifies, EntityTypeTest, EntityTypeState, true},
 		{"verifies/requirement→test INVALID", RelationVerifies, EntityTypeRequirement, EntityTypeTest, false},
 
-		// depends_on: requirement,decision,interface,phase,test,state → requirement,decision,interface,state,crosscut,assumption
+		// depends_on: requirement,decision,interface,test,state → requirement,decision,interface,state,crosscut,assumption
 		{"depends_on/requirement→decision", RelationDependsOn, EntityTypeRequirement, EntityTypeDecision, true},
-		{"depends_on/phase→crosscut", RelationDependsOn, EntityTypePhase, EntityTypeCrosscut, true},
 		{"depends_on/test→assumption", RelationDependsOn, EntityTypeTest, EntityTypeAssumption, true},
 		{"depends_on/state→interface", RelationDependsOn, EntityTypeState, EntityTypeInterface, true},
 		{"depends_on/criterion→requirement INVALID", RelationDependsOn, EntityTypeCriterion, EntityTypeRequirement, false},
 		{"depends_on/requirement→phase INVALID", RelationDependsOn, EntityTypeRequirement, EntityTypePhase, false},
 
-		// constrained_by: requirement,decision,interface,phase,state → crosscut,decision,assumption
+		// constrained_by: requirement,decision,interface,state → crosscut,decision,assumption
 		{"constrained_by/requirement→crosscut", RelationConstrainedBy, EntityTypeRequirement, EntityTypeCrosscut, true},
-		{"constrained_by/phase→decision", RelationConstrainedBy, EntityTypePhase, EntityTypeDecision, true},
 		{"constrained_by/state→assumption", RelationConstrainedBy, EntityTypeState, EntityTypeAssumption, true},
 		{"constrained_by/test→crosscut INVALID", RelationConstrainedBy, EntityTypeTest, EntityTypeCrosscut, false},
-
-		// planned_in: requirement,decision,interface,test,question,risk,criterion → phase
-		{"planned_in/requirement→phase", RelationPlannedIn, EntityTypeRequirement, EntityTypePhase, true},
-		{"planned_in/risk→phase", RelationPlannedIn, EntityTypeRisk, EntityTypePhase, true},
-		{"planned_in/question→phase", RelationPlannedIn, EntityTypeQuestion, EntityTypePhase, true},
-		{"planned_in/criterion→phase", RelationPlannedIn, EntityTypeCriterion, EntityTypePhase, true},
-		{"planned_in/phase→phase INVALID", RelationPlannedIn, EntityTypePhase, EntityTypePhase, false},
-		{"planned_in/requirement→decision INVALID", RelationPlannedIn, EntityTypeRequirement, EntityTypeDecision, false},
-
-		// delivered_in: interface,state,test,decision → phase
-		{"delivered_in/interface→phase", RelationDeliveredIn, EntityTypeInterface, EntityTypePhase, true},
-		{"delivered_in/decision→phase", RelationDeliveredIn, EntityTypeDecision, EntityTypePhase, true},
-		{"delivered_in/requirement→phase INVALID", RelationDeliveredIn, EntityTypeRequirement, EntityTypePhase, false},
 
 		// triggers: interface,decision → state
 		{"triggers/interface→state", RelationTriggers, EntityTypeInterface, EntityTypeState, true},
@@ -96,7 +79,7 @@ func TestIsEdgeAllowed(t *testing.T) {
 		{"answers/requirement→question INVALID", RelationAnswers, EntityTypeRequirement, EntityTypeQuestion, false},
 		{"answers/decision→decision INVALID", RelationAnswers, EntityTypeDecision, EntityTypeDecision, false},
 
-		// assumes: requirement,decision,phase,interface → assumption
+		// assumes: requirement,decision,interface → assumption
 		{"assumes/requirement→assumption", RelationAssumes, EntityTypeRequirement, EntityTypeAssumption, true},
 		{"assumes/interface→assumption", RelationAssumes, EntityTypeInterface, EntityTypeAssumption, true},
 		{"assumes/test→assumption INVALID", RelationAssumes, EntityTypeTest, EntityTypeAssumption, false},
@@ -105,10 +88,9 @@ func TestIsEdgeAllowed(t *testing.T) {
 		{"has_criterion/requirement→criterion", RelationHasCriterion, EntityTypeRequirement, EntityTypeCriterion, true},
 		{"has_criterion/decision→criterion INVALID", RelationHasCriterion, EntityTypeDecision, EntityTypeCriterion, false},
 
-		// mitigates: decision,test,crosscut,phase → risk
+		// mitigates: decision,test,crosscut → risk
 		{"mitigates/decision→risk", RelationMitigates, EntityTypeDecision, EntityTypeRisk, true},
 		{"mitigates/crosscut→risk", RelationMitigates, EntityTypeCrosscut, EntityTypeRisk, true},
-		{"mitigates/phase→risk", RelationMitigates, EntityTypePhase, EntityTypeRisk, true},
 		{"mitigates/requirement→risk INVALID", RelationMitigates, EntityTypeRequirement, EntityTypeRisk, false},
 
 		// supersedes: same type only

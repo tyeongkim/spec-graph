@@ -31,18 +31,16 @@ func TestQueryScopeHappyPath(t *testing.T) {
 		t.Fatalf("add api: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	// Create planned_in relation: REQ-001 -> PHS-001.
 	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "REQ-001", "--to", "PHS-001", "--type", "planned_in")
+		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
-		t.Fatalf("add planned_in: exit=%d stderr=%s", r.exitCode, r.stderr)
+		t.Fatalf("add covers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	// Create delivered_in relation: API-001 -> PHS-001.
 	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "API-001", "--to", "PHS-001", "--type", "delivered_in")
+		"--from", "PHS-001", "--to", "API-001", "--type", "delivers")
 	if r.exitCode != 0 {
-		t.Fatalf("add delivered_in: exit=%d stderr=%s", r.exitCode, r.stderr)
+		t.Fatalf("add delivers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// Query scope.
@@ -264,7 +262,7 @@ func TestQueryPathExists(t *testing.T) {
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "API-001", "--to", "PHS-001", "--type", "delivered_in")
+		"--from", "PHS-001", "--to", "API-001", "--type", "delivers")
 
 	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "PHS-001")
 	if r.exitCode != 0 {

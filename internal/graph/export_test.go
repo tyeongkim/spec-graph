@@ -101,12 +101,12 @@ func TestExportDOT(t *testing.T) {
 				{ID: "REQ-001", Type: model.EntityTypeRequirement, Title: "Login"},
 			},
 			relations: []model.Relation{
-				{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+				{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers},
 			},
 			want: "digraph spec_graph {\n" +
 				"  \"PHS-001\" [label=\"PHS-001\\nPhase 1\" shape=ellipse style=filled fillcolor=lightyellow];\n" +
 				"  \"REQ-001\" [label=\"REQ-001\\nLogin\" shape=box style=filled fillcolor=lightblue];\n" +
-				"  \"REQ-001\" -> \"PHS-001\" [label=\"planned_in\" style=dashed];\n" +
+				"  \"PHS-001\" -> \"REQ-001\" [label=\"covers\" style=dashed];\n" +
 				"}\n",
 		},
 		{
@@ -116,7 +116,7 @@ func TestExportDOT(t *testing.T) {
 				{ID: "REQ-001", Type: model.EntityTypeRequirement, Title: "Login"},
 			},
 			relations: []model.Relation{
-				{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+				{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers},
 			},
 			opts: &ExportOptions{Layer: layerPtr(model.LayerArch)},
 			want: "digraph spec_graph {\n" +
@@ -224,12 +224,12 @@ func TestExportMermaid(t *testing.T) {
 				{ID: "REQ-001", Type: model.EntityTypeRequirement, Title: "Login"},
 			},
 			relations: []model.Relation{
-				{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+				{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers},
 			},
 			want: "flowchart LR\n" +
 				"  PHS-001([\"PHS-001: Phase 1\"]):::exec\n" +
 				"  REQ-001[\"REQ-001: Login\"]:::arch\n" +
-				"  REQ-001 -.->|planned_in| PHS-001\n",
+				"  PHS-001 -.->|covers| REQ-001\n",
 		},
 		{
 			name: "layer filter keeps only exec entities",
@@ -238,7 +238,7 @@ func TestExportMermaid(t *testing.T) {
 				{ID: "REQ-001", Type: model.EntityTypeRequirement, Title: "Login"},
 			},
 			relations: []model.Relation{
-				{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+				{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers},
 			},
 			opts: &ExportOptions{Layer: layerPtr(model.LayerExec)},
 			want: "flowchart LR\n" +
@@ -343,7 +343,7 @@ func TestExportJSON(t *testing.T) {
 				{ID: "REQ-001", Type: model.EntityTypeRequirement, Title: "Login", Status: model.EntityStatusDraft},
 			},
 			relations: []model.Relation{
-				{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn, Weight: 1.0},
+				{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers, Weight: 1.0},
 			},
 			opts: &ExportOptions{Layer: layerPtr(model.LayerExec)},
 			want: jsoncontract.ExportJSONResult{
@@ -376,7 +376,7 @@ func TestFilterByLayer(t *testing.T) {
 	}
 	relations := []model.Relation{
 		{FromID: "REQ-001", ToID: "DEC-001", Type: model.RelationDependsOn},
-		{FromID: "REQ-001", ToID: "PHS-001", Type: model.RelationPlannedIn},
+		{FromID: "PHS-001", ToID: "REQ-001", Type: model.RelationCovers},
 		{FromID: "PHS-001", ToID: "PHS-001", Type: model.RelationPrecedes},
 	}
 

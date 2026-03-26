@@ -75,8 +75,8 @@ func TestRelationAddVariousTypes(t *testing.T) {
 		name, from, to, relType string
 	}{
 		{"verifies", "TST-012", "REQ-001", "verifies"},
-		{"planned_in", "REQ-001", "PHS-001", "planned_in"},
-		{"delivered_in", "API-005", "PHS-001", "delivered_in"},
+		{"covers", "PHS-001", "REQ-001", "covers"},
+		{"delivers", "PHS-001", "API-005", "delivers"},
 		{"answers", "DEC-001", "QST-001", "answers"},
 		{"triggers", "API-005", "STT-001", "triggers"},
 		{"assumes", "REQ-001", "ASM-001", "assumes"},
@@ -227,7 +227,7 @@ func TestRelationListByFrom(t *testing.T) {
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
-		"--from", "API-005", "--to", "PHS-001", "--type", "delivered_in")
+		"--from", "API-005", "--to", "STT-001", "--type", "triggers")
 	runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "TST-012", "--to", "REQ-001", "--type", "verifies")
 

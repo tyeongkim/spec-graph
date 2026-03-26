@@ -87,13 +87,7 @@ func checkPlanCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 
 		covered := false
 		for _, r := range rels {
-			// covers: phase → arch (FromID=phase, ToID=arch)
 			if r.Type == model.RelationCovers && r.ToID == req.ID && planPhaseIDs[r.FromID] {
-				covered = true
-				break
-			}
-			// planned_in: arch → phase (FromID=arch, ToID=phase)
-			if r.Type == model.RelationPlannedIn && r.FromID == req.ID && planPhaseIDs[r.ToID] {
 				covered = true
 				break
 			}
@@ -132,25 +126,15 @@ func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []Validatio
 
 		coveredEntities := make(map[string]bool)
 		for _, r := range rels {
-			// covers: phase → arch (FromID=phase, ToID=arch)
 			if r.Type == model.RelationCovers && r.FromID == phase.ID {
 				coveredEntities[r.ToID] = true
-			}
-			// planned_in: arch → phase (FromID=arch, ToID=phase)
-			if r.Type == model.RelationPlannedIn && r.ToID == phase.ID {
-				coveredEntities[r.FromID] = true
 			}
 		}
 
 		deliveredEntities := make(map[string]bool)
 		for _, r := range rels {
-			// delivers: phase → arch (FromID=phase, ToID=arch)
 			if r.Type == model.RelationDelivers && r.FromID == phase.ID {
 				deliveredEntities[r.ToID] = true
-			}
-			// delivered_in: arch → phase (FromID=arch, ToID=phase)
-			if r.Type == model.RelationDeliveredIn && r.ToID == phase.ID {
-				deliveredEntities[r.FromID] = true
 			}
 		}
 
@@ -199,11 +183,7 @@ func checkMappingConsistency(rf RelationFetcher, ef EntityFetcher) []ValidationI
 			var archEntityID string
 			switch r.Type {
 			case model.RelationCovers, model.RelationDelivers:
-				// phase → arch: ToID is the arch entity
 				archEntityID = r.ToID
-			case model.RelationPlannedIn, model.RelationDeliveredIn:
-				// arch → phase: FromID is the arch entity
-				archEntityID = r.FromID
 			default:
 				continue
 			}
