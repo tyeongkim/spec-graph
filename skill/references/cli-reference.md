@@ -204,10 +204,6 @@ spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
 # Mapping relations (v1 — use these)
 spec-graph relation add --from PHS-001 --to REQ-001 --type covers
 spec-graph relation add --from PHS-001 --to API-005 --type delivers
-
-# Mapping relations (deprecated — do not use for new work)
-# spec-graph relation add --from REQ-001 --to PHS-001 --type planned_in
-# spec-graph relation add --from API-005 --to PHS-001 --type delivered_in
 ```
 
 ### relation list
@@ -371,8 +367,7 @@ Returns the shortest path between two entities. Empty result if no path exists.
 ```bash
 spec-graph query scope <PHS-ID>
 ```
-Returns all arch entities linked to the phase via `covers` or `delivers` (and the deprecated
-`planned_in` / `delivered_in` for backward compatibility).
+Returns all arch entities linked to the phase via `covers` or `delivers`.
 
 ### query unresolved
 ```bash

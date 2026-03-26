@@ -19,7 +19,7 @@ from the entity type prefix or relation type — there is no ambiguity.
 |-------|----------|---------|
 | `arch` | REQ, DEC, API, STT, TST, XCT, ACT, ASM, RSK, QST | Semantic meaning: what and why |
 | `exec` | PLN, PHS | Delivery structure: when and how |
-| `mapping` | covers, delivers (+ deprecated planned_in, delivered_in) | Cross-layer links: intent and completion |
+| `mapping` | covers, delivers | Cross-layer links: intent and completion |
 
 ### Layer Classification Rules
 
@@ -39,7 +39,7 @@ conflicts_with, references                           →  arch
 
 belongs_to, precedes, blocks                         →  exec
 
-covers, delivers, planned_in, delivered_in           →  mapping
+covers, delivers                                     →  mapping
 ```
 
 ---
@@ -187,20 +187,17 @@ draft → active → resolved   (question, risk, assumption only)
 | `precedes` | phase must complete before another starts | phase→phase |
 | `blocks` | phase blocks another from starting | phase→phase |
 
-### Mapping Layer Relations (4)
+### Mapping Layer Relations (2)
 
-| Relation | Meaning | Directionality | Status |
-|----------|---------|----------------|--------|
-| `covers` | phase covers an arch entity (intent) | phase→arch | current |
-| `delivers` | phase delivers an arch entity (completion) | phase→arch | current |
-| `planned_in` | arch entity is scheduled in a phase | arch→phase | **deprecated** |
-| `delivered_in` | arch artifact is delivered in a phase | arch→phase | **deprecated** |
+| Relation | Meaning | Directionality |
+|----------|---------|----------------|
+| `covers` | phase covers an arch entity (intent) | phase→arch |
+| `delivers` | phase delivers an arch entity (completion) | phase→arch |
 
-`covers` replaces `planned_in`. Direction is inverted: `phase --covers--> arch_entity`.
-`delivers` replaces `delivered_in`. Direction is inverted: `phase --delivers--> arch_entity`.
+`covers` replaced the removed `planned_in`. Direction is inverted: `phase --covers--> arch_entity`.
+`delivers` replaced the removed `delivered_in`. Direction is inverted: `phase --delivers--> arch_entity`.
 
-`planned_in` and `delivered_in` remain functional for backward compatibility but will be
-removed in a future release. Do not use them for new relations.
+`planned_in` and `delivered_in` were removed in v1. Use `covers` and `delivers` instead.
 
 ---
 
@@ -215,15 +212,13 @@ Three separate matrices exist, one per layer.
 |----------|----------------------------|--------------------------|
 | `implements` | interface | requirement, criterion |
 | `verifies` | test | requirement, criterion, decision, interface, state |
-| `depends_on` | requirement, decision, interface, phase, test, state | requirement, decision, interface, state, crosscut, assumption |
-| `constrained_by` | requirement, decision, interface, phase, state | crosscut, decision, assumption |
-| `planned_in` *(deprecated)* | requirement, decision, interface, test, question, risk, criterion | phase |
-| `delivered_in` *(deprecated)* | interface, state, test, decision | phase |
+| `depends_on` | requirement, decision, interface, test, state | requirement, decision, interface, state, crosscut, assumption |
+| `constrained_by` | requirement, decision, interface, state | crosscut, decision, assumption |
 | `triggers` | interface, decision | state |
 | `answers` | decision | question |
-| `assumes` | requirement, decision, phase, interface | assumption |
+| `assumes` | requirement, decision, interface | assumption |
 | `has_criterion` | requirement | criterion |
-| `mitigates` | decision, test, crosscut, phase | risk |
+| `mitigates` | decision, test, crosscut | risk |
 | `supersedes` | **same type only** | **same type only** |
 | `conflicts_with` | any | any |
 | `references` | any | any (cross-layer allowed) |
@@ -249,10 +244,10 @@ Three separate matrices exist, one per layer.
 - `covers` vs `delivers`: `covers` is intent (what the phase plans to address); `delivers` is
   completion evidence (what was actually built). Use both distinctly.
 - `covers`/`delivers` direction: source is `phase`, target is the arch entity. This is the
-  opposite of the deprecated `planned_in`/`delivered_in`.
+  opposite of the removed `planned_in`/`delivered_in` (which were arch→phase).
 - `belongs_to`: source is `phase`, target is `plan`. A plan does not belong to a phase.
 - `supersedes`: both sides must be the same type. REQ cannot supersede DEC.
-- `planned_in`/`delivered_in`: do not use for new relations. Use `covers`/`delivers` instead.
+- `planned_in`/`delivered_in`: removed in v1. Use `covers`/`delivers` instead.
 
 ---
 
@@ -268,8 +263,6 @@ Each relation type has different propagation weights across three dimensions dur
 | `constrained_by` | from→to | 0.5 | 0.8 | 0.4 |
 | `covers` | from→to | 0.1 | 0.2 | 0.8 |
 | `delivers` | from→to | 0.3 | 0.3 | 0.9 |
-| `planned_in` *(deprecated)* | from→to | 0.1 | 0.2 | 0.8 |
-| `delivered_in` *(deprecated)* | from→to | 0.3 | 0.3 | 0.9 |
 | `triggers` | from→to | 0.6 | 0.9 | 0.2 |
 | `answers` | from→to | 0.2 | 0.7 | 0.3 |
 | `assumes` | from→to | 0.3 | 0.8 | 0.5 |

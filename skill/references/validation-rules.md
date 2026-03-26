@@ -223,7 +223,6 @@ spec-graph validate --layer mapping --check plan_coverage
 | Condition | Severity |
 |-----------|----------|
 | Active requirement has no `covers` relation from any phase | high |
-| Active requirement has only deprecated `planned_in` (no `covers`) | medium |
 
 Run this before starting a phase to confirm all requirements are assigned somewhere.
 
@@ -238,7 +237,6 @@ spec-graph validate --layer mapping --phase PHS-002 --check delivery_completenes
 | Condition | Severity |
 |-----------|----------|
 | Phase covers an arch entity but no `delivers` relation exists for it | high |
-| Phase covers an arch entity with only deprecated `delivered_in` (no `delivers`) | medium |
 
 This is the primary gate check before phase completion. Every covered arch entity must have
 at least one `delivers` relation from the phase (or from a phase that delivers its implementing

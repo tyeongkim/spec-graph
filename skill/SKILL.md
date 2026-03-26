@@ -53,8 +53,8 @@ Connects arch entities to exec entities. This is where intent meets delivery.
 
 Relation types: `covers` (phase→arch entity), `delivers` (phase→arch entity)
 
-`covers` replaces the deprecated `planned_in` — direction is inverted (phase→arch, not arch→phase).
-`delivers` replaces the deprecated `delivered_in` — same inversion.
+`covers` replaced the removed `planned_in` — direction is inverted (phase→arch, not arch→phase).
+`delivers` replaced the removed `delivered_in` — same inversion.
 
 ## Core Principles
 
@@ -63,7 +63,7 @@ Relation types: `covers` (phase→arch entity), `delivers` (phase→arch entity)
 3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
 4. **Phase gates**: always run `validate --layer mapping --phase` before completing a phase.
 5. **Changeset grouping**: bundle related changes into a single changeset.
-6. **covers/delivers over planned_in/delivered_in**: use the v1 mapping relations. The legacy relations still work but are deprecated and will be removed.
+6. **covers/delivers**: use these mapping relations. `planned_in` and `delivered_in` were removed in v1.
 
 ---
 
@@ -170,7 +170,7 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
 
-### Relation Types (19)
+### Relation Types (17)
 
 **Architecture layer (12):**
 `implements`, `verifies`, `depends_on`, `constrained_by`, `triggers`, `answers`,
@@ -179,9 +179,10 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 **Execution layer (3):**
 `belongs_to`, `precedes`, `blocks`
 
-**Mapping layer (4, includes 2 deprecated):**
-`covers`, `delivers` — use these
-`planned_in`, `delivered_in` — deprecated, still functional, will be removed in a future release
+**Mapping layer (2):**
+`covers`, `delivers`
+
+`planned_in` and `delivered_in` were removed in v1. Use `covers` and `delivers` instead.
 
 ---
 
@@ -487,17 +488,16 @@ Key fields in `impact` JSON output:
 These are known failure modes. If you catch yourself doing any of these, stop and reconsider.
 
 ### 1. Mixing arch and exec concerns
-**Symptom**: adding a requirement directly to a phase using `planned_in` (arch→exec direction),
+**Symptom**: attempting to add a requirement directly to a phase using `planned_in` (removed in v1),
 or treating a phase as an arch entity by linking it with arch-only relations.
 **Why it's wrong**: arch and exec are separate layers with separate edge matrices. Cross-layer
 connections belong in the mapping layer using `covers` and `delivers`.
 **Correct approach**: use `covers` (phase→arch) to express intent, `delivers` (phase→arch)
-to express completion. Never use `planned_in` or `delivered_in` for new work.
+to express completion.
 
-### 2. Using planned_in / delivered_in for new relations
-**Symptom**: adding `planned_in` or `delivered_in` relations in new work.
-**Why it's wrong**: these relations are deprecated in v1. They still function for backward
-compatibility but will be removed. New graphs should use `covers` and `delivers`.
+### 2. Using planned_in / delivered_in
+**Symptom**: attempting to add `planned_in` or `delivered_in` relations.
+**Why it's wrong**: these relations were removed in v1. They no longer exist in the schema.
 **Correct approach**: use `covers` instead of `planned_in`, `delivers` instead of `delivered_in`.
 Note the direction is inverted: `phase --covers--> arch_entity` (not `arch_entity --planned_in--> phase`).
 
