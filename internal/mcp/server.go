@@ -14,6 +14,7 @@ import (
 	"github.com/taeyeong/spec-graph/internal/graph"
 	"github.com/taeyeong/spec-graph/internal/model"
 	"github.com/taeyeong/spec-graph/internal/store"
+	"github.com/taeyeong/spec-graph/internal/validate"
 )
 
 // entityStoreAdapter wraps *store.EntityStore to implement graph.EntityFetcher.
@@ -27,6 +28,20 @@ func (a *entityStoreAdapter) Get(id string) (model.Entity, error) {
 
 func (a *entityStoreAdapter) List(filters graph.EntityListFilters) ([]model.Entity, error) {
 	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status}
+	entities, _, err := a.store.List(sf)
+	return entities, err
+}
+
+type validateEntityAdapter struct {
+	store *store.EntityStore
+}
+
+func (a *validateEntityAdapter) Get(id string) (model.Entity, error) {
+	return a.store.Get(id)
+}
+
+func (a *validateEntityAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
+	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status, Layer: filters.Layer}
 	entities, _, err := a.store.List(sf)
 	return entities, err
 }
@@ -249,7 +264,7 @@ func handleValidate(db *sql.DB) server.ToolHandlerFunc {
 		checkStr := req.GetString("check", "")
 		phaseStr := req.GetString("phase", "")
 
-		var opts graph.ValidateOptions
+		var opts validate.ValidateOptions
 		if checkStr != "" {
 			opts.Checks = splitCSV(checkStr)
 		}
@@ -258,7 +273,8 @@ func handleValidate(db *sql.DB) server.ToolHandlerFunc {
 		}
 
 		rs, ef := newStores(db)
-		result, err := graph.Validate(opts, rs, ef)
+		vef := &validateEntityAdapter{store: ef.store}
+		result, err := validate.Validate(opts, rs, vef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

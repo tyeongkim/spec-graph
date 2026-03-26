@@ -1,0 +1,264 @@
+package validate
+
+import (
+	"testing"
+
+	"github.com/taeyeong/spec-graph/internal/model"
+)
+
+func TestCheckPlanCoverage(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		relations  []model.Relation
+		wantIssues int
+	}{
+		{
+			name: "requirement covered by phase via covers — no issue",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
+				rel(2, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "requirement covered via planned_in — no issue",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
+				rel(2, "REQ-1", "PHS-1", model.RelationPlannedIn),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "requirement not covered by any phase",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
+			},
+			wantIssues: 1,
+		},
+		{
+			name: "no active plan — no issues",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusDraft, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations:  nil,
+			wantIssues: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			issues := checkPlanCoverage(rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "plan_coverage" {
+					t.Errorf("got check %q; want %q", iss.Check, "plan_coverage")
+				}
+				if iss.Layer != model.LayerMapping {
+					t.Errorf("got layer %q; want %q", iss.Layer, model.LayerMapping)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckDeliveryCompleteness(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		relations  []model.Relation
+		wantIssues int
+	}{
+		{
+			name: "completed phase with all covered entities delivered — no issue",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+				rel(2, "PHS-1", "REQ-1", model.RelationDelivers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "completed phase covers entity but does not deliver",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+		{
+			name: "active phase — not checked",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "delivered via delivered_in — no issue",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				archEntity("API-1", model.EntityTypeInterface, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "API-1", model.RelationCovers),
+				rel(2, "API-1", "PHS-1", model.RelationDeliveredIn),
+			},
+			wantIssues: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			issues := checkDeliveryCompleteness(rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "delivery_completeness" {
+					t.Errorf("got check %q; want %q", iss.Check, "delivery_completeness")
+				}
+			}
+		})
+	}
+}
+
+func TestCheckMappingConsistency(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		relations  []model.Relation
+		wantIssues int
+	}{
+		{
+			name: "mapping to active entity — no issue",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "mapping to deprecated entity",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusDeprecated),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+		{
+			name: "mapping to superseded entity",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+				rel(2, "REQ-2", "REQ-1", model.RelationSupersedes),
+			},
+			wantIssues: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			issues := checkMappingConsistency(rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "mapping_consistency" {
+					t.Errorf("got check %q; want %q", iss.Check, "mapping_consistency")
+				}
+			}
+		})
+	}
+}
+
+func TestCheckInvalidMappingEdges(t *testing.T) {
+	tests := []struct {
+		name       string
+		entities   []model.Entity
+		relations  []model.Relation
+		wantIssues int
+	}{
+		{
+			name: "valid mapping edge — phase covers requirement",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "invalid mapping edge — requirement covers phase",
+			entities: []model.Entity{
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-1", "PHS-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			issues := checkInvalidMappingEdges(rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "invalid_mapping_edges" {
+					t.Errorf("got check %q; want %q", iss.Check, "invalid_mapping_edges")
+				}
+			}
+		})
+	}
+}

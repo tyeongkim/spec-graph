@@ -405,7 +405,7 @@ func TestValidateGates_AllViolations(t *testing.T) {
 	dir := t.TempDir()
 	seedGateGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "gates", "--phase", "PHS-001")
+	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved", "--phase", "PHS-001")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -418,11 +418,11 @@ func TestValidateGates_AllViolations(t *testing.T) {
 		t.Error("expected valid=false")
 	}
 	if len(resp.Issues) == 0 {
-		t.Error("expected at least one gate issue")
+		t.Error("expected at least one unresolved issue")
 	}
 	for _, issue := range resp.Issues {
-		if issue.Check != "gates" {
-			t.Errorf("expected only gates issues, got check=%q", issue.Check)
+		if issue.Check != "unresolved" {
+			t.Errorf("expected only unresolved issues, got check=%q", issue.Check)
 		}
 	}
 }
@@ -451,7 +451,7 @@ func TestValidateGates_NoPhase(t *testing.T) {
 	dir := t.TempDir()
 	seedGateGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "gates")
+	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -464,8 +464,8 @@ func TestValidateGates_NoPhase(t *testing.T) {
 		t.Error("expected valid=false")
 	}
 	for _, issue := range resp.Issues {
-		if issue.Check != "gates" {
-			t.Errorf("expected only gates issues, got check=%q", issue.Check)
+		if issue.Check != "unresolved" {
+			t.Errorf("expected only unresolved issues, got check=%q", issue.Check)
 		}
 	}
 }
@@ -491,7 +491,7 @@ func TestValidateGates_CleanPhase(t *testing.T) {
 		t.Fatalf("seed delivered_in: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "gates", "--phase", "PHS-002")
+	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved", "--phase", "PHS-002")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}

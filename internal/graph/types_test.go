@@ -71,69 +71,9 @@ func TestImpactResultJSON(t *testing.T) {
 	}
 }
 
-func TestValidateResultJSON(t *testing.T) {
-	result := ValidateResult{
-		Valid: false,
-		Issues: []ValidationIssue{
-			{
-				Check:    "coverage",
-				Severity: SeverityHigh,
-				Entity:   "REQ-007",
-				Message:  "no implementor",
-			},
-			{
-				Check:    "gates",
-				Severity: SeverityHigh,
-				Entity:   "PHS-002",
-				Message:  "unresolved question blocks phase",
-			},
-		},
-		Summary: ValidateSummary{
-			TotalIssues: 2,
-			BySeverity:  map[Severity]int{SeverityHigh: 2},
-		},
-	}
-
-	data, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-
-	var m map[string]interface{}
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	if _, ok := m["valid"]; !ok {
-		t.Error("missing field: valid")
-	}
-
-	issues, ok := m["issues"].([]interface{})
-	if !ok || len(issues) == 0 {
-		t.Fatal("missing or empty field: issues")
-	}
-
-	issue, ok := issues[0].(map[string]interface{})
-	if !ok {
-		t.Fatal("issues[0] is not an object")
-	}
-
-	for _, field := range []string{"check", "severity", "entity", "message"} {
-		if _, ok := issue[field]; !ok {
-			t.Errorf("issue missing field: %s", field)
-		}
-	}
-
-	summary, ok := m["summary"].(map[string]interface{})
-	if !ok {
-		t.Fatal("missing field: summary")
-	}
-
-	for _, field := range []string{"total_issues", "by_severity"} {
-		if _, ok := summary[field]; !ok {
-			t.Errorf("summary missing field: %s", field)
-		}
-	}
+func TestInterfaceSatisfaction(t *testing.T) {
+	var _ RelationFetcher = (*mockRelationFetcher)(nil)
+	var _ EntityFetcher = (*mockEntityFetcher)(nil)
 }
 
 type mockRelationFetcher struct{}
@@ -150,9 +90,4 @@ func (m *mockEntityFetcher) Get(_ string) (model.Entity, error) {
 
 func (m *mockEntityFetcher) List(_ EntityListFilters) ([]model.Entity, error) {
 	return nil, nil
-}
-
-func TestInterfaceSatisfaction(t *testing.T) {
-	var _ RelationFetcher = (*mockRelationFetcher)(nil)
-	var _ EntityFetcher = (*mockEntityFetcher)(nil)
 }

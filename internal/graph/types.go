@@ -59,39 +59,6 @@ type ImpactResult struct {
 	Summary  ImpactSummary    `json:"summary"`
 }
 
-// ValidateOptions controls which checks are run during validation.
-type ValidateOptions struct {
-	// Checks lists the check names to run. nil = all checks.
-	Checks []string
-	// Phase restricts validation to entities belonging to this phase. nil = all entities.
-	Phase *string
-	// EntityID restricts reported issues to those for this specific entity. "" = all entities.
-	EntityID string
-	// Layer restricts validation to entities in this layer. nil = all layers.
-	Layer *model.Layer
-}
-
-// ValidationIssue represents a single problem found during validation.
-type ValidationIssue struct {
-	Check    string   `json:"check"`
-	Severity Severity `json:"severity"`
-	Entity   string   `json:"entity"`
-	Message  string   `json:"message"`
-}
-
-// ValidateSummary aggregates counts from a validation run.
-type ValidateSummary struct {
-	TotalIssues int              `json:"total_issues"`
-	BySeverity  map[Severity]int `json:"by_severity"`
-}
-
-// ValidateResult is the top-level result returned by validation.
-type ValidateResult struct {
-	Valid   bool              `json:"valid"`
-	Issues  []ValidationIssue `json:"issues"`
-	Summary ValidateSummary   `json:"summary"`
-}
-
 // QueryScopeOptions controls which phase to scope the query to.
 type QueryScopeOptions struct {
 	// PhaseID is the ID of the phase entity to scope by.

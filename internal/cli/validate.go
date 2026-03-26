@@ -6,11 +6,25 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/graph"
 	"github.com/taeyeong/spec-graph/internal/jsoncontract"
 	"github.com/taeyeong/spec-graph/internal/model"
 	"github.com/taeyeong/spec-graph/internal/store"
+	"github.com/taeyeong/spec-graph/internal/validate"
 )
+
+type validateEntityAdapter struct {
+	store *store.EntityStore
+}
+
+func (a *validateEntityAdapter) Get(id string) (model.Entity, error) {
+	return a.store.Get(id)
+}
+
+func (a *validateEntityAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
+	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status, Layer: filters.Layer}
+	entities, _, err := a.store.List(sf)
+	return entities, err
+}
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
@@ -25,7 +39,7 @@ var validateCmd = &cobra.Command{
 			return nil
 		}
 
-		var opts graph.ValidateOptions
+		var opts validate.ValidateOptions
 		if checkFlag != "" {
 			opts.Checks = strings.Split(checkFlag, ",")
 		}
@@ -35,7 +49,7 @@ var validateCmd = &cobra.Command{
 		hs := store.NewHistoryStore(db)
 		rs := store.NewRelationStore(db, cs, hs)
 		es := store.NewEntityStore(db, cs, hs)
-		ef := &entityStoreAdapter{store: es}
+		ef := &validateEntityAdapter{store: es}
 
 		if phaseFlag != "" {
 			entity, err := es.Get(phaseFlag)
@@ -58,9 +72,9 @@ var validateCmd = &cobra.Command{
 			opts.EntityID = entityFlag
 		}
 
-		result, err := graph.Validate(opts, rs, ef)
+		result, err := validate.Validate(opts, rs, ef)
 		if err != nil {
-			handleError(cmd, err)
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			return nil
 		}
 
