@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	dbPath string
-	appDB  *sql.DB
+	dbPath    string
+	layerFlag string
+	appDB     *sql.DB
 )
 
 var rootCmd = &cobra.Command{
@@ -48,6 +49,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", ".spec-graph/graph.db", "path to the SQLite database file")
+	rootCmd.PersistentFlags().StringVar(&layerFlag, "layer", "all", "filter by layer: arch, exec, mapping, or all (default)")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(entityCmd)
 	rootCmd.AddCommand(relationCmd)
@@ -67,4 +69,25 @@ func Execute() {
 
 func getDB() *sql.DB {
 	return appDB
+}
+
+// ParseLayerFlag reads the --layer persistent flag from the command and returns
+// the corresponding *model.Layer. It returns nil when the value is "all" (no filter).
+// An error is returned if the value is not a recognized layer.
+func ParseLayerFlag(cmd *cobra.Command) (*model.Layer, error) {
+	val, err := cmd.Flags().GetString("layer")
+	if err != nil {
+		return nil, fmt.Errorf("get layer flag: %w", err)
+	}
+
+	if val == "all" {
+		return nil, nil
+	}
+
+	l := model.Layer(val)
+	if !model.IsValidLayer(l) {
+		return nil, fmt.Errorf("invalid layer %q: valid values are arch, exec, mapping, all", val)
+	}
+
+	return &l, nil
 }

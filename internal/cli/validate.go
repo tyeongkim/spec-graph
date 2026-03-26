@@ -39,7 +39,22 @@ var validateCmd = &cobra.Command{
 			return nil
 		}
 
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
+		// Q3 decision: --phase is only valid with --layer mapping or --layer all (nil).
+		if phaseFlag != "" && layer != nil && *layer != model.LayerMapping {
+			handleError(cmd, &model.ErrInvalidInput{
+				Message: fmt.Sprintf("--phase cannot be used with --layer %s; only --layer mapping or --layer all is allowed", *layer),
+			})
+			return nil
+		}
+
 		var opts validate.ValidateOptions
+		opts.Layer = layer
 		if checkFlag != "" {
 			opts.Checks = strings.Split(checkFlag, ",")
 		}

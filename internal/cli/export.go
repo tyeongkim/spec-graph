@@ -17,6 +17,12 @@ var exportCmd = &cobra.Command{
 		centerFlag, _ := cmd.Flags().GetString("center")
 		depthFlag, _ := cmd.Flags().GetInt("depth")
 
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
 		switch format {
 		case "dot", "mermaid", "json":
 			// valid
@@ -31,6 +37,8 @@ var exportCmd = &cobra.Command{
 		hs := store.NewHistoryStore(db)
 		es := store.NewEntityStore(db, cs, hs)
 		rs := store.NewRelationStore(db, cs, hs)
+
+		opts := &graph.ExportOptions{Layer: layer}
 
 		var entities []model.Entity
 		var relations []model.Relation
@@ -48,25 +56,25 @@ var exportCmd = &cobra.Command{
 			relations = result.Relations
 		} else {
 			var err error
-			entities, _, err = es.List(store.EntityFilters{})
+			entities, _, err = es.List(store.EntityFilters{Layer: layer})
 			if err != nil {
 				handleError(cmd, err)
 			}
-			relations, _, err = rs.List(store.RelationFilters{})
+			relations, _, err = rs.List(store.RelationFilters{Layer: layer})
 			if err != nil {
 				handleError(cmd, err)
 			}
 		}
 
 		if format == "json" {
-			result := graph.ExportJSON(entities, relations, nil)
+			result := graph.ExportJSON(entities, relations, opts)
 			writeJSON(cmd, result)
 		} else {
 			var output string
 			if format == "dot" {
-				output = graph.ExportDOT(entities, relations, nil)
+				output = graph.ExportDOT(entities, relations, opts)
 			} else {
-				output = graph.ExportMermaid(entities, relations, nil)
+				output = graph.ExportMermaid(entities, relations, opts)
 			}
 			fmt.Fprint(cmd.OutOrStdout(), output)
 		}

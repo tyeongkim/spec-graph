@@ -80,6 +80,9 @@ func queryScope() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("The phase entity ID to scope by"),
 		),
+		mcp.WithString("layer",
+			mcp.Description("Filter by layer: arch, exec, mapping, or all (default)"),
+		),
 	)
 }
 
@@ -93,6 +96,9 @@ func queryPath() mcp.Tool {
 		mcp.WithString("to_id",
 			mcp.Required(),
 			mcp.Description("Target entity ID"),
+		),
+		mcp.WithString("layer",
+			mcp.Description("Filter by layer: arch, exec, mapping, or all (default)"),
 		),
 	)
 }
@@ -119,6 +125,9 @@ func impactTool() mcp.Tool {
 		mcp.WithString("min_severity",
 			mcp.Description("Minimum severity filter: high, medium, or low"),
 		),
+		mcp.WithString("layer",
+			mcp.Description("Filter by layer: arch, exec, mapping, or all (default)"),
+		),
 	)
 }
 
@@ -131,6 +140,9 @@ func validateTool() mcp.Tool {
 		mcp.WithString("phase",
 			mcp.Description("Restrict validation to entities in this phase (must be a phase entity ID)"),
 		),
+		mcp.WithString("layer",
+			mcp.Description("Filter by layer: arch, exec, mapping, or all (default)"),
+		),
 	)
 }
 
@@ -141,6 +153,9 @@ func exportTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Export format"),
 			mcp.Enum("dot", "mermaid"),
+		),
+		mcp.WithString("layer",
+			mcp.Description("Filter by layer: arch, exec, mapping, or all (default)"),
 		),
 	)
 }
@@ -154,8 +169,13 @@ func handleQueryScope(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		layer, err := parseLayerParam(req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		rs, ef := newStores(db)
-		result, err := graph.QueryScope(graph.QueryScopeOptions{PhaseID: phaseID}, rs, ef)
+		result, err := graph.QueryScope(graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}, rs, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -175,8 +195,13 @@ func handleQueryPath(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		layer, err := parseLayerParam(req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		rs, ef := newStores(db)
-		result, err := graph.QueryPath(graph.QueryPathOptions{FromID: fromID, ToID: toID}, rs, ef)
+		result, err := graph.QueryPath(graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}, rs, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -226,7 +251,13 @@ func handleImpact(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("sources must not be empty"), nil
 		}
 
+		layer, err := parseLayerParam(req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		var opts graph.ImpactOptions
+		opts.Layer = layer
 
 		dimStr := req.GetString("dimension", "")
 		if dimStr != "" {
@@ -264,7 +295,17 @@ func handleValidate(db *sql.DB) server.ToolHandlerFunc {
 		checkStr := req.GetString("check", "")
 		phaseStr := req.GetString("phase", "")
 
+		layer, err := parseLayerParam(req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		if phaseStr != "" && layer != nil && *layer != model.LayerMapping {
+			return mcp.NewToolResultError(fmt.Sprintf("phase cannot be used with layer %s; only layer mapping or all is allowed", *layer)), nil
+		}
+
 		var opts validate.ValidateOptions
+		opts.Layer = layer
 		if checkStr != "" {
 			opts.Checks = splitCSV(checkStr)
 		}
@@ -290,9 +331,14 @@ func handleExport(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		rs, ef := newStores(db)
+		layer, err := parseLayerParam(req)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-		// List all entities and relations for export.
+		rs, ef := newStores(db)
+		opts := &graph.ExportOptions{Layer: layer}
+
 		entities, listErr := ef.List(graph.EntityListFilters{})
 		if listErr != nil {
 			return mcp.NewToolResultError(listErr.Error()), nil
@@ -306,9 +352,9 @@ func handleExport(db *sql.DB) server.ToolHandlerFunc {
 		var output string
 		switch format {
 		case "dot":
-			output = graph.ExportDOT(entities, allRels, nil)
+			output = graph.ExportDOT(entities, allRels, opts)
 		case "mermaid":
-			output = graph.ExportMermaid(entities, allRels, nil)
+			output = graph.ExportMermaid(entities, allRels, opts)
 		default:
 			return mcp.NewToolResultError(fmt.Sprintf("unknown format %q; must be dot or mermaid", format)), nil
 		}
@@ -336,6 +382,18 @@ func collectAllRelations(rs *store.RelationStore, entities []model.Entity) ([]mo
 		}
 	}
 	return all, nil
+}
+
+func parseLayerParam(req mcp.CallToolRequest) (*model.Layer, error) {
+	val := req.GetString("layer", "")
+	if val == "" || val == "all" {
+		return nil, nil
+	}
+	l := model.Layer(val)
+	if !model.IsValidLayer(l) {
+		return nil, fmt.Errorf("invalid layer %q: valid values are arch, exec, mapping, all", val)
+	}
+	return &l, nil
 }
 
 // marshalResult serializes v to JSON and returns it as a tool text result.

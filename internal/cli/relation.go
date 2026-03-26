@@ -74,7 +74,14 @@ var relationListCmd = &cobra.Command{
 		toFilter, _ := cmd.Flags().GetString("to")
 		typeFilter, _ := cmd.Flags().GetString("type")
 
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
 		var filters store.RelationFilters
+		filters.Layer = layer
 		if fromFilter != "" {
 			filters.FromID = &fromFilter
 		}

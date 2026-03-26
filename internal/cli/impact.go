@@ -34,7 +34,14 @@ var impactCmd = &cobra.Command{
 		minSevStr, _ := cmd.Flags().GetString("min-severity")
 		dimStr, _ := cmd.Flags().GetString("dimension")
 
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
 		var opts graph.ImpactOptions
+		opts.Layer = layer
 
 		if followStr != "" {
 			parts := strings.Split(followStr, ",")

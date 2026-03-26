@@ -30,7 +30,13 @@ var queryScopeCmd = &cobra.Command{
 		rs := store.NewRelationStore(db, cs, hs)
 		es := store.NewEntityStore(db, cs, hs)
 
-		opts := graph.QueryScopeOptions{PhaseID: phaseID}
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
+		opts := graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}
 		result, err := graph.QueryScope(opts, rs, &entityStoreAdapter{store: es})
 		if err != nil {
 			handleError(cmd, err)
@@ -169,7 +175,13 @@ var queryPathCmd = &cobra.Command{
 		rs := store.NewRelationStore(db, cs, hs)
 		es := store.NewEntityStore(db, cs, hs)
 
-		opts := graph.QueryPathOptions{FromID: fromID, ToID: toID}
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
+		opts := graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}
 		result, err := graph.QueryPath(opts, rs, &entityStoreAdapter{store: es})
 		if err != nil {
 			handleError(cmd, err)

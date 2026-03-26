@@ -92,7 +92,14 @@ var entityListCmd = &cobra.Command{
 		typeFilter, _ := cmd.Flags().GetString("type")
 		statusFilter, _ := cmd.Flags().GetString("status")
 
+		layer, err := ParseLayerFlag(cmd)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return nil
+		}
+
 		var filters store.EntityFilters
+		filters.Layer = layer
 		if typeFilter != "" {
 			t := model.EntityType(typeFilter)
 			filters.Type = &t
