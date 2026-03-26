@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/taeyeong/spec-graph/internal/model"
 )
 
 // EntityCandidate represents a potential entity found in markdown.
 type EntityCandidate struct {
 	ID         string  `json:"id"`
 	Type       string  `json:"type"`
+	Layer      string  `json:"layer"`
 	Title      string  `json:"title"`
 	Confidence float64 `json:"confidence"`
 	Source     string  `json:"source"`
@@ -116,6 +119,14 @@ func inferType(id string) string {
 	return prefixTypeMap[parts[0]]
 }
 
+func inferLayer(id string) string {
+	t := inferType(id)
+	if t == "" {
+		return ""
+	}
+	return string(model.LayerForEntityType(model.EntityType(t)))
+}
+
 // sourceRef formats a source reference as "filename#L<line>".
 func sourceRef(filePath string, lineNum int) string {
 	return fmt.Sprintf("%s#L%d", filepath.Base(filePath), lineNum)
@@ -169,6 +180,7 @@ func extractEntities(line, src string, entityMap map[string]EntityCandidate) {
 		candidate := EntityCandidate{
 			ID:         id,
 			Type:       inferType(id),
+			Layer:      inferLayer(id),
 			Title:      title,
 			Confidence: conf,
 			Source:     src,
@@ -186,6 +198,7 @@ func extractEntities(line, src string, entityMap map[string]EntityCandidate) {
 		candidate := EntityCandidate{
 			ID:         id,
 			Type:       inferType(id),
+			Layer:      inferLayer(id),
 			Title:      title,
 			Confidence: conf,
 			Source:     src,
@@ -203,6 +216,7 @@ func extractEntities(line, src string, entityMap map[string]EntityCandidate) {
 		entityMap[id] = EntityCandidate{
 			ID:         id,
 			Type:       inferType(id),
+			Layer:      inferLayer(id),
 			Confidence: 0.5,
 			Source:     src,
 		}

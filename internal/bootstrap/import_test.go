@@ -58,8 +58,8 @@ func TestApplyCandidates_CreatesEntities(t *testing.T) {
 
 	input := ScanResult{
 		Entities: []EntityCandidate{
-			{ID: "REQ-001", Type: "requirement", Title: "Auth required", Confidence: 0.9},
-			{ID: "DEC-001", Type: "decision", Title: "Use JWT", Confidence: 0.8},
+			{ID: "REQ-001", Type: "requirement", Layer: "arch", Title: "Auth required", Confidence: 0.9},
+			{ID: "DEC-001", Type: "decision", Layer: "arch", Title: "Use JWT", Confidence: 0.8},
 		},
 	}
 
@@ -78,6 +78,9 @@ func TestApplyCandidates_CreatesEntities(t *testing.T) {
 	}
 	if e.Type != model.EntityTypeRequirement {
 		t.Errorf("type = %q; want %q", e.Type, model.EntityTypeRequirement)
+	}
+	if e.Layer != model.LayerArch {
+		t.Errorf("layer = %q; want %q", e.Layer, model.LayerArch)
 	}
 }
 

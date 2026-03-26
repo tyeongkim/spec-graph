@@ -60,6 +60,7 @@ func ApplyCandidates(input ScanResult, es *store.EntityStore, rs *store.Relation
 		entity := model.Entity{
 			ID:    c.ID,
 			Type:  model.EntityType(c.Type),
+			Layer: model.Layer(c.Layer),
 			Title: c.Title,
 		}
 		if _, err := es.Create(entity, "bootstrap import", "", "bootstrap"); err != nil {

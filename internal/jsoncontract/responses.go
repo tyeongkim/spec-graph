@@ -150,6 +150,7 @@ type RelationHistoryResponse struct {
 type BootstrapEntityCandidate struct {
 	ID         string  `json:"id"`
 	Type       string  `json:"type"`
+	Layer      string  `json:"layer"`
 	Title      string  `json:"title"`
 	Confidence float64 `json:"confidence"`
 	Source     string  `json:"source"`

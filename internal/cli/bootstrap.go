@@ -91,6 +91,7 @@ func toScanResponse(sr bootstrap.ScanResult) jsoncontract.BootstrapScanResponse 
 		entities = append(entities, jsoncontract.BootstrapEntityCandidate{
 			ID:         e.ID,
 			Type:       e.Type,
+			Layer:      e.Layer,
 			Title:      e.Title,
 			Confidence: e.Confidence,
 			Source:     e.Source,

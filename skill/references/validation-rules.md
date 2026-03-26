@@ -1,133 +1,326 @@
 # Validation Rules Reference
 
 ## Table of Contents
-1. [Core Graph Checks](#core-graph-checks)
-2. [Coverage Checks](#coverage-checks)
-3. [Workflow Gate Checks](#workflow-gate-checks)
-4. [Phase Validation Guide](#phase-validation-guide)
-5. [Interpreting Validate Response](#interpreting-validate-response)
+1. [Overview](#overview)
+2. [Architecture Layer Checks](#architecture-layer-checks)
+3. [Execution Layer Checks](#execution-layer-checks)
+4. [Mapping Layer Checks](#mapping-layer-checks)
+5. [Phase Validation Guide](#phase-validation-guide)
+6. [Interpreting Validate Response](#interpreting-validate-response)
 
 ---
 
-## Core Graph Checks
+## Overview
 
-These verify the structural integrity of the graph itself.
+Validation is organized into three layers matching the graph model. Each check belongs to
+exactly one layer. The `--layer` flag restricts which checks run.
+
+```bash
+spec-graph validate                  # runs all checks (all layers)
+spec-graph validate --layer arch     # runs only arch checks
+spec-graph validate --layer exec     # runs only exec checks
+spec-graph validate --layer mapping  # runs only mapping checks
+```
+
+Each issue in the response includes a `layer` field so you know which layer it came from.
+
+### Severity Levels
+
+| Severity | Agent Behavior |
+|----------|---------------|
+| `high` | must resolve before proceeding. Blocks phase start and completion. |
+| `medium` | resolution recommended. May proceed with explicit justification. |
+| `low` | informational. Review and decide. |
+
+---
+
+## Architecture Layer Checks
+
+Run with `--layer arch`. These verify the semantic integrity of arch entities and relations.
 
 ### orphans
-Detects entities with zero relations.
+Detects arch entities with zero relations.
+
 ```bash
-spec-graph validate --check orphans
+spec-graph validate --layer arch --check orphans
 ```
-- Newly added entities without any relations are flagged.
-- Draft-status orphans may be acceptable, but active-status orphans indicate a problem.
+
+| Condition | Severity |
+|-----------|----------|
+| Active arch entity has no relations | medium |
+| Draft arch entity has no relations | low |
+
+Newly added entities without any relations are flagged. Draft-status orphans may be acceptable
+during early modeling, but active-status orphans indicate a wiring problem.
+
+### coverage
+Detects missing implementations and verifications for arch entities.
+
+```bash
+spec-graph validate --layer arch --check coverage
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Active requirement has no `implements` relation | high |
+| Active requirement has no `has_criterion` | medium |
+| Active criterion has no `verifies` relation | high |
+| Interface that triggers a state has no related test | medium |
+
+- `high` severity blocks phase exit. Must be resolved.
+- `medium` severity is recommended to resolve but may proceed with justification.
 
 ### cycles
-Detects disallowed circular references.
+Detects disallowed circular references in arch relations.
+
 ```bash
-spec-graph validate --check cycles
+spec-graph validate --layer arch --check cycles
 ```
-- Catches cycles in `depends_on` chains.
-- `conflicts_with` is bidirectional by nature and is not treated as a cycle.
+
+| Condition | Severity |
+|-----------|----------|
+| Circular chain in `depends_on` | high |
+
+`conflicts_with` is bidirectional by nature and is not treated as a cycle.
 
 ### conflicts
-Detects entities linked by `conflicts_with` or policy-level conflicts.
+Detects entities with active semantic conflicts.
+
 ```bash
-spec-graph validate --check conflicts
+spec-graph validate --layer arch --check conflicts
 ```
-- If two entities within the same phase have a `conflicts_with` relation and both are active, an issue is reported.
+
+| Condition | Severity |
+|-----------|----------|
+| Two active entities in the same phase scope have a `conflicts_with` relation | high |
 
 ### invalid_edges
-Detects relations that violate the allowed edge matrix.
+Detects relations that violate the arch edge matrix.
+
 ```bash
-spec-graph validate --check invalid_edges
+spec-graph validate --layer arch --check invalid_edges
 ```
-- Normally not triggered when using `relation add` (which validates at insertion), but useful after direct DB edits or bootstrap imports.
+
+| Condition | Severity |
+|-----------|----------|
+| Arch relation violates the arch edge matrix | high |
+
+Normally not triggered when using `relation add` (which validates at insertion), but useful
+after direct DB edits or bootstrap imports.
 
 ### superseded_refs
 Detects active entities still referencing deprecated or superseded entities.
+
 ```bash
-spec-graph validate --check superseded_refs
+spec-graph validate --layer arch --check superseded_refs
 ```
-- Always run this after deprecating an entity.
-- When flagged, update references to point to the replacement entity or remove the relation.
+
+| Condition | Severity |
+|-----------|----------|
+| Active entity references a deprecated entity | medium |
+
+Always run this after deprecating an entity. When flagged, update references to point to
+the replacement entity or remove the relation.
+
+### unresolved
+Detects open questions, unverified assumptions, and unmitigated risks.
+
+```bash
+spec-graph validate --layer arch --check unresolved
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Active question with no `answers` relation | high |
+| Active assumption with `confidence: low` and no verification plan | medium |
+| Active risk with no `mitigates` relation | high |
+
+Run this before starting a phase to confirm all blocking items are resolved.
 
 ---
 
-## Coverage Checks
+## Execution Layer Checks
 
-Detects missing implementations and verifications.
+Run with `--layer exec`. These verify the structural integrity of the plan and phase graph.
+
+### phase_order
+Detects ordering problems in the phase sequence.
 
 ```bash
-spec-graph validate --check coverage
-spec-graph validate --phase PHS-002 --check coverage
+spec-graph validate --layer exec --check phase_order
 ```
 
-### Detection Rules
+| Condition | Severity |
+|-----------|----------|
+| Phase with `precedes` relation has a higher `order` value than its successor | high |
+| Phase with `blocks` relation is not ordered before the blocked phase | medium |
 
-| Condition | Meaning | Severity |
-|-----------|---------|----------|
-| Active requirement has no `implements` | missing implementation | high |
-| Active requirement has no `has_criterion` | missing acceptance criterion | medium |
-| Active criterion has no `verifies` | missing test | high |
-| Interface that triggers a state has no related test | missing state-transition test | medium |
+### single_active_plan
+Enforces the constraint that only one plan may be active at a time.
 
-### Agent Behavior
-- high severity → blocks phase exit. Must be resolved.
-- medium severity → resolution recommended, but may proceed with justification.
+```bash
+spec-graph validate --layer exec --check single_active_plan
+```
+
+| Condition | Severity |
+|-----------|----------|
+| More than one plan has `status: active` | high |
+
+This is a hard constraint in v1. Before activating a new plan, archive or deprecate the
+existing active plan.
+
+### orphan_phases
+Detects phases not connected to any plan.
+
+```bash
+spec-graph validate --layer exec --check orphan_phases
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Active phase has no `belongs_to` relation pointing to a plan | high |
+| Draft phase has no `belongs_to` relation | low |
+
+Every active phase must belong to exactly one plan.
+
+### exec_cycles
+Detects circular chains in exec relations.
+
+```bash
+spec-graph validate --layer exec --check exec_cycles
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Circular chain in `precedes` | high |
+| Circular chain in `blocks` | high |
+
+### invalid_exec_edges
+Detects relations that violate the exec edge matrix.
+
+```bash
+spec-graph validate --layer exec --check invalid_exec_edges
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Exec relation violates the exec edge matrix | high |
 
 ---
 
-## Workflow Gate Checks
+## Mapping Layer Checks
 
-Verifies prerequisites for phase entry and exit.
+Run with `--layer mapping`. These verify the cross-layer connections between arch and exec.
+`--phase` is valid with mapping checks to scope results to a specific phase.
+
+### plan_coverage
+Detects active arch requirements that are not covered by any phase.
 
 ```bash
-spec-graph validate --check gates
-spec-graph validate --phase PHS-003 --check gates
+spec-graph validate --layer mapping --check plan_coverage
 ```
 
-### Detection Rules
+| Condition | Severity |
+|-----------|----------|
+| Active requirement has no `covers` relation from any phase | high |
+| Active requirement has only deprecated `planned_in` (no `covers`) | medium |
 
-| Condition | Meaning | Severity |
-|-----------|---------|----------|
-| Phase contains unresolved questions | open questions remain | high |
-| High-risk item in phase without mitigates | unmitigated risk | high |
-| Active requirement depends on draft decision | relying on unconfirmed decision | high |
-| Entity assumes an assumption with no verification plan | unverified assumption | medium |
-| Phase completion but core planned requirement missing delivery | planned vs delivered gap | high |
+Run this before starting a phase to confirm all requirements are assigned somewhere.
 
-### Agent Behavior
-- If gate check returns high severity, do not start or complete the phase.
-- Resolve the issue first:
-  - Unresolved question → create a decision with `answers` relation, or set question status to `resolved`
-  - Unmitigated risk → add `mitigates` relation, or set risk status to `resolved`
-  - Draft decision → update decision status to `active`
-  - Unverified assumption → create a verification plan, or set assumption status to `resolved`
+### delivery_completeness
+Detects arch entities that are covered by a phase but have no delivery evidence.
+
+```bash
+spec-graph validate --layer mapping --check delivery_completeness
+spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Phase covers an arch entity but no `delivers` relation exists for it | high |
+| Phase covers an arch entity with only deprecated `delivered_in` (no `delivers`) | medium |
+
+This is the primary gate check before phase completion. Every covered arch entity must have
+at least one `delivers` relation from the phase (or from a phase that delivers its implementing
+entities as proxies).
+
+### mapping_consistency
+Detects cross-layer integrity problems.
+
+```bash
+spec-graph validate --layer mapping --check mapping_consistency
+spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
+```
+
+| Condition | Severity |
+|-----------|----------|
+| `covers` target is not an arch entity | high |
+| `delivers` target is not an arch entity | high |
+| `covers` source is not a phase | high |
+| `delivers` source is not a phase | high |
+| Phase delivers an entity it does not cover | medium |
+
+The last condition (delivers without covers) is a warning: it may indicate a delivery was
+recorded without the corresponding intent being modeled.
+
+### invalid_mapping_edges
+Detects relations that violate the mapping edge matrix.
+
+```bash
+spec-graph validate --layer mapping --check invalid_mapping_edges
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Mapping relation violates the mapping edge matrix | high |
 
 ---
 
 ## Phase Validation Guide
 
 ### Before Phase Start
+
 ```bash
-spec-graph validate --phase PHS-003 --check gates
-spec-graph validate --phase PHS-003 --check orphans
+# Exec: confirm plan is valid and phase ordering is correct
+spec-graph validate --layer exec --check single_active_plan
+spec-graph validate --layer exec --check phase_order
+spec-graph validate --layer exec --check orphan_phases
+
+# Arch: confirm no blocking open items
+spec-graph validate --layer arch --check unresolved
+
+# Mapping: confirm all requirements are assigned
+spec-graph validate --layer mapping --check plan_coverage
 ```
+
 Purpose: confirm that all prerequisites for items assigned to this phase are met.
 
 ### During Phase (on change)
+
 ```bash
-spec-graph validate --phase PHS-003
+spec-graph validate
 ```
-Purpose: ensure no rules are broken after mid-phase changes.
+
+Purpose: ensure no rules are broken after mid-phase changes. Running all layers catches
+cross-layer regressions.
 
 ### Before Phase Completion (required)
+
 ```bash
-spec-graph validate --phase PHS-003 --check coverage
-spec-graph validate --phase PHS-003 --check gates
-spec-graph validate --phase PHS-003 --check superseded_refs
+# Arch: confirm implementations and tests exist
+spec-graph validate --layer arch --check coverage
+
+# Arch: clean up stale references
+spec-graph validate --layer arch --check superseded_refs
+
+# Mapping: confirm all covered items have delivery evidence
+spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
+
+# Mapping: confirm cross-layer integrity
+spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
 ```
-Purpose: verify implementation/test completeness, open-item resolution, and stale-reference cleanup.
+
+Purpose: verify implementation/test completeness, open-item resolution, and delivery evidence.
 
 ---
 
@@ -141,18 +334,27 @@ Purpose: verify implementation/test completeness, open-item resolution, and stal
       "check": "coverage",
       "severity": "high",
       "entity": "REQ-007",
+      "layer": "arch",
       "message": "No implementation found"
     },
     {
-      "check": "gates",
+      "check": "delivery_completeness",
       "severity": "high",
       "entity": "PHS-002",
-      "message": "Unresolved question remains while attempting phase completion"
+      "layer": "mapping",
+      "message": "Phase covers REQ-007 but no delivers relation exists"
+    },
+    {
+      "check": "single_active_plan",
+      "severity": "high",
+      "entity": "PLN-002",
+      "layer": "exec",
+      "message": "Multiple active plans found: PLN-001, PLN-002"
     }
   ],
   "summary": {
-    "total_issues": 2,
-    "by_severity": {"high": 2, "medium": 0, "low": 0}
+    "total_issues": 3,
+    "by_severity": {"high": 3, "medium": 0, "low": 0}
   }
 }
 ```
@@ -161,3 +363,17 @@ Purpose: verify implementation/test completeness, open-item resolution, and stal
 - `valid: true` → safe to proceed to the next step.
 - `valid: false` + high severity → must resolve before proceeding.
 - `valid: false` + medium/low only → report to the user and let them decide.
+
+### Resolving Common Issues
+
+| Issue | Resolution |
+|-------|-----------|
+| `coverage`: no implementation | add `implements` relation from an interface to the requirement |
+| `coverage`: no criterion | add `has_criterion` relation and create an ACT entity |
+| `unresolved`: open question | create a decision with `answers` relation, or set question to `resolved` |
+| `unresolved`: unmitigated risk | add `mitigates` relation, or set risk to `resolved` |
+| `single_active_plan`: multiple active | set all but one plan to `archived` or `deprecated` |
+| `orphan_phases`: phase not in plan | add `belongs_to` relation from phase to the active plan |
+| `delivery_completeness`: no delivers | add `delivers` from the phase to the implementing entity (minimal proxy set) |
+| `mapping_consistency`: delivers without covers | add `covers` relation, or investigate whether the delivery is correct |
+| `superseded_refs`: stale reference | update relation to point to the replacement entity, or remove it |

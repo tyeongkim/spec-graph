@@ -24,6 +24,7 @@ func TestScanFile_EntityExtraction(t *testing.T) {
 		name      string
 		id        string
 		wantType  string
+		wantLayer string
 		wantTitle string
 		minConf   float64
 		maxConf   float64
@@ -32,6 +33,7 @@ func TestScanFile_EntityExtraction(t *testing.T) {
 			name:      "heading entity with title",
 			id:        "REQ-001",
 			wantType:  "requirement",
+			wantLayer: "arch",
 			wantTitle: "All APIs require authentication",
 			minConf:   0.9,
 			maxConf:   0.9,
@@ -40,16 +42,18 @@ func TestScanFile_EntityExtraction(t *testing.T) {
 			name:      "heading entity with title 2",
 			id:        "REQ-002",
 			wantType:  "requirement",
+			wantLayer: "arch",
 			wantTitle: "Rate limiting on public endpoints",
 			minConf:   0.9,
 			maxConf:   0.9,
 		},
 		{
-			name:     "inline mention without heading",
-			id:       "REQ-003",
-			wantType: "requirement",
-			minConf:  0.5,
-			maxConf:  0.5,
+			name:      "inline mention without heading",
+			id:        "REQ-003",
+			wantType:  "requirement",
+			wantLayer: "arch",
+			minConf:   0.5,
+			maxConf:   0.5,
 		},
 	}
 
@@ -61,6 +65,9 @@ func TestScanFile_EntityExtraction(t *testing.T) {
 			}
 			if e.Type != tt.wantType {
 				t.Errorf("Type = %q, want %q", e.Type, tt.wantType)
+			}
+			if e.Layer != tt.wantLayer {
+				t.Errorf("Layer = %q, want %q", e.Layer, tt.wantLayer)
 			}
 			if tt.wantTitle != "" && e.Title != tt.wantTitle {
 				t.Errorf("Title = %q, want %q", e.Title, tt.wantTitle)
@@ -162,20 +169,21 @@ func TestScanFile_SourceFormat(t *testing.T) {
 
 func TestScanFile_TypeInference(t *testing.T) {
 	tests := []struct {
-		prefix   string
-		wantType string
+		prefix    string
+		wantType  string
+		wantLayer string
 	}{
-		{"REQ", "requirement"},
-		{"DEC", "decision"},
-		{"PHS", "phase"},
-		{"API", "interface"},
-		{"STT", "state"},
-		{"TST", "test"},
-		{"XCT", "crosscut"},
-		{"QST", "question"},
-		{"ASM", "assumption"},
-		{"ACT", "criterion"},
-		{"RSK", "risk"},
+		{"REQ", "requirement", "arch"},
+		{"DEC", "decision", "arch"},
+		{"PHS", "phase", "exec"},
+		{"API", "interface", "arch"},
+		{"STT", "state", "arch"},
+		{"TST", "test", "arch"},
+		{"XCT", "crosscut", "arch"},
+		{"QST", "question", "arch"},
+		{"ASM", "assumption", "arch"},
+		{"ACT", "criterion", "arch"},
+		{"RSK", "risk", "arch"},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +191,10 @@ func TestScanFile_TypeInference(t *testing.T) {
 			got := inferType(tt.prefix + "-001")
 			if got != tt.wantType {
 				t.Errorf("inferType(%s-001) = %q, want %q", tt.prefix, got, tt.wantType)
+			}
+			gotLayer := inferLayer(tt.prefix + "-001")
+			if gotLayer != tt.wantLayer {
+				t.Errorf("inferLayer(%s-001) = %q, want %q", tt.prefix, gotLayer, tt.wantLayer)
 			}
 		})
 	}

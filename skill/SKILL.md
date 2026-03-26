@@ -25,12 +25,45 @@ Four core capabilities:
 - **Consistency Validation** — check graph integrity and workflow gates
 - **Agent Coordination** — work only on computed affected targets, not entire documents
 
+## Three-Layer Architecture
+
+v1 organizes the graph into three distinct layers. Each layer has its own entity types,
+relation types, edge matrix, and validation checks.
+
+### arch (architecture layer)
+Contains the "what" and "why" of the system: requirements, decisions, interfaces, states,
+tests, and supporting entities. This is where semantic meaning lives.
+
+Entity types: `requirement`, `decision`, `interface`, `state`, `test`, `crosscut`,
+`criterion`, `assumption`, `risk`, `question`
+
+Relation types: `implements`, `verifies`, `depends_on`, `constrained_by`, `triggers`,
+`answers`, `assumes`, `has_criterion`, `mitigates`, `supersedes`, `conflicts_with`, `references`
+
+### exec (execution layer)
+Contains the "when" and "how" of delivery: plans and phases. A plan groups phases into
+a single active delivery sequence. Only one plan may be active at a time.
+
+Entity types: `plan`, `phase`
+
+Relation types: `belongs_to` (phase→plan), `precedes` (phase→phase), `blocks` (phase→phase)
+
+### mapping (cross-layer)
+Connects arch entities to exec entities. This is where intent meets delivery.
+
+Relation types: `covers` (phase→arch entity), `delivers` (phase→arch entity)
+
+`covers` replaces the deprecated `planned_in` — direction is inverted (phase→arch, not arch→phase).
+`delivers` replaces the deprecated `delivered_in` — same inversion.
+
 ## Core Principles
 
 1. **Compute first**: never modify by guesswork. Always run `impact` and `validate` to identify targets before making changes.
 2. **JSON contract**: all CLI output goes to JSON stdout. Parse it to decide the next action.
-3. **Phase gates**: always run `validate --phase` before starting or completing a phase.
-4. **Changeset grouping**: bundle related changes into a single changeset.
+3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
+4. **Phase gates**: always run `validate --layer mapping --phase` before completing a phase.
+5. **Changeset grouping**: bundle related changes into a single changeset.
+6. **covers/delivers over planned_in/delivered_in**: use the v1 mapping relations. The legacy relations still work but are deprecated and will be removed.
 
 ---
 
@@ -48,7 +81,7 @@ spec-graph init --path /custom/path
 ```bash
 spec-graph entity add --type <TYPE> --id <ID> --title "..." [--description "..."] [--metadata '{}']
 spec-graph entity get <ID>
-spec-graph entity list --type <TYPE> [--status <STATUS>]
+spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapping|all]
 spec-graph entity update <ID> --title "..." --reason "..."
 spec-graph entity deprecate <ID> --reason "..."
 spec-graph entity delete <ID>
@@ -57,22 +90,28 @@ spec-graph entity delete <ID>
 ### Relation CRUD
 ```bash
 spec-graph relation add --from <ID> --to <ID> --type <RELATION_TYPE>
-spec-graph relation list --from <ID>
+spec-graph relation list --from <ID> [--layer arch|exec|mapping|all]
 spec-graph relation delete --from <ID> --to <ID> --type <RELATION_TYPE>
 ```
 
 ### Impact Analysis
 ```bash
 spec-graph impact <ID> [<ID>...]
-spec-graph impact <ID> --follow implements,verifies,planned_in
+spec-graph impact <ID> --follow implements,verifies,covers
 spec-graph impact <ID> --min-severity medium
 spec-graph impact <ID> --dimension structural|behavioral|planning
+spec-graph impact <ID> --layer arch
 ```
 
 ### Validation
 ```bash
 spec-graph validate
-spec-graph validate --check orphans|coverage|cycles|conflicts|gates|invalid_edges|superseded_refs
+spec-graph validate --layer arch
+spec-graph validate --layer exec
+spec-graph validate --layer mapping
+spec-graph validate --check orphans|coverage|cycles|conflicts|invalid_edges|superseded_refs|unresolved
+spec-graph validate --check phase_order|single_active_plan|orphan_phases|exec_cycles|invalid_exec_edges
+spec-graph validate --check plan_coverage|delivery_completeness|mapping_consistency|invalid_mapping_edges
 spec-graph validate --phase <PHS-ID>
 spec-graph validate --entity <ID>
 ```
@@ -97,6 +136,7 @@ spec-graph history relation <FROM>:<TO>:<TYPE>
 ```bash
 spec-graph export --format json|dot|mermaid
 spec-graph export --center <ID> --depth 3 --format json
+spec-graph export --layer arch --format dot
 ```
 
 ### Bootstrap
@@ -109,31 +149,39 @@ spec-graph bootstrap import --input extracted.json --mode review
 
 ## Entity & Relation Quick Reference
 
-See `references/data-model.md` for full type catalog, metadata schemas, and allowed edge matrix.
+See `references/data-model.md` for full type catalog, metadata schemas, and edge matrices.
 
-### Entity Types (11)
+### Entity Types (12)
 
-| Prefix | Type | Purpose |
-|--------|------|---------|
-| REQ | requirement | functional / non-functional requirement |
-| DEC | decision | policy / architecture decision |
-| PHS | phase | development phase or milestone |
-| API | interface | API contract, module interface, event contract |
-| STT | state | state or state-transition rule |
-| TST | test | test case / scenario |
-| XCT | crosscut | cross-cutting concern (auth, audit, etc.) |
-| QST | question | unresolved question |
-| ASM | assumption | unverified assumption |
-| ACT | criterion | acceptance criterion |
-| RSK | risk | explicit risk item |
+| Prefix | Type | Layer | Purpose |
+|--------|------|-------|---------|
+| REQ | requirement | arch | functional / non-functional requirement |
+| DEC | decision | arch | policy / architecture decision |
+| API | interface | arch | API contract, module interface, event contract |
+| STT | state | arch | state or state-transition rule |
+| TST | test | arch | test case / scenario |
+| XCT | crosscut | arch | cross-cutting concern (auth, audit, etc.) |
+| QST | question | arch | unresolved question |
+| ASM | assumption | arch | unverified assumption |
+| ACT | criterion | arch | acceptance criterion |
+| RSK | risk | arch | explicit risk item |
+| PLN | plan | exec | delivery plan grouping phases |
+| PHS | phase | exec | development phase or milestone |
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
 
-### Relation Types (14)
+### Relation Types (19)
 
-`implements`, `verifies`, `depends_on`, `constrained_by`, `planned_in`, `delivered_in`,
-`triggers`, `answers`, `assumes`, `has_criterion`, `mitigates`, `supersedes`,
-`conflicts_with`, `references`
+**Architecture layer (12):**
+`implements`, `verifies`, `depends_on`, `constrained_by`, `triggers`, `answers`,
+`assumes`, `has_criterion`, `mitigates`, `supersedes`, `conflicts_with`, `references`
+
+**Execution layer (3):**
+`belongs_to`, `precedes`, `blocks`
+
+**Mapping layer (4, includes 2 deprecated):**
+`covers`, `delivers` — use these
+`planned_in`, `delivered_in` — deprecated, still functional, will be removed in a future release
 
 ---
 
@@ -141,29 +189,39 @@ See `references/data-model.md` for full type catalog, metadata schemas, and allo
 
 This section is the heart of this skill. Agents follow these patterns.
 
-### Pattern 1: Phase Planning
+### Pattern 1: Plan and Phase Setup
 
-Create a new phase and assign requirements:
+Create a plan, add phases to it, and wire up the mapping:
 
 ```bash
-# 1. Create phase
-spec-graph entity add --type phase --id PHS-003 \
-  --title "Phase 3 - Payment" \
-  --metadata '{"goal":"Build payment system","order":3,"exit_criteria":["Payment API complete","E2E tests pass"]}'
+# 1. Create the plan (only one active plan allowed)
+spec-graph entity add --type plan --id PLN-001 \
+  --title "v1 Delivery Plan" \
+  --metadata '{"status":"active"}'
 
-# 2. Assign requirements to phase
-spec-graph relation add --from REQ-010 --to PHS-003 --type planned_in
-spec-graph relation add --from REQ-011 --to PHS-003 --type planned_in
+# 2. Create phases
+spec-graph entity add --type phase --id PHS-001 \
+  --title "Phase 1 - Auth" \
+  --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete","E2E tests pass"]}'
 
-# 3. Gate check — verify prerequisites before starting
-spec-graph validate --phase PHS-003 --check gates
+# 3. Assign phases to plan
+spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
+
+# 4. Set phase ordering
+spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
+
+# 5. Map arch entities to phases using covers (not planned_in)
+spec-graph relation add --from PHS-001 --to REQ-001 --type covers
+spec-graph relation add --from PHS-001 --to REQ-002 --type covers
+
+# 6. Gate check before starting
+spec-graph validate --layer exec --check single_active_plan
+spec-graph validate --layer exec --check phase_order
 ```
-
-If gate check reports issues (unresolved questions, unmitigated risks, etc.), resolve them first.
 
 ### Pattern 2: Change Handling
 
-When an existing entity changes, **always run impact first**:
+When an existing entity changes, always run impact first:
 
 ```bash
 # 1. Compute impact — what else must change
@@ -182,59 +240,60 @@ spec-graph entity update DEC-031 --title "New decision" --reason "Policy change"
 spec-graph validate
 ```
 
-**Never do this**: modify related entities by guesswork without running impact first.
+Never modify related entities by guesswork without running impact first.
 
 ### Pattern 3: Phase Exit
 
-Before completing a phase, always run these:
+Before completing a phase, always run these checks:
 
 ```bash
-# 1. Review phase scope — what is included
+# 1. Review phase scope — what arch entities are covered
 spec-graph query scope PHS-002
 
-# 2. Coverage check — find missing implementations / tests
-spec-graph validate --phase PHS-002 --check coverage
+# 2. Arch coverage check — missing implementations / tests
+spec-graph validate --layer arch --check coverage
 
-# 3. Gate check — unresolved questions, unmitigated risks, etc.
-spec-graph validate --phase PHS-002 --check gates
+# 3. Mapping completeness — covered items that have no delivery
+spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
+
+# 4. Mapping consistency — cross-layer integrity
+spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
+
+# 5. Exec gate check — phase ordering, plan validity
+spec-graph validate --layer exec --check phase_order
 ```
 
 If validate reports issues, do not complete the phase. Resolve issues first.
 
-#### Handling "planned but not delivered" gate failures
+#### Handling "covered but not delivered" mapping failures
 
-Some entity types (e.g. `requirement`) cannot hold `delivered_in` directly per the edge matrix.
-When the gate reports a requirement as "planned but not delivered," this is a **model-level signal**,
-not a cue to bulk-add relations. Follow this procedure:
+When `delivery_completeness` reports a covered arch entity has no `delivers` relation:
 
 ```bash
-# 1. Identify the requirement the gate is complaining about
-spec-graph query neighbors REQ-001 --depth 1
+# 1. Identify what the phase covers
+spec-graph query scope PHS-002
 
-# 2. Find its implementing entities (interface, test, state)
-spec-graph relation list --from REQ-001   # or --to REQ-001 for verifies/implements
+# 2. Find implementing entities for the requirement
+spec-graph relation list --to REQ-001   # find what implements/verifies REQ-001
 
-# 3. Determine the MINIMAL proxy set — only the entities that directly
-#    satisfy this requirement's delivery in this phase
-#    Ask: "Which implementing entities are necessary and sufficient
-#    to consider REQ-001 delivered in PHS-002?"
+# 3. Determine the MINIMAL proxy set — only entities whose delivery in this
+#    phase is necessary and sufficient to consider REQ-001 delivered
 
-# 4. Add delivered_in ONLY for that minimal set
-spec-graph relation add --from API-005 --to PHS-002 --type delivered_in
-spec-graph relation add --from TST-001 --to PHS-002 --type delivered_in
+# 4. Add delivers ONLY for that minimal set
+spec-graph relation add --from PHS-002 --to API-005 --type delivers
+spec-graph relation add --from PHS-002 --to TST-001 --type delivers
 
 # 5. Re-validate
-spec-graph validate --phase PHS-002 --check gates
+spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
 ```
 
-**Critical rules for delivery proxy resolution:**
+Critical rules for delivery proxy resolution:
 - Compute the minimum set of implementing entities per requirement. Do not add all related entities.
-- If the gate still fails after adding the minimal proxy set, investigate the validator semantics
-  or the graph model before expanding further. Do not blindly widen the delivered set.
-- Apply the same precision level consistently across all phases. If Phase 3 uses minimal proxies,
-  Phase 2 must use the same standard.
-- After adding proxy relations, verify semantic correctness: does each `delivered_in` accurately
-  represent work completed in this phase, or is it just silencing the gate?
+- If the check still fails after adding the minimal proxy set, investigate the validator semantics
+  or the graph model before expanding further.
+- Apply the same precision level consistently across all phases.
+- After adding proxy relations, verify semantic correctness: does each `delivers` accurately
+  represent work completed in this phase, or is it just silencing the check?
 
 ### Pattern 4: Full Patch Orchestration (recommended)
 
@@ -253,10 +312,9 @@ The safest change-handling flow:
 The agent modifies only entities in the `affected` list from step 2.
 If an entity outside the list needs modification, first run `query neighbors` to verify the relationship.
 
-**Step 5 (semantic review) is critical.** Before re-validating, review every relation you added
-and ask: "Does this relation reflect a real semantic relationship, or am I adding it to pass a gate?"
-Gate passage alone does not prove graph correctness. A graph that passes all gates but contains
-over-broad relations is worse than one that fails a gate with an honest gap.
+Step 5 (semantic review) is critical. Before re-validating, review every relation you added
+and ask: "Does this relation reflect a real semantic relationship, or am I adding it to pass a check?"
+Check passage alone does not prove graph correctness.
 
 ### Pattern 5: Adding a Requirement
 
@@ -274,14 +332,14 @@ spec-graph entity add --type criterion --id ACT-020 \
   --metadata '{"given":"Payment request already sent","when":"Same request resent","then":"No duplicate processing; return existing result"}'
 spec-graph relation add --from REQ-015 --to ACT-020 --type has_criterion
 
-# 3. Assign to phase
-spec-graph relation add --from REQ-015 --to PHS-003 --type planned_in
+# 3. Map to phase using covers (not planned_in)
+spec-graph relation add --from PHS-003 --to REQ-015 --type covers
 
 # 4. Link crosscut constraint (if applicable)
 spec-graph relation add --from REQ-015 --to XCT-002 --type constrained_by
 
-# 5. Validate
-spec-graph validate --entity REQ-015
+# 5. Validate arch layer
+spec-graph validate --layer arch --entity REQ-015
 ```
 
 ### Pattern 6: Bootstrap (graph from existing docs)
@@ -308,26 +366,50 @@ cross-reference against the source document before deciding.
 
 When to use each check. See `references/validation-rules.md` for detailed rules.
 
+### Architecture Layer (`--layer arch`)
+
 | Check | Purpose | When to Run |
 |-------|---------|-------------|
-| `orphans` | isolated entities with no relations | periodic cleanup, before phase start |
+| `orphans` | isolated arch entities with no relations | periodic cleanup, before phase start |
 | `coverage` | missing implementations / tests | required before phase exit |
-| `cycles` | disallowed circular references | after adding relations |
+| `cycles` | circular references in depends_on chains | after adding relations |
 | `conflicts` | semantic conflicts between entities | after changes |
-| `gates` | phase entry/exit prerequisites | required at phase start and completion |
-| `invalid_edges` | edge matrix violations | after adding relations |
+| `invalid_edges` | arch edge matrix violations | after adding relations |
 | `superseded_refs` | active refs to deprecated entities | after deprecation |
+| `unresolved` | open questions, unverified assumptions, unmitigated risks | before phase start |
+
+### Execution Layer (`--layer exec`)
+
+| Check | Purpose | When to Run |
+|-------|---------|-------------|
+| `phase_order` | valid phase sequence | after adding exec relations |
+| `single_active_plan` | only one active plan | after plan creation or status change |
+| `orphan_phases` | phases not in any plan | after adding phases |
+| `exec_cycles` | circular precedes/blocks chains | after adding exec relations |
+| `invalid_exec_edges` | exec edge matrix violations | after adding exec relations |
+
+### Mapping Layer (`--layer mapping`)
+
+| Check | Purpose | When to Run |
+|-------|---------|-------------|
+| `plan_coverage` | all active requirements covered | before phase start |
+| `delivery_completeness` | covered entities have delivery evidence | required before phase exit |
+| `mapping_consistency` | covers/delivers targets are valid arch entities | after adding mapping relations |
+| `invalid_mapping_edges` | mapping edge matrix violations | after adding mapping relations |
 
 ### Common Combinations
 
 ```bash
 # Before phase start
-spec-graph validate --phase PHS-003 --check gates
-spec-graph validate --phase PHS-003 --check orphans
+spec-graph validate --layer exec --check single_active_plan
+spec-graph validate --layer exec --check phase_order
+spec-graph validate --layer arch --check unresolved
+spec-graph validate --layer mapping --check plan_coverage
 
 # Before phase completion (required)
-spec-graph validate --phase PHS-003 --check coverage
-spec-graph validate --phase PHS-003 --check gates
+spec-graph validate --layer arch --check coverage
+spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
+spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
 
 # After any change
 spec-graph validate
@@ -345,6 +427,7 @@ Key fields in `impact` JSON output:
     {
       "id": "API-005",
       "type": "interface",
+      "layer": "arch",
       "depth": 1,
       "impact": {
         "overall": "high",
@@ -394,38 +477,56 @@ Key fields in `impact` JSON output:
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.
   On failure, consult the edge matrix in `references/data-model.md`.
 - `metadata` is a JSON string. Each type has required fields — see `references/data-model.md`.
+- `--phase` is only valid with `--layer mapping` or `--layer all`. Using `--phase` with
+  `--layer arch` or `--layer exec` returns an error (exit 3).
+- Only one plan may have `active` status at a time. The `single_active_plan` exec check
+  enforces this.
 
 ## Anti-Patterns
 
 These are known failure modes. If you catch yourself doing any of these, stop and reconsider.
 
-### 1. Gate-driven patching
-**Symptom**: gate fails → add relations broadly until gate passes → commit.
-**Why it's wrong**: passing a gate does not mean the graph is correct. Over-broad relations
+### 1. Mixing arch and exec concerns
+**Symptom**: adding a requirement directly to a phase using `planned_in` (arch→exec direction),
+or treating a phase as an arch entity by linking it with arch-only relations.
+**Why it's wrong**: arch and exec are separate layers with separate edge matrices. Cross-layer
+connections belong in the mapping layer using `covers` and `delivers`.
+**Correct approach**: use `covers` (phase→arch) to express intent, `delivers` (phase→arch)
+to express completion. Never use `planned_in` or `delivered_in` for new work.
+
+### 2. Using planned_in / delivered_in for new relations
+**Symptom**: adding `planned_in` or `delivered_in` relations in new work.
+**Why it's wrong**: these relations are deprecated in v1. They still function for backward
+compatibility but will be removed. New graphs should use `covers` and `delivers`.
+**Correct approach**: use `covers` instead of `planned_in`, `delivers` instead of `delivered_in`.
+Note the direction is inverted: `phase --covers--> arch_entity` (not `arch_entity --planned_in--> phase`).
+
+### 3. Check-driven patching
+**Symptom**: check fails → add relations broadly until check passes → commit.
+**Why it's wrong**: passing a check does not mean the graph is correct. Over-broad relations
 pollute the graph and produce inaccurate impact analysis downstream.
-**Correct approach**: diagnose *why* the gate fails, compute the minimal fix, verify semantic
+**Correct approach**: diagnose why the check fails, compute the minimal fix, verify semantic
 accuracy, then re-validate.
 
-### 2. Bulk delivered_in expansion
-**Symptom**: a requirement is "planned but not delivered" → add `delivered_in` for every
+### 4. Bulk delivers expansion
+**Symptom**: a requirement is "covered but not delivered" → add `delivers` for every
 related interface, state, and test to the phase.
-**Why it's wrong**: not all implementing entities belong to every phase. Each `delivered_in`
+**Why it's wrong**: not all implementing entities belong to every phase. Each `delivers`
 must represent actual delivery in that specific phase.
 **Correct approach**: identify the minimal proxy set per requirement. Only entities whose
 delivery in this phase is necessary and sufficient to consider the requirement fulfilled.
 
-### 3. Semantic ambiguity bypass
+### 5. Semantic ambiguity bypass
 **Symptom**: discover a model-level conflict (e.g. edge matrix prevents a relation type
-the gate seems to require) → work around it by expanding other relations instead of
+the check seems to require) → work around it by expanding other relations instead of
 investigating the conflict.
 **Why it's wrong**: the conflict is a signal that either (a) the graph model needs revision,
 (b) the validator semantics need clarification, or (c) the agent's understanding is incomplete.
-Expanding relations without resolving the ambiguity compounds the error.
 **Correct approach**: when you encounter a semantic conflict between edge matrix constraints
 and validator expectations, stop and investigate. Check `references/data-model.md` for the
 intended semantics. If the conflict is genuine, report it to the user rather than working around it.
 
-### 4. Inconsistent precision across phases
+### 6. Inconsistent precision across phases
 **Symptom**: Phase N uses broad relation additions, Phase N+1 uses precise minimal additions.
 **Why it's wrong**: the same rules must apply uniformly. If Phase 3 adds only 3 delivery
 proxies, Phase 2 should not have added 15 for a similar scope.
