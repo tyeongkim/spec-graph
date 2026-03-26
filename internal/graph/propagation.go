@@ -109,6 +109,26 @@ var PropagationTable = map[model.RelationType]PropagationRule{
 		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.1, Planning: 0.1},
 		Note:      "bidirectional weak",
 	},
+	model.RelationCovers: {
+		Direction: Forward,
+		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.2, Planning: 0.8},
+	},
+	model.RelationDelivers: {
+		Direction: Forward,
+		Scores:    DimensionScores{Structural: 0.3, Behavioral: 0.3, Planning: 0.9},
+	},
+	model.RelationBelongsTo: {
+		Direction: Forward,
+		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.1, Planning: 0.7},
+	},
+	model.RelationPrecedes: {
+		Direction: Forward,
+		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.1, Planning: 0.6},
+	},
+	model.RelationBlocks: {
+		Direction: Forward,
+		Scores:    DimensionScores{Structural: 0.2, Behavioral: 0.2, Planning: 0.8},
+	},
 }
 
 // ReasonTemplates maps each RelationType to a human-readable reason string
@@ -128,6 +148,11 @@ var ReasonTemplates = map[model.RelationType]string{
 	model.RelationSupersedes:    "superseded entity",
 	model.RelationConflictsWith: "semantic conflict",
 	model.RelationReferences:    "weak reference",
+	model.RelationCovers:        "coverage mapping",
+	model.RelationDelivers:      "delivery mapping",
+	model.RelationBelongsTo:     "phase membership",
+	model.RelationPrecedes:      "phase ordering",
+	model.RelationBlocks:        "blocking dependency",
 }
 
 // ScoreToSeverity converts a numeric propagation score to a Severity level.

@@ -29,6 +29,8 @@ type ImpactOptions struct {
 	MinSeverity *Severity
 	// Dimension restricts scoring to a single dimension. nil = all dimensions.
 	Dimension *string
+	// Layer restricts traversal to entities in this layer. nil = all layers.
+	Layer *model.Layer
 }
 
 // AffectedEntity describes a single entity reached during impact traversal.
@@ -65,6 +67,8 @@ type ValidateOptions struct {
 	Phase *string
 	// EntityID restricts reported issues to those for this specific entity. "" = all entities.
 	EntityID string
+	// Layer restricts validation to entities in this layer. nil = all layers.
+	Layer *model.Layer
 }
 
 // ValidationIssue represents a single problem found during validation.
@@ -92,6 +96,8 @@ type ValidateResult struct {
 type QueryScopeOptions struct {
 	// PhaseID is the ID of the phase entity to scope by.
 	PhaseID string
+	// Layer restricts scoped entities to this layer. nil = all layers.
+	Layer *model.Layer
 }
 
 // QueryScopeResult holds entities and relations belonging to a phase scope.
@@ -107,6 +113,8 @@ type QueryPathOptions struct {
 	FromID string
 	// ToID is the target entity ID.
 	ToID string
+	// Layer restricts path traversal to entities in this layer. nil = all layers.
+	Layer *model.Layer
 }
 
 // PathNode represents a single step in a traversal path.

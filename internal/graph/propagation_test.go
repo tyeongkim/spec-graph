@@ -21,11 +21,16 @@ var allRelationTypes = []model.RelationType{
 	model.RelationSupersedes,
 	model.RelationConflictsWith,
 	model.RelationReferences,
+	model.RelationCovers,
+	model.RelationDelivers,
+	model.RelationBelongsTo,
+	model.RelationPrecedes,
+	model.RelationBlocks,
 }
 
 func TestPropagationTableCompleteness(t *testing.T) {
-	if len(PropagationTable) != 14 {
-		t.Errorf("PropagationTable has %d entries; want 14", len(PropagationTable))
+	if len(PropagationTable) != 19 {
+		t.Errorf("PropagationTable has %d entries; want 19", len(PropagationTable))
 	}
 	for _, rt := range allRelationTypes {
 		if _, ok := PropagationTable[rt]; !ok {
@@ -97,8 +102,8 @@ func TestReverseWeakFactor(t *testing.T) {
 }
 
 func TestReasonTemplates(t *testing.T) {
-	if len(ReasonTemplates) != 14 {
-		t.Errorf("ReasonTemplates has %d entries; want 14", len(ReasonTemplates))
+	if len(ReasonTemplates) != 19 {
+		t.Errorf("ReasonTemplates has %d entries; want 19", len(ReasonTemplates))
 	}
 	for _, rt := range allRelationTypes {
 		reason, ok := ReasonTemplates[rt]

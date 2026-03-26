@@ -59,14 +59,14 @@ var exportCmd = &cobra.Command{
 		}
 
 		if format == "json" {
-			result := graph.ExportJSON(entities, relations)
+			result := graph.ExportJSON(entities, relations, nil)
 			writeJSON(cmd, result)
 		} else {
 			var output string
 			if format == "dot" {
-				output = graph.ExportDOT(entities, relations)
+				output = graph.ExportDOT(entities, relations, nil)
 			} else {
-				output = graph.ExportMermaid(entities, relations)
+				output = graph.ExportMermaid(entities, relations, nil)
 			}
 			fmt.Fprint(cmd.OutOrStdout(), output)
 		}

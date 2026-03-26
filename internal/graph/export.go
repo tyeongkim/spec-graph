@@ -10,6 +10,47 @@ import (
 	"github.com/taeyeong/spec-graph/internal/model"
 )
 
+// ExportOptions controls optional filtering and styling for export functions.
+type ExportOptions struct {
+	// Layer restricts output to entities/relations in this layer. nil = all layers.
+	Layer *model.Layer
+}
+
+// filterByLayer returns filtered copies of entities and relations matching the given layer.
+// If layer is nil, the original slices are returned unchanged.
+func filterByLayer(entities []model.Entity, relations []model.Relation, layer *model.Layer) ([]model.Entity, []model.Relation) {
+	if layer == nil {
+		return entities, relations
+	}
+	l := *layer
+	idSet := make(map[string]bool)
+	var fe []model.Entity
+	for _, e := range entities {
+		if model.LayerForEntityType(e.Type) == l {
+			fe = append(fe, e)
+			idSet[e.ID] = true
+		}
+	}
+	var fr []model.Relation
+	for _, r := range relations {
+		rl := model.LayerForRelationType(r.Type)
+		if rl == l {
+			fr = append(fr, r)
+		} else if l != model.LayerMapping && rl == model.LayerMapping && idSet[r.FromID] && idSet[r.ToID] {
+			// Include mapping relations when both endpoints are in the filtered set.
+			fr = append(fr, r)
+		}
+	}
+	return fe, fr
+}
+
+// dotFillColor maps layers to Graphviz fill colors.
+var dotFillColor = map[model.Layer]string{
+	model.LayerArch:    "lightblue",
+	model.LayerExec:    "lightyellow",
+	model.LayerMapping: "lavender",
+}
+
 // dotShape maps entity types to Graphviz DOT node shapes.
 var dotShape = map[model.EntityType]string{
 	model.EntityTypeRequirement: "box",
@@ -25,9 +66,11 @@ var dotShape = map[model.EntityType]string{
 	model.EntityTypeRisk:        "triangle",
 }
 
-// ExportDOT renders entities and relations as a Graphviz DOT digraph.
-// Output is deterministic: nodes sorted by ID, edges by (from_id, to_id, type).
-func ExportDOT(entities []model.Entity, relations []model.Relation) string {
+func ExportDOT(entities []model.Entity, relations []model.Relation, opts *ExportOptions) string {
+	if opts != nil {
+		entities, relations = filterByLayer(entities, relations, opts.Layer)
+	}
+
 	var b strings.Builder
 	b.WriteString("digraph spec_graph {\n")
 
@@ -40,7 +83,11 @@ func ExportDOT(entities []model.Entity, relations []model.Relation) string {
 		if shape == "" {
 			shape = "box"
 		}
-		fmt.Fprintf(&b, "  %q [label=%q shape=%s];\n", e.ID, e.ID+"\n"+e.Title, shape)
+		fill := dotFillColor[model.LayerForEntityType(e.Type)]
+		if fill == "" {
+			fill = "white"
+		}
+		fmt.Fprintf(&b, "  %q [label=%q shape=%s style=filled fillcolor=%s];\n", e.ID, e.ID+"\n"+e.Title, shape, fill)
 	}
 
 	sortedRels := make([]model.Relation, len(relations))
@@ -56,11 +103,20 @@ func ExportDOT(entities []model.Entity, relations []model.Relation) string {
 	})
 
 	for _, r := range sortedRels {
-		fmt.Fprintf(&b, "  %q -> %q [label=%q];\n", r.FromID, r.ToID, string(r.Type))
+		if model.LayerForRelationType(r.Type) == model.LayerMapping {
+			fmt.Fprintf(&b, "  %q -> %q [label=%q style=dashed];\n", r.FromID, r.ToID, string(r.Type))
+		} else {
+			fmt.Fprintf(&b, "  %q -> %q [label=%q];\n", r.FromID, r.ToID, string(r.Type))
+		}
 	}
 
 	b.WriteString("}\n")
 	return b.String()
+}
+
+var mermaidLayerClass = map[model.Layer]string{
+	model.LayerArch: "arch",
+	model.LayerExec: "exec",
 }
 
 // mermaidBrackets maps entity types to Mermaid node bracket styles.
@@ -79,9 +135,11 @@ var mermaidBrackets = map[model.EntityType][2]string{
 	model.EntityTypeRisk:        {"[/\"", "\"\\]"},
 }
 
-// ExportMermaid renders entities and relations as a Mermaid flowchart LR diagram.
-// Output is deterministic: nodes sorted by ID, edges by (from_id, to_id, type).
-func ExportMermaid(entities []model.Entity, relations []model.Relation) string {
+func ExportMermaid(entities []model.Entity, relations []model.Relation, opts *ExportOptions) string {
+	if opts != nil {
+		entities, relations = filterByLayer(entities, relations, opts.Layer)
+	}
+
 	var b strings.Builder
 	b.WriteString("flowchart LR\n")
 
@@ -95,7 +153,13 @@ func ExportMermaid(entities []model.Entity, relations []model.Relation) string {
 			brackets = [2]string{"[\"", "\"]"}
 		}
 		title := mermaidEscape(e.Title)
-		fmt.Fprintf(&b, "  %s%s%s: %s%s\n", e.ID, brackets[0], e.ID, title, brackets[1])
+		layer := model.LayerForEntityType(e.Type)
+		cls := mermaidLayerClass[layer]
+		if cls != "" {
+			fmt.Fprintf(&b, "  %s%s%s: %s%s:::%s\n", e.ID, brackets[0], e.ID, title, brackets[1], cls)
+		} else {
+			fmt.Fprintf(&b, "  %s%s%s: %s%s\n", e.ID, brackets[0], e.ID, title, brackets[1])
+		}
 	}
 
 	sortedRels := make([]model.Relation, len(relations))
@@ -111,7 +175,11 @@ func ExportMermaid(entities []model.Entity, relations []model.Relation) string {
 	})
 
 	for _, r := range sortedRels {
-		fmt.Fprintf(&b, "  %s -->|%s| %s\n", r.FromID, mermaidEscape(string(r.Type)), r.ToID)
+		if model.LayerForRelationType(r.Type) == model.LayerMapping {
+			fmt.Fprintf(&b, "  %s -.->|%s| %s\n", r.FromID, mermaidEscape(string(r.Type)), r.ToID)
+		} else {
+			fmt.Fprintf(&b, "  %s -->|%s| %s\n", r.FromID, mermaidEscape(string(r.Type)), r.ToID)
+		}
 	}
 
 	return b.String()
@@ -126,7 +194,11 @@ func mermaidEscape(s string) string {
 	return s
 }
 
-func ExportJSON(entities []model.Entity, relations []model.Relation) jsoncontract.ExportJSONResult {
+func ExportJSON(entities []model.Entity, relations []model.Relation, opts *ExportOptions) jsoncontract.ExportJSONResult {
+	if opts != nil {
+		entities, relations = filterByLayer(entities, relations, opts.Layer)
+	}
+
 	sorted := make([]model.Entity, len(entities))
 	copy(sorted, entities)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
@@ -145,6 +217,7 @@ func ExportJSON(entities []model.Entity, relations []model.Relation) jsoncontrac
 			Type:     string(e.Type),
 			Title:    e.Title,
 			Status:   string(e.Status),
+			Layer:    string(model.LayerForEntityType(e.Type)),
 			Metadata: meta,
 		}
 	}
@@ -167,6 +240,7 @@ func ExportJSON(entities []model.Entity, relations []model.Relation) jsoncontrac
 			FromID: r.FromID,
 			ToID:   r.ToID,
 			Type:   string(r.Type),
+			Layer:  string(model.LayerForRelationType(r.Type)),
 			Weight: r.Weight,
 		}
 	}

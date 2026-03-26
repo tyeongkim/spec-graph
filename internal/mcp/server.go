@@ -290,9 +290,9 @@ func handleExport(db *sql.DB) server.ToolHandlerFunc {
 		var output string
 		switch format {
 		case "dot":
-			output = graph.ExportDOT(entities, allRels)
+			output = graph.ExportDOT(entities, allRels, nil)
 		case "mermaid":
-			output = graph.ExportMermaid(entities, allRels)
+			output = graph.ExportMermaid(entities, allRels, nil)
 		default:
 			return mcp.NewToolResultError(fmt.Sprintf("unknown format %q; must be dot or mermaid", format)), nil
 		}

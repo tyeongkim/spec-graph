@@ -273,6 +273,7 @@ type ExportJSONEntity struct {
 	Type     string                 `json:"type"`
 	Title    string                 `json:"title"`
 	Status   string                 `json:"status"`
+	Layer    string                 `json:"layer"`
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
@@ -280,6 +281,7 @@ type ExportJSONRelation struct {
 	FromID string  `json:"from_id"`
 	ToID   string  `json:"to_id"`
 	Type   string  `json:"type"`
+	Layer  string  `json:"layer"`
 	Weight float64 `json:"weight"`
 }
 

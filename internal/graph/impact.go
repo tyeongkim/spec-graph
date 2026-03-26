@@ -123,6 +123,10 @@ func Impact(sources []string, opts ImpactOptions, rf RelationFetcher, ef EntityF
 				continue
 			}
 
+			if opts.Layer != nil && model.LayerForRelationType(rel.Type) != *opts.Layer {
+				continue
+			}
+
 			rule, ok := PropagationTable[rel.Type]
 			if !ok {
 				continue

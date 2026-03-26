@@ -28,27 +28,34 @@ func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*
 		return nil, fmt.Errorf("fetching relations for phase %s: %w", opts.PhaseID, err)
 	}
 
-	// Filter to planned_in / delivered_in where to_id == phaseID.
+	// Filter to planned_in / delivered_in (arch→phase) and covers / delivers (phase→arch).
 	var matchedRels []model.Relation
 	entityIDs := make(map[string]bool)
 
 	for _, rel := range rels {
-		if rel.ToID != opts.PhaseID {
-			continue
+		switch {
+		// Legacy: planned_in / delivered_in — arch entity is FromID, phase is ToID.
+		case rel.ToID == opts.PhaseID &&
+			(rel.Type == model.RelationPlannedIn || rel.Type == model.RelationDeliveredIn):
+			matchedRels = append(matchedRels, rel)
+			entityIDs[rel.FromID] = true
+
+		// Mapping layer: covers / delivers — phase is FromID, arch entity is ToID.
+		case rel.FromID == opts.PhaseID &&
+			(rel.Type == model.RelationCovers || rel.Type == model.RelationDelivers):
+			matchedRels = append(matchedRels, rel)
+			entityIDs[rel.ToID] = true
 		}
-		if rel.Type != model.RelationPlannedIn && rel.Type != model.RelationDeliveredIn {
-			continue
-		}
-		matchedRels = append(matchedRels, rel)
-		entityIDs[rel.FromID] = true
 	}
 
-	// Collect source entities.
 	entities := make([]model.Entity, 0, len(entityIDs))
 	for id := range entityIDs {
 		ent, err := ef.Get(id)
 		if err != nil {
 			return nil, fmt.Errorf("fetching entity %s: %w", id, err)
+		}
+		if opts.Layer != nil && model.LayerForEntityType(ent.Type) != *opts.Layer {
+			continue
 		}
 		entities = append(entities, ent)
 	}
@@ -162,6 +169,10 @@ func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*Qu
 			}
 
 			for _, rel := range rels {
+				if opts.Layer != nil && model.LayerForRelationType(rel.Type) != *opts.Layer {
+					continue
+				}
+
 				var neighbor string
 				if rel.FromID == current {
 					neighbor = rel.ToID
