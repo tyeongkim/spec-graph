@@ -686,6 +686,105 @@ func TestEntityStore_DeleteRecordsHistory(t *testing.T) {
 	}
 }
 
+func TestEntityStore_CreateSetsLayer(t *testing.T) {
+	tests := []struct {
+		id        string
+		typ       model.EntityType
+		wantLayer model.Layer
+	}{
+		{"REQ-1", model.EntityTypeRequirement, model.LayerArch},
+		{"DEC-1", model.EntityTypeDecision, model.LayerArch},
+		{"PHS-1", model.EntityTypePhase, model.LayerExec},
+		{"API-1", model.EntityTypeInterface, model.LayerArch},
+		{"TST-1", model.EntityTypeTest, model.LayerArch},
+	}
+
+	d := setupTestDB(t)
+	s, _, _ := newTestEntityStore(t, d)
+
+	for _, tt := range tests {
+		t.Run(string(tt.typ), func(t *testing.T) {
+			e, err := s.Create(model.Entity{
+				ID:    tt.id,
+				Type:  tt.typ,
+				Title: "Layer test " + tt.id,
+			}, "", "", "")
+			if err != nil {
+				t.Fatalf("Create(%s) error: %v", tt.id, err)
+			}
+			if e.Layer != tt.wantLayer {
+				t.Errorf("Layer = %q; want %q", e.Layer, tt.wantLayer)
+			}
+		})
+	}
+}
+
+func TestEntityStore_ListFilterByLayer(t *testing.T) {
+	d := setupTestDB(t)
+	s, _, _ := newTestEntityStore(t, d)
+
+	seedEntity(t, s, "REQ-1", model.EntityTypeRequirement)
+	seedEntity(t, s, "DEC-1", model.EntityTypeDecision)
+	seedEntity(t, s, "PHS-1", model.EntityTypePhase)
+
+	t.Run("filter_arch", func(t *testing.T) {
+		layer := model.LayerArch
+		entities, count, err := s.List(EntityFilters{Layer: &layer})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("count = %d; want 2", count)
+		}
+		if len(entities) != 2 {
+			t.Errorf("len = %d; want 2", len(entities))
+		}
+	})
+
+	t.Run("filter_exec", func(t *testing.T) {
+		layer := model.LayerExec
+		entities, count, err := s.List(EntityFilters{Layer: &layer})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("count = %d; want 1", count)
+		}
+		if len(entities) > 0 && entities[0].ID != "PHS-1" {
+			t.Errorf("ID = %q; want PHS-1", entities[0].ID)
+		}
+	})
+
+	t.Run("filter_mapping_empty", func(t *testing.T) {
+		layer := model.LayerMapping
+		entities, count, err := s.List(EntityFilters{Layer: &layer})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("count = %d; want 0", count)
+		}
+		if entities == nil {
+			t.Fatal("expected empty slice, got nil")
+		}
+	})
+
+	t.Run("filter_layer_and_type", func(t *testing.T) {
+		layer := model.LayerArch
+		typ := model.EntityTypeRequirement
+		entities, count, err := s.List(EntityFilters{Layer: &layer, Type: &typ})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("count = %d; want 1", count)
+		}
+		if len(entities) > 0 && entities[0].ID != "REQ-1" {
+			t.Errorf("ID = %q; want REQ-1", entities[0].ID)
+		}
+	})
+}
+
 func TestEntityStore_TransactionRollback(t *testing.T) {
 	d := setupTestDB(t)
 	s, cs, _ := newTestEntityStore(t, d)

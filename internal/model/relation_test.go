@@ -18,10 +18,15 @@ func TestRelationTypeConstants(t *testing.T) {
 		RelationSupersedes:    "supersedes",
 		RelationConflictsWith: "conflicts_with",
 		RelationReferences:    "references",
+		RelationBelongsTo:     "belongs_to",
+		RelationPrecedes:      "precedes",
+		RelationBlocks:        "blocks",
+		RelationCovers:        "covers",
+		RelationDelivers:      "delivers",
 	}
 
-	if len(expected) != 14 {
-		t.Fatalf("expected 14 relation types, got %d", len(expected))
+	if len(expected) != 19 {
+		t.Fatalf("expected 19 relation types, got %d", len(expected))
 	}
 
 	for rt, want := range expected {
@@ -124,7 +129,7 @@ func TestIsEdgeAllowed(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := IsEdgeAllowed(tc.relType, tc.from, tc.to)
+			got := IsEdgeAllowed(tc.relType, tc.from, tc.to, nil)
 			if got != tc.expected {
 				t.Errorf("IsEdgeAllowed(%q, %q, %q) = %v; want %v",
 					tc.relType, tc.from, tc.to, got, tc.expected)
@@ -139,6 +144,7 @@ func TestRelationStruct(t *testing.T) {
 		FromID:    "REQ-001",
 		ToID:      "DEC-001",
 		Type:      RelationDependsOn,
+		Layer:     LayerArch,
 		Weight:    1.0,
 		Metadata:  []byte(`{}`),
 		CreatedAt: "2025-01-01T00:00:00Z",
@@ -152,6 +158,9 @@ func TestRelationStruct(t *testing.T) {
 	}
 	if r.Type != RelationDependsOn {
 		t.Errorf("Type = %q; want %q", r.Type, RelationDependsOn)
+	}
+	if r.Layer != LayerArch {
+		t.Errorf("Layer = %q; want %q", r.Layer, LayerArch)
 	}
 	if r.Weight != 1.0 {
 		t.Errorf("Weight = %f; want 1.0", r.Weight)

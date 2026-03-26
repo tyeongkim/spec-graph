@@ -13,6 +13,7 @@ import (
 type EntityFilters struct {
 	Type   *model.EntityType
 	Status *model.EntityStatus
+	Layer  *model.Layer
 }
 
 // UpdateFields holds optional fields for updating an entity.
@@ -49,6 +50,7 @@ func (s *EntityStore) Create(entity model.Entity, reason, actor, source string) 
 	if entity.Metadata == nil {
 		entity.Metadata = json.RawMessage(`{}`)
 	}
+	entity.Layer = model.LayerForEntityType(entity.Type)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -56,8 +58,8 @@ func (s *EntityStore) Create(entity model.Entity, reason, actor, source string) 
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO entities (id, type, title, description, status, metadata) VALUES (?, ?, ?, ?, ?, ?)`,
-		entity.ID, entity.Type, entity.Title, entity.Description, entity.Status, string(entity.Metadata),
+		`INSERT INTO entities (id, type, title, description, status, metadata, layer) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		entity.ID, entity.Type, entity.Title, entity.Description, entity.Status, string(entity.Metadata), string(entity.Layer),
 	)
 	if err != nil {
 		tx.Rollback()
@@ -115,9 +117,9 @@ func (s *EntityStore) Get(id string) (model.Entity, error) {
 	var desc sql.NullString
 
 	err := s.db.QueryRow(
-		`SELECT id, type, title, description, status, metadata, created_at, updated_at FROM entities WHERE id = ?`,
+		`SELECT id, type, title, description, status, metadata, layer, created_at, updated_at FROM entities WHERE id = ?`,
 		id,
-	).Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.CreatedAt, &e.UpdatedAt)
+	).Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.Layer, &e.CreatedAt, &e.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
@@ -135,7 +137,7 @@ func (s *EntityStore) Get(id string) (model.Entity, error) {
 
 // List returns entities matching the given filters. Read-only.
 func (s *EntityStore) List(filters EntityFilters) ([]model.Entity, int, error) {
-	query := `SELECT id, type, title, description, status, metadata, created_at, updated_at FROM entities`
+	query := `SELECT id, type, title, description, status, metadata, layer, created_at, updated_at FROM entities`
 	var conditions []string
 	var args []any
 
@@ -146,6 +148,10 @@ func (s *EntityStore) List(filters EntityFilters) ([]model.Entity, int, error) {
 	if filters.Status != nil {
 		conditions = append(conditions, "status = ?")
 		args = append(args, *filters.Status)
+	}
+	if filters.Layer != nil {
+		conditions = append(conditions, "layer = ?")
+		args = append(args, string(*filters.Layer))
 	}
 
 	if len(conditions) > 0 {
@@ -164,7 +170,7 @@ func (s *EntityStore) List(filters EntityFilters) ([]model.Entity, int, error) {
 		var meta string
 		var desc sql.NullString
 
-		if err := rows.Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.Layer, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan entity: %w", err)
 		}
 		if desc.Valid {
@@ -371,8 +377,8 @@ func (s *EntityStore) getFromTx(tx *sql.Tx, id string) (model.Entity, error) {
 	var desc sql.NullString
 
 	err := tx.QueryRow(
-		`SELECT id, type, title, description, status, metadata, created_at, updated_at FROM entities WHERE id = ?`, id,
-	).Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.CreatedAt, &e.UpdatedAt)
+		`SELECT id, type, title, description, status, metadata, layer, created_at, updated_at FROM entities WHERE id = ?`, id,
+	).Scan(&e.ID, &e.Type, &e.Title, &desc, &e.Status, &meta, &e.Layer, &e.CreatedAt, &e.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return model.Entity{}, &model.ErrEntityNotFound{ID: id}

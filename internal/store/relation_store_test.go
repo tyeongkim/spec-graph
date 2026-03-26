@@ -682,6 +682,122 @@ func TestRelationStore_Create_SameFromToDifferentTypes(t *testing.T) {
 	}
 }
 
+func layerPtr(l model.Layer) *model.Layer { return &l }
+
+func TestRelationStore_CreateSetsLayer(t *testing.T) {
+	database := setupRelationTestDB(t)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
+
+	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+	createTestEntity(t, database, "PHS-1", model.EntityTypePhase)
+	createTestEntity(t, database, "API-1", model.EntityTypeInterface)
+
+	tests := []struct {
+		name      string
+		fromID    string
+		toID      string
+		relType   model.RelationType
+		wantLayer model.Layer
+	}{
+		{"arch: depends_on", "REQ-1", "DEC-1", model.RelationDependsOn, model.LayerArch},
+		{"mapping: planned_in", "REQ-1", "PHS-1", model.RelationPlannedIn, model.LayerMapping},
+		{"mapping: delivered_in", "API-1", "PHS-1", model.RelationDeliveredIn, model.LayerMapping},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rel, err := store.Create(model.Relation{
+				FromID: tt.fromID,
+				ToID:   tt.toID,
+				Type:   tt.relType,
+			}, "", "", "")
+			if err != nil {
+				t.Fatalf("Create error: %v", err)
+			}
+			if rel.Layer != tt.wantLayer {
+				t.Errorf("Layer = %q; want %q", rel.Layer, tt.wantLayer)
+			}
+		})
+	}
+}
+
+func TestRelationStore_ListFilterByLayer(t *testing.T) {
+	database := setupRelationTestDB(t)
+	store := NewRelationStore(database, NewChangesetStore(database), NewHistoryStore(database))
+
+	createTestEntity(t, database, "REQ-1", model.EntityTypeRequirement)
+	createTestEntity(t, database, "REQ-2", model.EntityTypeRequirement)
+	createTestEntity(t, database, "DEC-1", model.EntityTypeDecision)
+	createTestEntity(t, database, "PHS-1", model.EntityTypePhase)
+
+	mustCreate := func(from, to string, rt model.RelationType) {
+		t.Helper()
+		_, err := store.Create(model.Relation{FromID: from, ToID: to, Type: rt}, "", "", "")
+		if err != nil {
+			t.Fatalf("create %s→%s (%s): %v", from, to, rt, err)
+		}
+	}
+	mustCreate("REQ-1", "DEC-1", model.RelationDependsOn)
+	mustCreate("REQ-2", "DEC-1", model.RelationDependsOn)
+	mustCreate("REQ-1", "PHS-1", model.RelationPlannedIn)
+
+	t.Run("filter_arch", func(t *testing.T) {
+		rels, count, err := store.List(RelationFilters{Layer: layerPtr(model.LayerArch)})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("count = %d; want 2", count)
+		}
+		if len(rels) != 2 {
+			t.Errorf("len = %d; want 2", len(rels))
+		}
+	})
+
+	t.Run("filter_mapping", func(t *testing.T) {
+		rels, count, err := store.List(RelationFilters{Layer: layerPtr(model.LayerMapping)})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("count = %d; want 1", count)
+		}
+		if len(rels) > 0 && rels[0].Type != model.RelationPlannedIn {
+			t.Errorf("Type = %q; want %q", rels[0].Type, model.RelationPlannedIn)
+		}
+	})
+
+	t.Run("filter_exec_empty", func(t *testing.T) {
+		rels, count, err := store.List(RelationFilters{Layer: layerPtr(model.LayerExec)})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("count = %d; want 0", count)
+		}
+		if rels == nil {
+			t.Fatal("expected empty slice, got nil")
+		}
+	})
+
+	t.Run("filter_layer_and_type", func(t *testing.T) {
+		rels, count, err := store.List(RelationFilters{
+			Layer: layerPtr(model.LayerArch),
+			Type:  relTypePtr(model.RelationDependsOn),
+		})
+		if err != nil {
+			t.Fatalf("List error: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("count = %d; want 2", count)
+		}
+		if len(rels) != 2 {
+			t.Errorf("len = %d; want 2", len(rels))
+		}
+	})
+}
+
 func TestRelationStore_GetByEntity(t *testing.T) {
 	tests := []struct {
 		name      string

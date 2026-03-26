@@ -19,10 +19,11 @@ func TestEntityTypeConstants(t *testing.T) {
 		EntityTypeAssumption:  "assumption",
 		EntityTypeCriterion:   "criterion",
 		EntityTypeRisk:        "risk",
+		EntityTypePlan:        "plan",
 	}
 
-	if len(expected) != 11 {
-		t.Fatalf("expected 11 entity types, got %d", len(expected))
+	if len(expected) != 12 {
+		t.Fatalf("expected 12 entity types, got %d", len(expected))
 	}
 
 	for et, want := range expected {
@@ -45,6 +46,7 @@ func TestTypePrefixMap(t *testing.T) {
 		EntityTypeAssumption:  "ASM",
 		EntityTypeCriterion:   "ACT",
 		EntityTypeRisk:        "RSK",
+		EntityTypePlan:        "PLN",
 	}
 
 	for et, wantPrefix := range expected {
@@ -58,8 +60,8 @@ func TestTypePrefixMap(t *testing.T) {
 		}
 	}
 
-	if len(TypePrefixMap) != 11 {
-		t.Errorf("TypePrefixMap has %d entries; want 11", len(TypePrefixMap))
+	if len(TypePrefixMap) != 12 {
+		t.Errorf("TypePrefixMap has %d entries; want 12", len(TypePrefixMap))
 	}
 }
 
@@ -83,6 +85,40 @@ func TestEntityStatusConstants(t *testing.T) {
 	}
 }
 
+func TestPrefixTypeMap(t *testing.T) {
+	if len(PrefixTypeMap) != len(TypePrefixMap) {
+		t.Fatalf("PrefixTypeMap has %d entries; TypePrefixMap has %d", len(PrefixTypeMap), len(TypePrefixMap))
+	}
+
+	for et, prefix := range TypePrefixMap {
+		got, ok := PrefixTypeMap[prefix]
+		if !ok {
+			t.Errorf("PrefixTypeMap missing key %q", prefix)
+			continue
+		}
+		if got != et {
+			t.Errorf("PrefixTypeMap[%q] = %q; want %q", prefix, got, et)
+		}
+	}
+}
+
+func TestValidEntityTypes(t *testing.T) {
+	if len(ValidEntityTypes) != 12 {
+		t.Fatalf("ValidEntityTypes has %d entries; want 12", len(ValidEntityTypes))
+	}
+
+	seen := make(map[EntityType]bool)
+	for _, et := range ValidEntityTypes {
+		if seen[et] {
+			t.Errorf("duplicate entity type %q in ValidEntityTypes", et)
+		}
+		seen[et] = true
+		if _, ok := TypePrefixMap[et]; !ok {
+			t.Errorf("ValidEntityTypes contains %q which is not in TypePrefixMap", et)
+		}
+	}
+}
+
 func TestValidateEntityID(t *testing.T) {
 	validCases := []struct {
 		name       string
@@ -100,6 +136,7 @@ func TestValidateEntityID(t *testing.T) {
 		{"assumption", "ASM-003", EntityTypeAssumption},
 		{"criterion", "ACT-009", EntityTypeCriterion},
 		{"risk", "RSK-002", EntityTypeRisk},
+		{"plan", "PLN-001", EntityTypePlan},
 	}
 
 	for _, tc := range validCases {
@@ -142,6 +179,7 @@ func TestEntityStruct(t *testing.T) {
 	e := Entity{
 		ID:          "REQ-001",
 		Type:        EntityTypeRequirement,
+		Layer:       LayerArch,
 		Title:       "Test Requirement",
 		Description: "A test requirement",
 		Status:      EntityStatusDraft,

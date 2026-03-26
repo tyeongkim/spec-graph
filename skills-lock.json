@@ -10,6 +10,11 @@
       "source": "affaan-m/everything-claude-code",
       "sourceType": "github",
       "computedHash": "db6e910031d9c289f91697cf2397b8a3f717c6fdeae7a115e811a32544d99e11"
+    },
+    "spec-graph": {
+      "source": "tyeongkim/spec-graph-cli",
+      "sourceType": "github",
+      "computedHash": "b128827d8d5fc6ef13576ace7901a47f1537f4eba0eeb5902c8ed8a2d92c65f4"
     }
   }
 }

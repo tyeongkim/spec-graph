@@ -217,7 +217,7 @@ func checkInvalidEdges(ef EntityFetcher, rf RelationFetcher) ([]ValidationIssue,
 				return nil, fmt.Errorf("get target entity %q: %w", rel.ToID, err)
 			}
 
-			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type) {
+			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, nil) {
 				issues = append(issues, ValidationIssue{
 					Check:    "invalid_edges",
 					Severity: SeverityHigh,

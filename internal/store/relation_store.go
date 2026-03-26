@@ -14,6 +14,7 @@ type RelationFilters struct {
 	FromID *string
 	ToID   *string
 	Type   *model.RelationType
+	Layer  *model.Layer
 }
 
 // RelationStore manages relation persistence with edge matrix validation.
@@ -46,7 +47,7 @@ func (s *RelationStore) Create(rel model.Relation, reason, actor, source string)
 		return model.Relation{}, &model.ErrSelfLoop{ID: rel.FromID}
 	}
 
-	if !model.IsEdgeAllowed(rel.Type, fromType, toType) {
+	if !model.IsEdgeAllowed(rel.Type, fromType, toType, nil) {
 		return model.Relation{}, &model.ErrInvalidEdge{
 			FromType:     fromType,
 			ToType:       toType,
@@ -60,6 +61,7 @@ func (s *RelationStore) Create(rel model.Relation, reason, actor, source string)
 	if len(rel.Metadata) == 0 {
 		rel.Metadata = []byte("{}")
 	}
+	rel.Layer = model.LayerForRelationType(rel.Type)
 
 	// Begin transaction for the mutation.
 	tx, err := s.db.Begin()
@@ -80,8 +82,8 @@ func (s *RelationStore) Create(rel model.Relation, reason, actor, source string)
 
 	// INSERT relation.
 	result, err := tx.Exec(
-		`INSERT INTO relations (from_id, to_id, type, weight, metadata) VALUES (?, ?, ?, ?, ?)`,
-		rel.FromID, rel.ToID, string(rel.Type), rel.Weight, string(rel.Metadata),
+		`INSERT INTO relations (from_id, to_id, type, weight, metadata, layer) VALUES (?, ?, ?, ?, ?, ?)`,
+		rel.FromID, rel.ToID, string(rel.Type), rel.Weight, string(rel.Metadata), string(rel.Layer),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -103,8 +105,8 @@ func (s *RelationStore) Create(rel model.Relation, reason, actor, source string)
 	var out model.Relation
 	var metadata string
 	err = tx.QueryRow(
-		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE id = ?`, id,
-	).Scan(&out.ID, &out.FromID, &out.ToID, &out.Type, &out.Weight, &metadata, &out.CreatedAt)
+		`SELECT id, from_id, to_id, type, weight, metadata, layer, created_at FROM relations WHERE id = ?`, id,
+	).Scan(&out.ID, &out.FromID, &out.ToID, &out.Type, &out.Weight, &metadata, &out.Layer, &out.CreatedAt)
 	if err != nil {
 		return model.Relation{}, fmt.Errorf("read back relation: %w", err)
 	}
@@ -138,7 +140,7 @@ func (s *RelationStore) Create(rel model.Relation, reason, actor, source string)
 // List returns relations matching the given filters.
 // Returns an empty slice (not nil) when no results found.
 func (s *RelationStore) List(filters RelationFilters) ([]model.Relation, int, error) {
-	query := `SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations`
+	query := `SELECT id, from_id, to_id, type, weight, metadata, layer, created_at FROM relations`
 	var conditions []string
 	var args []any
 
@@ -153,6 +155,10 @@ func (s *RelationStore) List(filters RelationFilters) ([]model.Relation, int, er
 	if filters.Type != nil {
 		conditions = append(conditions, "type = ?")
 		args = append(args, string(*filters.Type))
+	}
+	if filters.Layer != nil {
+		conditions = append(conditions, "layer = ?")
+		args = append(args, string(*filters.Layer))
 	}
 
 	if len(conditions) > 0 {
@@ -170,7 +176,7 @@ func (s *RelationStore) List(filters RelationFilters) ([]model.Relation, int, er
 	for rows.Next() {
 		var r model.Relation
 		var metadata string
-		if err := rows.Scan(&r.ID, &r.FromID, &r.ToID, &r.Type, &r.Weight, &metadata, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.FromID, &r.ToID, &r.Type, &r.Weight, &metadata, &r.Layer, &r.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan relation: %w", err)
 		}
 		r.Metadata = []byte(metadata)
@@ -187,7 +193,7 @@ func (s *RelationStore) List(filters RelationFilters) ([]model.Relation, int, er
 // Returns an empty slice (not nil) when no relations found.
 func (s *RelationStore) GetByEntity(entityID string) ([]model.Relation, error) {
 	rows, err := s.db.Query(
-		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE from_id = ? OR to_id = ? ORDER BY id`,
+		`SELECT id, from_id, to_id, type, weight, metadata, layer, created_at FROM relations WHERE from_id = ? OR to_id = ? ORDER BY id`,
 		entityID, entityID,
 	)
 	if err != nil {
@@ -199,7 +205,7 @@ func (s *RelationStore) GetByEntity(entityID string) ([]model.Relation, error) {
 	for rows.Next() {
 		var r model.Relation
 		var metadata string
-		if err := rows.Scan(&r.ID, &r.FromID, &r.ToID, &r.Type, &r.Weight, &metadata, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.FromID, &r.ToID, &r.Type, &r.Weight, &metadata, &r.Layer, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan relation: %w", err)
 		}
 		r.Metadata = []byte(metadata)
@@ -225,9 +231,9 @@ func (s *RelationStore) Delete(fromID, toID string, relType model.RelationType, 
 	var rel model.Relation
 	var metadata string
 	err = tx.QueryRow(
-		`SELECT id, from_id, to_id, type, weight, metadata, created_at FROM relations WHERE from_id = ? AND to_id = ? AND type = ?`,
+		`SELECT id, from_id, to_id, type, weight, metadata, layer, created_at FROM relations WHERE from_id = ? AND to_id = ? AND type = ?`,
 		fromID, toID, string(relType),
-	).Scan(&rel.ID, &rel.FromID, &rel.ToID, &rel.Type, &rel.Weight, &metadata, &rel.CreatedAt)
+	).Scan(&rel.ID, &rel.FromID, &rel.ToID, &rel.Type, &rel.Weight, &metadata, &rel.Layer, &rel.CreatedAt)
 	if err == sql.ErrNoRows {
 		return &model.ErrRelationNotFound{ID: 0}
 	}

@@ -21,6 +21,7 @@ const (
 	EntityTypeAssumption  EntityType = "assumption"
 	EntityTypeCriterion   EntityType = "criterion"
 	EntityTypeRisk        EntityType = "risk"
+	EntityTypePlan        EntityType = "plan"
 )
 
 var TypePrefixMap = map[EntityType]string{
@@ -35,7 +36,26 @@ var TypePrefixMap = map[EntityType]string{
 	EntityTypeAssumption:  "ASM",
 	EntityTypeCriterion:   "ACT",
 	EntityTypeRisk:        "RSK",
+	EntityTypePlan:        "PLN",
 }
+
+// PrefixTypeMap is the reverse of TypePrefixMap: prefix string → EntityType.
+var PrefixTypeMap = func() map[string]EntityType {
+	m := make(map[string]EntityType, len(TypePrefixMap))
+	for et, prefix := range TypePrefixMap {
+		m[prefix] = et
+	}
+	return m
+}()
+
+// ValidEntityTypes contains all recognized entity types.
+var ValidEntityTypes = func() []EntityType {
+	types := make([]EntityType, 0, len(TypePrefixMap))
+	for et := range TypePrefixMap {
+		types = append(types, et)
+	}
+	return types
+}()
 
 type EntityStatus string
 
@@ -50,6 +70,7 @@ const (
 type Entity struct {
 	ID          string          `json:"id"`
 	Type        EntityType      `json:"type"`
+	Layer       Layer           `json:"layer"`
 	Title       string          `json:"title"`
 	Description string          `json:"description,omitempty"`
 	Status      EntityStatus    `json:"status"`
