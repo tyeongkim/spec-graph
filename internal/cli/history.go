@@ -16,11 +16,36 @@ var historyCmd = &cobra.Command{
 
 var historyChangesetCmd = &cobra.Command{
 	Use:   "changeset [id]",
-	Short: "Show changeset with all its history entries",
-	Args:  cobra.ExactArgs(1),
+	Short: "Show changeset detail, or list all changesets if no ID given",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		db := getDB()
 		cs := store.NewChangesetStore(db)
+
+		if len(args) == 0 {
+			changesets, err := cs.List()
+			if err != nil {
+				handleError(cmd, err)
+			}
+
+			details := make([]jsoncontract.ChangesetDetail, len(changesets))
+			for i, c := range changesets {
+				details[i] = jsoncontract.ChangesetDetail{
+					ID:        c.ID,
+					Reason:    c.Reason,
+					Actor:     c.Actor,
+					Source:    c.Source,
+					CreatedAt: c.CreatedAt,
+				}
+			}
+
+			writeJSON(cmd, jsoncontract.ChangesetListResponse{
+				Changesets: details,
+				Count:      len(details),
+			})
+			return nil
+		}
+
 		hs := store.NewHistoryStore(db)
 
 		changeset, err := cs.Get(args[0])

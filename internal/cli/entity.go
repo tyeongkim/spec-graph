@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/taeyeong/spec-graph/internal/jsoncontract"
@@ -36,6 +37,8 @@ var entityAddCmd = &cobra.Command{
 			}
 			metadata = json.RawMessage(metadataStr)
 		}
+
+		metadata = resolveMetadata(cmd, metadata)
 
 		entity := model.Entity{
 			ID:          id,
@@ -152,6 +155,22 @@ var entityUpdateCmd = &cobra.Command{
 			fields.Metadata = &m
 		}
 
+		metaFile, _ := cmd.Flags().GetString("metadata-file")
+		if metaFile != "" {
+			if cmd.Flags().Changed("metadata") {
+				handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
+			}
+			data, err := os.ReadFile(metaFile)
+			if err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
+			}
+			if !json.Valid(data) {
+				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
+			}
+			m := json.RawMessage(data)
+			fields.Metadata = &m
+		}
+
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
@@ -218,12 +237,106 @@ var entityDeleteCmd = &cobra.Command{
 	},
 }
 
+type entityImportInput struct {
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	Title       string          `json:"title"`
+	Description string          `json:"description,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+}
+
+var entityImportCmd = &cobra.Command{
+	Use:   "import",
+	Short: "Bulk import entities from a JSON file",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		inputFile, _ := cmd.Flags().GetString("input")
+		if inputFile == "" {
+			handleError(cmd, &model.ErrInvalidInput{Message: "--input is required"})
+		}
+
+		data, err := os.ReadFile(inputFile)
+		if err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: "read input file: " + err.Error()})
+		}
+
+		var items []entityImportInput
+		if err := json.Unmarshal(data, &items); err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: "parse input file: " + err.Error()})
+		}
+
+		reason, _ := cmd.Flags().GetString("reason")
+		actor, _ := cmd.Flags().GetString("actor")
+		source, _ := cmd.Flags().GetString("source")
+
+		db := getDB()
+		cs := store.NewChangesetStore(db)
+		hs := store.NewHistoryStore(db)
+		es := store.NewEntityStore(db, cs, hs)
+
+		var created []string
+		var skipped []jsoncontract.BootstrapSkippedItem
+		var errors []jsoncontract.BootstrapErrorItem
+
+		for _, item := range items {
+			if item.ID == "" || item.Type == "" || item.Title == "" {
+				errors = append(errors, jsoncontract.BootstrapErrorItem{
+					ID:    item.ID,
+					Error: "id, type, and title are required",
+				})
+				continue
+			}
+
+			entity := model.Entity{
+				ID:          item.ID,
+				Type:        model.EntityType(item.Type),
+				Title:       item.Title,
+				Description: item.Description,
+				Metadata:    item.Metadata,
+			}
+			if item.Status != "" {
+				entity.Status = model.EntityStatus(item.Status)
+			}
+
+			_, err := es.Create(entity, reason, actor, source)
+			if err != nil {
+				if isDuplicateError(err) {
+					skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
+						ID:     item.ID,
+						Reason: "already exists",
+					})
+				} else {
+					errors = append(errors, jsoncontract.BootstrapErrorItem{
+						ID:    item.ID,
+						Error: err.Error(),
+					})
+				}
+				continue
+			}
+			created = append(created, item.ID)
+		}
+
+		writeJSON(cmd, jsoncontract.BootstrapImportResponse{
+			Created: created,
+			Skipped: skipped,
+			Errors:  errors,
+		})
+		return nil
+	},
+}
+
+func isDuplicateError(err error) bool {
+	_, ok := err.(*model.ErrDuplicateEntity)
+	return ok
+}
+
 func init() {
 	entityAddCmd.Flags().String("type", "", "entity type (required)")
 	entityAddCmd.Flags().String("id", "", "entity ID (required)")
 	entityAddCmd.Flags().String("title", "", "entity title (required)")
 	entityAddCmd.Flags().String("description", "", "entity description")
 	entityAddCmd.Flags().String("metadata", "", "entity metadata as JSON string")
+	entityAddCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityAddCmd.Flags().String("status", "", "entity status")
 	entityAddCmd.Flags().String("reason", "", "reason for creating this entity")
 	entityAddCmd.Flags().String("actor", "", "actor performing the change")
@@ -236,6 +349,7 @@ func init() {
 	entityUpdateCmd.Flags().String("description", "", "new description")
 	entityUpdateCmd.Flags().String("status", "", "new status")
 	entityUpdateCmd.Flags().String("metadata", "", "new metadata as JSON string")
+	entityUpdateCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityUpdateCmd.Flags().String("reason", "", "reason for update")
 	entityUpdateCmd.Flags().String("actor", "", "actor performing the change")
 	entityUpdateCmd.Flags().String("source", "", "source of the change")
@@ -248,10 +362,34 @@ func init() {
 	entityDeleteCmd.Flags().String("actor", "", "actor performing the change")
 	entityDeleteCmd.Flags().String("source", "", "source of the change")
 
+	entityImportCmd.Flags().String("input", "", "path to JSON file containing entity array (required)")
+	entityImportCmd.Flags().String("reason", "", "reason for import")
+	entityImportCmd.Flags().String("actor", "", "actor performing the import")
+	entityImportCmd.Flags().String("source", "", "source of the import")
+
 	entityCmd.AddCommand(entityAddCmd)
 	entityCmd.AddCommand(entityGetCmd)
 	entityCmd.AddCommand(entityListCmd)
 	entityCmd.AddCommand(entityUpdateCmd)
 	entityCmd.AddCommand(entityDeprecateCmd)
 	entityCmd.AddCommand(entityDeleteCmd)
+	entityCmd.AddCommand(entityImportCmd)
+}
+
+func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) json.RawMessage {
+	metaFile, _ := cmd.Flags().GetString("metadata-file")
+	if metaFile == "" {
+		return inline
+	}
+	if len(inline) > 0 {
+		handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
+	}
+	data, err := os.ReadFile(metaFile)
+	if err != nil {
+		handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
+	}
+	if !json.Valid(data) {
+		handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
+	}
+	return json.RawMessage(data)
 }
