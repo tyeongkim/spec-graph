@@ -433,8 +433,13 @@ Extract entity/relation candidates from existing documents.
 spec-graph bootstrap scan --input ./docs/
 spec-graph bootstrap scan --input ./docs/ --format json
 ```
-Scans documents and extracts candidate entities and relations. Each candidate includes
-`confidence`, `source_span`, and an inferred `layer`.
+Scans `.md` files and extracts candidate entities and relations using regex pattern matching.
+Extraction is based on entity ID patterns (`REQ-001`, `DEC-005`, `PHS-002`, etc.) — not
+free-text NLP. Documents must already contain spec-graph ID format (`PREFIX-NNN`) for
+candidates to be detected.
+
+Each candidate includes `confidence` (0.4–0.9), `source` (file path with line number),
+and an inferred type based on the ID prefix.
 
 ### bootstrap import
 ```bash

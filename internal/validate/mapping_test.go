@@ -249,3 +249,152 @@ func TestCheckInvalidMappingEdges(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckGates(t *testing.T) {
+	phs1 := "PHS-1"
+
+	tests := []struct {
+		name       string
+		phase      *string
+		entities   []model.Entity
+		relations  []model.Relation
+		wantIssues int
+		wantChecks []string
+	}{
+		{
+			name:  "unresolved question in phase scope",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("QST-1", model.EntityTypeQuestion, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "QST-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+			wantChecks: []string{"gates"},
+		},
+		{
+			name:  "resolved question — no issue",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("QST-1", model.EntityTypeQuestion, model.EntityStatusActive),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "QST-1", model.RelationCovers),
+				rel(2, "DEC-1", "QST-1", model.RelationAnswers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name:  "unmitigated risk in phase scope",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("RSK-1", model.EntityTypeRisk, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "RSK-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+		{
+			name:  "mitigated risk — no issue",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("RSK-1", model.EntityTypeRisk, model.EntityStatusActive),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "RSK-1", model.RelationCovers),
+				rel(2, "DEC-1", "RSK-1", model.RelationMitigates),
+			},
+			wantIssues: 0,
+		},
+		{
+			name:  "unverified assumption in phase scope",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("ASM-1", model.EntityTypeAssumption, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "ASM-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+		{
+			name:  "requirement depends on draft decision",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusDraft),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+				rel(2, "REQ-1", "DEC-1", model.RelationDependsOn),
+			},
+			wantIssues: 1,
+		},
+		{
+			name:  "requirement depends on active decision — no issue",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+				rel(2, "REQ-1", "DEC-1", model.RelationDependsOn),
+			},
+			wantIssues: 0,
+		},
+		{
+			name:  "no phase specified — checks all active phases",
+			phase: nil,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("QST-1", model.EntityTypeQuestion, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "QST-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+		{
+			name:  "entity not covered by phase — no issue",
+			phase: &phs1,
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("QST-1", model.EntityTypeQuestion, model.EntityStatusActive),
+			},
+			relations:  nil,
+			wantIssues: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			opts := ValidateOptions{Phase: tt.phase}
+			issues := checkGates(opts, rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "gates" {
+					t.Errorf("got check %q; want %q", iss.Check, "gates")
+				}
+				if iss.Layer != model.LayerMapping {
+					t.Errorf("got layer %q; want %q", iss.Layer, model.LayerMapping)
+				}
+			}
+		})
+	}
+}

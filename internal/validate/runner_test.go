@@ -193,3 +193,73 @@ func TestValidate_SummaryBySeverity(t *testing.T) {
 		t.Errorf("sum of BySeverity=%d; TotalIssues=%d", severityCount, result.Summary.TotalIssues)
 	}
 }
+
+func TestValidate_PhaseScoping(t *testing.T) {
+	mappingLayer := model.LayerMapping
+
+	tests := []struct {
+		name          string
+		phase         string
+		entities      []model.Entity
+		relations     []model.Relation
+		wantFiltered  bool
+		wantEntityIDs map[string]bool
+	}{
+		{
+			name:  "phase scoping filters to covered entities only",
+			phase: "PHS-1",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
+				rel(2, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantFiltered:  true,
+			wantEntityIDs: map[string]bool{"REQ-1": true, "PHS-1": true},
+		},
+		{
+			name:  "no phase — no filtering",
+			phase: "",
+			entities: []model.Entity{
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PLN-1", model.RelationBelongsTo),
+				rel(2, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantFiltered: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+
+			opts := ValidateOptions{Layer: &mappingLayer}
+			if tt.phase != "" {
+				opts.Phase = &tt.phase
+			}
+
+			result, err := Validate(opts, rf, ef)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.wantFiltered {
+				for _, iss := range result.Issues {
+					if !tt.wantEntityIDs[iss.Entity] {
+						t.Errorf("got issue for entity %q; not in phase scope %v", iss.Entity, tt.wantEntityIDs)
+					}
+				}
+			}
+		})
+	}
+}

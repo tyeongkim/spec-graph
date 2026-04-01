@@ -272,6 +272,26 @@ spec-graph validate --layer mapping --check invalid_mapping_edges
 |-----------|----------|
 | Mapping relation violates the mapping edge matrix | high |
 
+### gates
+Detects phase readiness blockers by checking arch entities in the phase scope for
+unresolved questions, unmitigated risks, unverified assumptions, and dependencies on
+draft decisions.
+
+```bash
+spec-graph validate --layer mapping --check gates
+spec-graph validate --layer mapping --phase PHS-002 --check gates
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Active question in phase scope with no `answers` relation | high |
+| Active risk in phase scope with no `mitigates` relation | high |
+| Active assumption in phase scope (needs validation) | medium |
+| Requirement in phase scope depends on a draft decision | high |
+
+When `--phase` is specified, only that phase is checked. Without `--phase`, all active
+phases are checked. Run this before starting or completing a phase.
+
 ---
 
 ## Phase Validation Guide

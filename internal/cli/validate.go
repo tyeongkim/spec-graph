@@ -126,7 +126,7 @@ var validateCmd = &cobra.Command{
 }
 
 func init() {
-	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs,gates,cycles,conflicts")
+	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs,unresolved,cycles,conflicts,phase_order,single_active_plan,orphan_phases,exec_cycles,invalid_exec_edges,plan_coverage,delivery_completeness,mapping_consistency,invalid_mapping_edges,gates")
 	validateCmd.Flags().String("phase", "", "restrict validation to entities in this phase (must be a phase entity ID)")
 	validateCmd.Flags().String("entity", "", "restrict validation to issues for this entity ID")
 	rootCmd.AddCommand(validateCmd)

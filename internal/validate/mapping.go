@@ -30,6 +30,8 @@ func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher)
 			issues = checkMappingConsistency(rf, ef)
 		case "invalid_mapping_edges":
 			issues = checkInvalidMappingEdges(rf, ef)
+		case "gates":
+			issues = checkGates(opts, rf, ef)
 		}
 
 		allIssues = append(allIssues, issues...)
@@ -275,6 +277,128 @@ func checkInvalidMappingEdges(rf RelationFetcher, ef EntityFetcher) []Validation
 					Message:  fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type),
 					Layer:    model.LayerMapping,
 				})
+			}
+		}
+	}
+
+	return issues
+}
+
+func checkGates(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	phaseType := model.EntityTypePhase
+	activeStatus := model.EntityStatusActive
+	execLayer := model.LayerExec
+
+	var phases []model.Entity
+	if opts.Phase != nil {
+		p, err := ef.Get(*opts.Phase)
+		if err != nil {
+			return nil
+		}
+		phases = []model.Entity{p}
+	} else {
+		var err error
+		phases, err = ef.List(EntityListFilters{Type: &phaseType, Status: &activeStatus, Layer: &execLayer})
+		if err != nil {
+			return nil
+		}
+	}
+
+	var issues []ValidationIssue
+
+	for _, phase := range phases {
+		rels, err := rf.GetByEntity(phase.ID)
+		if err != nil {
+			continue
+		}
+
+		coveredIDs := make(map[string]bool)
+		for _, r := range rels {
+			if r.Type == model.RelationCovers && r.FromID == phase.ID {
+				coveredIDs[r.ToID] = true
+			}
+		}
+
+		for entityID := range coveredIDs {
+			entity, err := ef.Get(entityID)
+			if err != nil {
+				continue
+			}
+			if entity.Status != model.EntityStatusActive && entity.Status != model.EntityStatusDraft {
+				continue
+			}
+
+			eRels, err := rf.GetByEntity(entityID)
+			if err != nil {
+				continue
+			}
+
+			switch entity.Type {
+			case model.EntityTypeQuestion:
+				hasAnswer := false
+				for _, r := range eRels {
+					if r.Type == model.RelationAnswers && r.ToID == entityID {
+						hasAnswer = true
+						break
+					}
+				}
+				if !hasAnswer {
+					issues = append(issues, ValidationIssue{
+						Check:    "gates",
+						Severity: SeverityHigh,
+						Entity:   entityID,
+						Message:  fmt.Sprintf("unresolved question in phase %s scope", phase.ID),
+						Layer:    model.LayerMapping,
+					})
+				}
+
+			case model.EntityTypeRisk:
+				hasMitigation := false
+				for _, r := range eRels {
+					if r.Type == model.RelationMitigates && r.ToID == entityID {
+						hasMitigation = true
+						break
+					}
+				}
+				if !hasMitigation {
+					issues = append(issues, ValidationIssue{
+						Check:    "gates",
+						Severity: SeverityHigh,
+						Entity:   entityID,
+						Message:  fmt.Sprintf("unmitigated risk in phase %s scope", phase.ID),
+						Layer:    model.LayerMapping,
+					})
+				}
+
+			case model.EntityTypeAssumption:
+				issues = append(issues, ValidationIssue{
+					Check:    "gates",
+					Severity: SeverityMedium,
+					Entity:   entityID,
+					Message:  fmt.Sprintf("unverified assumption in phase %s scope", phase.ID),
+					Layer:    model.LayerMapping,
+				})
+			}
+
+			if entity.Type == model.EntityTypeRequirement {
+				for _, r := range eRels {
+					if r.Type != model.RelationDependsOn || r.FromID != entityID {
+						continue
+					}
+					dep, err := ef.Get(r.ToID)
+					if err != nil {
+						continue
+					}
+					if dep.Type == model.EntityTypeDecision && dep.Status == model.EntityStatusDraft {
+						issues = append(issues, ValidationIssue{
+							Check:    "gates",
+							Severity: SeverityHigh,
+							Entity:   entityID,
+							Message:  fmt.Sprintf("depends on draft decision %s in phase %s scope", dep.ID, phase.ID),
+							Layer:    model.LayerMapping,
+						})
+					}
+				}
 			}
 		}
 	}

@@ -90,6 +90,7 @@ var MappingChecks = []string{
 	"delivery_completeness",
 	"mapping_consistency",
 	"invalid_mapping_edges",
+	"gates",
 }
 
 // allChecks is the union of all layer checks.
