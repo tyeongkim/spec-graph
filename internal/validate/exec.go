@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {

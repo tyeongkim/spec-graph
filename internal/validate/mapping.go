@@ -3,7 +3,7 @@ package validate
 import (
 	"fmt"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {

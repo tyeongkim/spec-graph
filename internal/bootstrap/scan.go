@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 // EntityCandidate represents a potential entity found in markdown.

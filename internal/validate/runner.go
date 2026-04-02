@@ -3,7 +3,7 @@ package validate
 import (
 	"fmt"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 // Validate runs layered validation checks and returns combined results.

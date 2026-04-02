@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 // ChangesetStore manages changeset persistence. Create and GetNextID accept

@@ -1,7 +1,7 @@
 // Package graph implements impact propagation semantics for the spec-graph.
 package graph
 
-import "github.com/taeyeong/spec-graph/internal/model"
+import "github.com/tyeongkim/spec-graph/internal/model"
 
 // PropagationDirection describes how impact flows along a relation edge.
 type PropagationDirection string

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 // ExportOptions controls optional filtering and styling for export functions.

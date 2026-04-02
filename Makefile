@@ -1,12 +1,12 @@
 BINARY   := spec-graph
-MODULE   := github.com/taeyeong/spec-graph
+MODULE   := github.com/tyeongkim/spec-graph
 BUILD_DIR := bin
 
 GO       := go
 GOFLAGS  :=
 LDFLAGS  :=
 
-.PHONY: all build test lint fmt vet tidy clean check run
+.PHONY: all build test lint fmt vet tidy clean check run release snapshot
 
 all: check build
 
@@ -44,6 +44,15 @@ tidy:
 ## Combo
 check: fmt vet test
 
+## Release
+release:
+	@which goreleaser > /dev/null 2>&1 || { echo "goreleaser not found. Install: https://goreleaser.com/install/"; exit 1; }
+	goreleaser release --clean
+
+snapshot:
+	@which goreleaser > /dev/null 2>&1 || { echo "goreleaser not found. Install: https://goreleaser.com/install/"; exit 1; }
+	goreleaser release --snapshot --clean
+
 ## Clean
 clean:
-	rm -rf $(BUILD_DIR) coverage.out
+	rm -rf $(BUILD_DIR) coverage.out dist/

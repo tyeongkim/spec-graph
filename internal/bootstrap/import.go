@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/taeyeong/spec-graph/internal/model"
-	"github.com/taeyeong/spec-graph/internal/store"
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 // ReviewResult holds candidates formatted for review output (no DB interaction).

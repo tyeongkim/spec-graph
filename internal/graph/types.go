@@ -2,7 +2,7 @@
 // for impact analysis and validation of spec-graph entities.
 package graph
 
-import "github.com/taeyeong/spec-graph/internal/model"
+import "github.com/tyeongkim/spec-graph/internal/model"
 
 // RelationFetcher retrieves relations for a given entity.
 type RelationFetcher interface {

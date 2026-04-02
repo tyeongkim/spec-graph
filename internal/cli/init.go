@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/db"
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/db"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 )
 
 var initPath string

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 )
 
 func seedImpactEntities(t *testing.T, dbFile string) {

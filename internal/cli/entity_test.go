@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 var binaryPath string

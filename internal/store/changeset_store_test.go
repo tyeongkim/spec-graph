@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func createChangeset(t *testing.T, s *ChangesetStore, reason, actor, source string) model.Changeset {

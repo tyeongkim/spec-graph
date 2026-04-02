@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 type mockRF struct {

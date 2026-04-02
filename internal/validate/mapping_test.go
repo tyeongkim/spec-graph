@@ -3,7 +3,7 @@ package validate
 import (
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func TestCheckPlanCoverage(t *testing.T) {

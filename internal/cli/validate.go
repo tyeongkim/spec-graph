@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
-	"github.com/taeyeong/spec-graph/internal/model"
-	"github.com/taeyeong/spec-graph/internal/store"
-	"github.com/taeyeong/spec-graph/internal/validate"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/store"
+	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
 type validateEntityAdapter struct {

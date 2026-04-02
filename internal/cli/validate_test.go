@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 )
 
 // seedOrphanGraph creates a graph with one orphaned entity (no relations).

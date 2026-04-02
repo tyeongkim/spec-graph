@@ -1,4 +1,4 @@
-module github.com/taeyeong/spec-graph
+module github.com/tyeongkim/spec-graph
 
 go 1.25.0
 

@@ -11,10 +11,10 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/taeyeong/spec-graph/internal/graph"
-	"github.com/taeyeong/spec-graph/internal/model"
-	"github.com/taeyeong/spec-graph/internal/store"
-	"github.com/taeyeong/spec-graph/internal/validate"
+	"github.com/tyeongkim/spec-graph/internal/graph"
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/store"
+	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
 // entityStoreAdapter wraps *store.EntityStore to implement graph.EntityFetcher.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func validateArch(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {

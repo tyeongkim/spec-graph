@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/db"
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/db"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func setupRelationTestDB(t *testing.T) *sql.DB {

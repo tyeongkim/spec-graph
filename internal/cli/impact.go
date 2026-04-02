@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/graph"
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
-	"github.com/taeyeong/spec-graph/internal/model"
-	"github.com/taeyeong/spec-graph/internal/store"
+	"github.com/tyeongkim/spec-graph/internal/graph"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 type entityStoreAdapter struct {

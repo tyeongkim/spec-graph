@@ -6,7 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
-	specmcp "github.com/taeyeong/spec-graph/internal/mcp"
+	specmcp "github.com/tyeongkim/spec-graph/internal/mcp"
 )
 
 var mcpCmd = &cobra.Command{

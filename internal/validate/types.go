@@ -1,7 +1,7 @@
 // Package validate provides layered validation for spec-graph entities and relations.
 package validate
 
-import "github.com/taeyeong/spec-graph/internal/model"
+import "github.com/tyeongkim/spec-graph/internal/model"
 
 // Severity represents the severity level of a validation issue.
 type Severity string

@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: spec-graph
+    main: ./cmd/spec-graph
+    binary: spec-graph
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - name_template: >-
+      {{- .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^docs:"
+      - "^ci:"
+      - "^build:"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 100
+    - title: Bug fixes
+      regexp: '^.*?(fix|refactor)(\(.+\))??!?:.+$'
+      order: 200
+    - title: Others
+      order: 9999
+
+release:
+  name_template: "v{{ .Version }}"
+  footer: |
+    **Full Changelog**: https://github.com/tyeongkim/spec-graph/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+homebrew_casks:
+  - name: spec-graph
+    repository:
+      owner: tyeongkim
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    url:
+      template: "https://github.com/tyeongkim/spec-graph/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    homepage: https://github.com/tyeongkim/spec-graph
+    description: Typed specification graph CLI for managing requirements, decisions, and phases
+    binaries:
+      - spec-graph
+    commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"

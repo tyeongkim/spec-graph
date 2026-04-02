@@ -3,7 +3,7 @@ package jsoncontract
 import (
 	"encoding/json"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 type EntityResponse struct {

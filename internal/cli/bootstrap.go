@@ -4,10 +4,10 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/bootstrap"
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
-	"github.com/taeyeong/spec-graph/internal/model"
-	"github.com/taeyeong/spec-graph/internal/store"
+	"github.com/tyeongkim/spec-graph/internal/bootstrap"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 var bootstrapCmd = &cobra.Command{

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 // QueryScope returns all entities and relations belonging to the given phase.

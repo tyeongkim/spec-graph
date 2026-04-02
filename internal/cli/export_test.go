@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 )
 
 func TestExportDOT(t *testing.T) {

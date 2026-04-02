@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/taeyeong/spec-graph/internal/db"
-	"github.com/taeyeong/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/db"
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 var (

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taeyeong/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 )
 
 func TestE2E_FullWorkflow(t *testing.T) {
