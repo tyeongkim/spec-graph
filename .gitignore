@@ -2,4 +2,5 @@
 .sisyphus/
 bin/
 dist/
+spec-graph
 .DS_Store

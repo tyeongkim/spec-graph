@@ -78,4 +78,7 @@ homebrew_casks:
     description: Typed specification graph CLI for managing requirements, decisions, and phases
     binaries:
       - spec-graph
+    hooks:
+      post:
+        install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]'
     commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"
