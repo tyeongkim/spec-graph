@@ -7,6 +7,13 @@ CLI tool for managing software specifications as a typed graph. Track entities (
 ## Install
 
 ```bash
+# Homebrew
+brew install tyeongkim/tap/spec-graph
+
+# Go
+go install github.com/tyeongkim/spec-graph/cmd/spec-graph@latest
+
+# From source
 make build
 # produces bin/spec-graph
 ```
