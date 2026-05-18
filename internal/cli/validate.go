@@ -33,6 +33,7 @@ var validateCmd = &cobra.Command{
 		checkFlag, _ := cmd.Flags().GetString("check")
 		phaseFlag, _ := cmd.Flags().GetString("phase")
 		entityFlag, _ := cmd.Flags().GetString("entity")
+		includeReferencesFlag, _ := cmd.Flags().GetBool("include-references")
 
 		if entityFlag != "" && phaseFlag != "" {
 			handleError(cmd, &model.ErrInvalidInput{Message: "--entity and --phase are mutually exclusive"})
@@ -55,6 +56,7 @@ var validateCmd = &cobra.Command{
 
 		var opts validate.ValidateOptions
 		opts.Layer = layer
+		opts.IncludeReferences = includeReferencesFlag
 		if checkFlag != "" {
 			opts.Checks = strings.Split(checkFlag, ",")
 		}
@@ -108,6 +110,31 @@ var validateCmd = &cobra.Command{
 			bySeverity[string(k)] = v
 		}
 
+		var satisfaction []jsoncontract.ValidatePhaseSatisfaction
+		if len(result.Satisfaction) > 0 {
+			satisfaction = make([]jsoncontract.ValidatePhaseSatisfaction, len(result.Satisfaction))
+			for i, report := range result.Satisfaction {
+				items := make([]jsoncontract.ValidateSatisfactionItem, len(report.Items))
+				for j, item := range report.Items {
+					items[j] = jsoncontract.ValidateSatisfactionItem{
+						EntityID:         item.EntityID,
+						EntityType:       string(item.EntityType),
+						Status:           string(item.Status),
+						Reason:           item.Reason,
+						EvidenceID:       item.EvidenceID,
+						EvidenceRelation: string(item.EvidenceRelation),
+					}
+				}
+				satisfaction[i] = jsoncontract.ValidatePhaseSatisfaction{
+					PhaseID:       report.PhaseID,
+					Satisfied:     report.Satisfied,
+					Total:         report.Total,
+					AdvisoryCount: report.AdvisoryCount,
+					Items:         items,
+				}
+			}
+		}
+
 		response := jsoncontract.ValidateResponse{
 			Valid:  result.Valid,
 			Issues: issues,
@@ -115,6 +142,7 @@ var validateCmd = &cobra.Command{
 				TotalIssues: result.Summary.TotalIssues,
 				BySeverity:  bySeverity,
 			},
+			Satisfaction: satisfaction,
 		}
 
 		writeJSON(cmd, response)
@@ -126,8 +154,9 @@ var validateCmd = &cobra.Command{
 }
 
 func init() {
-	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs,unresolved,cycles,conflicts,phase_order,single_active_plan,orphan_phases,exec_cycles,invalid_exec_edges,plan_coverage,delivery_completeness,mapping_consistency,invalid_mapping_edges,gates")
+	validateCmd.Flags().String("check", "", "comma-separated check names: orphans,coverage,invalid_edges,superseded_refs,unresolved,cycles,conflicts,phase_order,single_active_plan,orphan_phases,exec_cycles,invalid_exec_edges,plan_coverage,delivery_completeness,mapping_consistency,invalid_mapping_edges,gates,phase_satisfaction")
 	validateCmd.Flags().String("phase", "", "restrict validation to entities in this phase (must be a phase entity ID)")
 	validateCmd.Flags().String("entity", "", "restrict validation to issues for this entity ID")
+	validateCmd.Flags().Bool("include-references", false, "include 1-depth references neighbors in phase satisfaction closure as advisory members")
 	rootCmd.AddCommand(validateCmd)
 }

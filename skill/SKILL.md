@@ -111,8 +111,9 @@ spec-graph validate --layer exec
 spec-graph validate --layer mapping
 spec-graph validate --check orphans|coverage|cycles|conflicts|invalid_edges|superseded_refs|unresolved
 spec-graph validate --check phase_order|single_active_plan|orphan_phases|exec_cycles|invalid_exec_edges
-spec-graph validate --check plan_coverage|delivery_completeness|mapping_consistency|invalid_mapping_edges
+spec-graph validate --check plan_coverage|delivery_completeness|mapping_consistency|invalid_mapping_edges|gates|phase_satisfaction
 spec-graph validate --phase <PHS-ID>
+spec-graph validate --phase <PHS-ID> --check phase_satisfaction --include-references
 spec-graph validate --entity <ID>
 ```
 
@@ -254,17 +255,25 @@ spec-graph query scope PHS-002
 # 2. Arch coverage check — missing implementations / tests
 spec-graph validate --layer arch --check coverage
 
-# 3. Mapping completeness — covered items that have no delivery
+# 3. Unified satisfaction gate — closure satisfied by delivered evidence
+spec-graph validate --layer mapping --phase PHS-002 --check phase_satisfaction
+
+# 4. Mapping completeness — covered items that have no delivery
 spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
 
-# 4. Mapping consistency — cross-layer integrity
+# 5. Mapping consistency — cross-layer integrity
 spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
 
-# 5. Exec gate check — phase ordering, plan validity
+# 6. Exec gate check — phase ordering, plan validity
 spec-graph validate --layer exec --check phase_order
 ```
 
 If validate reports issues, do not complete the phase. Resolve issues first.
+
+`phase_satisfaction` is the recommended unified gate. The response includes a per-phase
+`satisfaction` block with the satisfied/total ratio and a per-entity item list explaining
+each outcome. Use `--include-references` if you also want references-linked items surfaced
+as `advisory` (they are reported but never block satisfaction).
 
 #### Handling "covered but not delivered" mapping failures
 
@@ -295,6 +304,19 @@ Critical rules for delivery proxy resolution:
 - Apply the same precision level consistently across all phases.
 - After adding proxy relations, verify semantic correctness: does each `delivers` accurately
   represent work completed in this phase, or is it just silencing the check?
+
+#### Note on `phase_satisfaction` vs proxy delivery
+
+`phase_satisfaction` differs from `delivery_completeness` in what counts as evidence:
+- `delivery_completeness` requires `phase delivers X` for each `phase covers X` (same entity match).
+- `phase_satisfaction` requires inbound `delivers` to the covered entity itself for requirements,
+  and additionally walks the closure (depends_on outbound, implements inbound) to require each
+  closure member meets its own satisfaction rule.
+
+When using `phase_satisfaction` as the gate, deliver the covered entity directly
+(`PHS-002 delivers REQ-015`) rather than relying on implementation proxies. Implementation
+entities pulled into the closure via `implements` are judged by their own status, not by
+delivery from the phase.
 
 ### Pattern 4: Full Patch Orchestration (recommended)
 
@@ -397,6 +419,8 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | `delivery_completeness` | covered entities have delivery evidence | required before phase exit |
 | `mapping_consistency` | covers/delivers targets are valid arch entities | after adding mapping relations |
 | `invalid_mapping_edges` | mapping edge matrix violations | after adding mapping relations |
+| `gates` | per-phase scope: unresolved questions/risks/assumptions, draft-decision dependencies | before phase start or completion |
+| `phase_satisfaction` | unified gate: covered closure satisfied by delivered evidence | required before phase exit (recommended) |
 
 ### Common Combinations
 
@@ -409,8 +433,12 @@ spec-graph validate --layer mapping --check plan_coverage
 
 # Before phase completion (required)
 spec-graph validate --layer arch --check coverage
+spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction
 spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
 spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
+
+# Optional: include references-linked items as advisory in the report
+spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction --include-references
 
 # After any change
 spec-graph validate

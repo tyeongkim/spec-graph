@@ -6,13 +6,14 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
-func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) ([]ValidationIssue, []PhaseSatisfaction) {
 	checks := opts.Checks
 	if len(checks) == 0 {
 		checks = MappingChecks
 	}
 
 	var allIssues []ValidationIssue
+	var reports []PhaseSatisfaction
 
 	for _, check := range checks {
 		layer, known := CheckLayer(check)
@@ -32,12 +33,16 @@ func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher)
 			issues = checkInvalidMappingEdges(rf, ef)
 		case "gates":
 			issues = checkGates(opts, rf, ef)
+		case "phase_satisfaction":
+			satIssues, satReports := checkPhaseSatisfaction(opts, rf, ef)
+			issues = satIssues
+			reports = append(reports, satReports...)
 		}
 
 		allIssues = append(allIssues, issues...)
 	}
 
-	return allIssues
+	return allIssues, reports
 }
 
 func isMappingRelation(r model.Relation) bool {

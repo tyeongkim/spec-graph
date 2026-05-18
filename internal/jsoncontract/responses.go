@@ -77,9 +77,10 @@ type ImpactSummary struct {
 
 // ValidateResponse is the top-level JSON response for the validate command.
 type ValidateResponse struct {
-	Valid   bool            `json:"valid"`
-	Issues  []ValidateIssue `json:"issues"`
-	Summary ValidateSummary `json:"summary"`
+	Valid        bool                          `json:"valid"`
+	Issues       []ValidateIssue               `json:"issues"`
+	Summary      ValidateSummary               `json:"summary"`
+	Satisfaction []ValidatePhaseSatisfaction   `json:"satisfaction,omitempty"`
 }
 
 // ValidateIssue describes a single validation issue.
@@ -94,6 +95,40 @@ type ValidateIssue struct {
 type ValidateSummary struct {
 	TotalIssues int            `json:"total_issues"`
 	BySeverity  map[string]int `json:"by_severity"`
+}
+
+// ValidateSatisfactionItem is a per-entity satisfaction outcome.
+//
+// Status is one of "satisfied", "unsatisfied", or "advisory". Advisory items
+// are reported but never block validation. EvidenceID names the source entity
+// providing evidence (e.g. the phase that delivers a requirement, or the
+// decision that answers a question). EvidenceRelation is the inbound relation
+// type used as evidence: "delivers" for requirements, "answers" for questions,
+// "mitigates" for risks. Both evidence fields are omitted when satisfaction
+// was determined by the member's own status (assumption/decision rules) or
+// when no evidence relation was found.
+type ValidateSatisfactionItem struct {
+	EntityID         string `json:"entity_id"`
+	EntityType       string `json:"entity_type"`
+	Status           string `json:"status"`
+	Reason           string `json:"reason"`
+	EvidenceID       string `json:"evidence_id,omitempty"`
+	EvidenceRelation string `json:"evidence_relation,omitempty"`
+}
+
+// ValidatePhaseSatisfaction is the satisfaction report for a single phase.
+//
+// Satisfied/Total reflect the mandatory closure ratio (members reached via
+// covers + 1-depth depends_on outbound + 1-depth implements inbound).
+// AdvisoryCount counts members reached via opt-in references; advisory members
+// never affect Satisfied or Total. Items lists every closure member with its
+// per-entity outcome.
+type ValidatePhaseSatisfaction struct {
+	PhaseID       string                     `json:"phase_id"`
+	Satisfied     int                        `json:"satisfied"`
+	Total         int                        `json:"total"`
+	AdvisoryCount int                        `json:"advisory_count"`
+	Items         []ValidateSatisfactionItem `json:"items"`
 }
 
 type ChangesetDetail struct {

@@ -243,7 +243,7 @@ at least one `delivers` relation from the phase (or from a phase that delivers i
 entities as proxies).
 
 ### mapping_consistency
-Detects cross-layer integrity problems.
+Detects mapping relations whose target arch entity is no longer valid.
 
 ```bash
 spec-graph validate --layer mapping --check mapping_consistency
@@ -252,14 +252,11 @@ spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
 
 | Condition | Severity |
 |-----------|----------|
-| `covers` target is not an arch entity | high |
-| `delivers` target is not an arch entity | high |
-| `covers` source is not a phase | high |
-| `delivers` source is not a phase | high |
-| Phase delivers an entity it does not cover | medium |
+| `covers` or `delivers` target is deprecated | medium |
+| `covers` or `delivers` target has been superseded by another entity | medium |
 
-The last condition (delivers without covers) is a warning: it may indicate a delivery was
-recorded without the corresponding intent being modeled.
+Edge-shape violations (e.g. `covers` source not a phase, target not an arch entity) are
+caught by `invalid_mapping_edges`, not this check.
 
 ### invalid_mapping_edges
 Detects relations that violate the mapping edge matrix.
@@ -291,6 +288,99 @@ spec-graph validate --layer mapping --phase PHS-002 --check gates
 
 When `--phase` is specified, only that phase is checked. Without `--phase`, all active
 phases are checked. Run this before starting or completing a phase.
+
+### phase_satisfaction
+Evaluates whether the phase's covered architecture closure is satisfied by delivered
+execution evidence. This is the unified phase exit gate — it answers a single question:
+"Is each member of this phase's covered closure backed by appropriate evidence?"
+
+```bash
+spec-graph validate --layer mapping --check phase_satisfaction --phase PHS-002
+spec-graph validate --layer mapping --check phase_satisfaction --phase PHS-002 --include-references
+```
+
+#### Closure Definition
+
+For phase P, the closure is computed as:
+
+| Class | Members |
+|-------|---------|
+| Mandatory | entities directly covered by P (`P --covers--> X`), plus 1-depth `depends_on` outbound neighbors of covered entities (`X --depends_on--> Y`), plus 1-depth `implements` inbound neighbors of covered entities (`Z --implements--> X`) |
+| Advisory (opt-in only) | 1-depth `references` outbound neighbors of directly covered entities (`X --references--> R`), when `--include-references` is passed |
+
+If an entity would qualify for both classes, mandatory wins.
+
+#### Three-Layer Satisfaction Judgment
+
+Each mandatory member is evaluated by applying the first matching rule:
+
+| Layer | Rule | Applies To |
+|-------|------|-----------|
+| 1 | inbound evidence relation must exist | requirement (`delivers`), question (`answers`), risk (`mitigates`) |
+| 2 | entity's own status must be in the allowlist | assumption (`verified`), decision (`active`, `resolved`) |
+| 3 | when Layer 1 applies, the evidence source's status must be in the per-type allowlist | all evidence-bearing types |
+
+Per-type Layer 3 allowlists (applied to the **evidence source's** status):
+
+| Evidence Source Type | Allowed Status |
+|---------------------|----------------|
+| decision | active, resolved |
+| interface | active, resolved |
+| test | verified, passed |
+| requirement | resolved, verified |
+| risk | mitigated, resolved |
+| phase | active, completed, resolved |
+| (fallback for other types) | active, resolved |
+
+Layer 2 status-only rules (applied to the closure member's own status):
+
+| Member Entity Type | Allowed Status |
+|---|---|
+| assumption | verified |
+| decision | active, resolved |
+
+Advisory members are always reported as `advisory`. They never produce a `phase_satisfaction`
+issue and do not count toward the satisfied/total ratio.
+
+#### Validation Outcomes
+
+| Condition | Severity |
+|-----------|----------|
+| Mandatory closure member fails Layer 1, 2, or 3 | high |
+| Advisory closure member exists | (no issue; reported only) |
+
+Each unsatisfied mandatory member produces a separate issue. The validate response also
+includes a per-phase `satisfaction` report with the satisfied/total ratio, advisory count,
+and a per-entity item list with the reason for each outcome.
+
+#### Trigger
+
+`phase_satisfaction` is **not** included in the default mapping checks. It is a phase-exit
+gate that must be invoked explicitly with `--check phase_satisfaction` (typically with
+`--phase`). This prevents in-progress phases from failing routine `validate --layer mapping`
+runs.
+
+#### Evidence Evaluation Semantics
+
+For Layer 1 + Layer 3 evaluation, the check uses **existential** semantics: a member is
+satisfied if **any** inbound evidence relation comes from a source whose status is in the
+allowlist. If the first evidence source has a non-allowed status but a later source has an
+allowed status, the member is satisfied.
+
+#### Same-Phase Delivers Requirement
+
+For the `delivers` evidence relation specifically, the source must be the **phase being
+validated**. Delivery by another phase is reported diagnostically but does not satisfy
+the current phase. This enforces phase-exit gate semantics: `PHS-1 covers REQ-1` is not
+satisfied by `PHS-2 delivers REQ-1` — `PHS-1` itself must deliver `REQ-1`.
+
+When only cross-phase deliveries exist, the unsatisfied reason names the other delivering
+phases for diagnostic clarity, e.g. `no inbound "delivers" relation from phase PHS-001
+(found from [PHS-002])`.
+
+The other evidence relations (`answers`, `mitigates`) are not phase-scoped because their
+valid sources per the edge matrix are arch entities (decisions, tests, crosscut), not
+phases. Any source meeting Layer 3 satisfies regardless of phase membership.
 
 ---
 
@@ -331,6 +421,9 @@ spec-graph validate --layer arch --check coverage
 # Arch: clean up stale references
 spec-graph validate --layer arch --check superseded_refs
 
+# Mapping: unified satisfaction gate — closure satisfied by evidence
+spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction
+
 # Mapping: confirm all covered items have delivery evidence
 spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
 
@@ -339,6 +432,12 @@ spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
 ```
 
 Purpose: verify implementation/test completeness, open-item resolution, and delivery evidence.
+
+`phase_satisfaction` is the recommended single-shot gate. It computes the closure of the
+phase (covered entities plus their 1-depth `depends_on` / `implements` neighbors) and
+applies a three-layer judgment (evidence relation, status-only, target status allowlist)
+to each member. Use `--include-references` when you want the report to also surface
+`references`-linked items as advisory entries; advisory items never block satisfaction.
 
 ---
 
@@ -393,5 +492,7 @@ Purpose: verify implementation/test completeness, open-item resolution, and deli
 | `single_active_plan`: multiple active | set all but one plan to `archived` or `deprecated` |
 | `orphan_phases`: phase not in plan | add `belongs_to` relation from phase to the active plan |
 | `delivery_completeness`: no delivers | add `delivers` from the phase to the implementing entity (minimal proxy set) |
-| `mapping_consistency`: delivers without covers | add `covers` relation, or investigate whether the delivery is correct |
+| `mapping_consistency`: target deprecated or superseded | retarget the relation to the active replacement entity, or remove the stale relation |
+| `phase_satisfaction`: no inbound evidence relation | add the required relation (`delivers` for requirements, `answers` for questions, `mitigates` for risks); for assumptions/decisions, advance the entity status |
+| `phase_satisfaction`: evidence source status not in allowlist | progress the evidence source (e.g. activate the interface, mark the test verified, complete the phase) |
 | `superseded_refs`: stale reference | update relation to point to the replacement entity, or remove it |

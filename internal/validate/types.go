@@ -49,6 +49,9 @@ type ValidateOptions struct {
 	EntityID string
 	// Layer restricts validation to this layer. nil = all layers.
 	Layer *model.Layer
+	// IncludeReferences, when true, adds 1-depth references neighbors of covered
+	// entities to phase satisfaction closures as advisory members.
+	IncludeReferences bool
 }
 
 // ValidateSummary aggregates counts from a validation run.
@@ -59,9 +62,10 @@ type ValidateSummary struct {
 
 // ValidateResult is the top-level result returned by validation.
 type ValidateResult struct {
-	Valid   bool              `json:"valid"`
-	Issues  []ValidationIssue `json:"issues"`
-	Summary ValidateSummary   `json:"summary"`
+	Valid        bool                `json:"valid"`
+	Issues       []ValidationIssue   `json:"issues"`
+	Summary      ValidateSummary     `json:"summary"`
+	Satisfaction []PhaseSatisfaction `json:"satisfaction,omitempty"`
 }
 
 // Architecture layer check names.
@@ -84,7 +88,9 @@ var ExecChecks = []string{
 	"invalid_exec_edges",
 }
 
-// Mapping layer check names.
+// MappingChecks lists the default mapping-layer checks. phase_satisfaction
+// is intentionally excluded: it is a phase-exit gate that must be invoked
+// explicitly via --check phase_satisfaction (typically with --phase).
 var MappingChecks = []string{
 	"plan_coverage",
 	"delivery_completeness",
@@ -93,7 +99,12 @@ var MappingChecks = []string{
 	"gates",
 }
 
-// allChecks is the union of all layer checks.
+// optInMappingChecks lists mapping-layer checks that are valid but not run
+// unless explicitly requested via --check.
+var optInMappingChecks = []string{
+	"phase_satisfaction",
+}
+
 var allChecks = func() map[string]model.Layer {
 	m := make(map[string]model.Layer)
 	for _, c := range ArchChecks {
@@ -103,6 +114,9 @@ var allChecks = func() map[string]model.Layer {
 		m[c] = model.LayerExec
 	}
 	for _, c := range MappingChecks {
+		m[c] = model.LayerMapping
+	}
+	for _, c := range optInMappingChecks {
 		m[c] = model.LayerMapping
 	}
 	return m

@@ -15,6 +15,7 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 	}
 
 	var allIssues []ValidationIssue
+	var satisfactionReports []PhaseSatisfaction
 
 	runArch := opts.Layer == nil || *opts.Layer == model.LayerArch
 	runExec := opts.Layer == nil || *opts.Layer == model.LayerExec
@@ -29,8 +30,9 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 		allIssues = append(allIssues, issues...)
 	}
 	if runMapping {
-		issues := validateMapping(opts, rf, ef)
+		issues, reports := validateMapping(opts, rf, ef)
 		allIssues = append(allIssues, issues...)
+		satisfactionReports = append(satisfactionReports, reports...)
 	}
 
 	if opts.EntityID != "" {
@@ -48,6 +50,10 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 		if err == nil && len(phaseScope) > 0 {
 			filtered := allIssues[:0]
 			for _, issue := range allIssues {
+				if issue.Check == "phase_satisfaction" {
+					filtered = append(filtered, issue)
+					continue
+				}
 				if phaseScope[issue.Entity] || issue.Entity == *opts.Phase {
 					filtered = append(filtered, issue)
 				}
@@ -68,6 +74,7 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 			TotalIssues: len(allIssues),
 			BySeverity:  bySeverity,
 		},
+		Satisfaction: satisfactionReports,
 	}, nil
 }
 
