@@ -4,7 +4,14 @@ BUILD_DIR := bin
 
 GO       := go
 GOFLAGS  :=
-LDFLAGS  :=
+
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE     := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS  := -s -w \
+            -X $(MODULE)/internal/cli.Version=$(VERSION) \
+            -X $(MODULE)/internal/cli.Commit=$(COMMIT) \
+            -X $(MODULE)/internal/cli.Date=$(DATE)
 
 .PHONY: all build test lint fmt vet tidy clean check run release snapshot
 

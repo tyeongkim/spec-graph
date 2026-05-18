@@ -23,6 +23,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - -X github.com/tyeongkim/spec-graph/internal/cli.Version={{.Version}}
+      - -X github.com/tyeongkim/spec-graph/internal/cli.Commit={{.Commit}}
+      - -X github.com/tyeongkim/spec-graph/internal/cli.Date={{.Date}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:

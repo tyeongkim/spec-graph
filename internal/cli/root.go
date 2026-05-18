@@ -16,10 +16,19 @@ var (
 	appDB     *sql.DB
 )
 
+// Build metadata. These are populated at link time via -ldflags -X.
+// Defaults match goreleaser's snapshot mode for development builds.
+var (
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
+)
+
 var rootCmd = &cobra.Command{
 	Use:           "spec-graph",
 	Short:         "A CLI tool for managing specification graphs",
 	Long:          `spec-graph manages entities, relations, and dependency graphs for software specifications.`,
+	Version:       versionString(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
@@ -45,6 +54,10 @@ var rootCmd = &cobra.Command{
 		appDB = database
 		return nil
 	},
+}
+
+func versionString() string {
+	return fmt.Sprintf("%s (commit %s, built %s)", Version, Commit, Date)
 }
 
 func init() {
