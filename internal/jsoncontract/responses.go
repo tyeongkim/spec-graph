@@ -131,6 +131,20 @@ type ValidatePhaseSatisfaction struct {
 	Items         []ValidateSatisfactionItem `json:"items"`
 }
 
+// EntityUpdateGateResponse is returned when a status transition is blocked
+// by validation gates. It wraps the blocking issues and warnings so consumers
+// can parse them with the same schema as validate output.
+type EntityUpdateGateResponse struct {
+	Blocked    bool            `json:"blocked"`
+	EntityID   string          `json:"entity_id"`
+	EntityType string          `json:"entity_type"`
+	FromStatus string          `json:"from_status"`
+	ToStatus   string          `json:"to_status"`
+	Issues     []ValidateIssue `json:"issues"`
+	Warnings   []ValidateIssue `json:"warnings"`
+	Summary    ValidateSummary `json:"summary"`
+}
+
 type ChangesetDetail struct {
 	ID        string `json:"id"`
 	Reason    string `json:"reason"`

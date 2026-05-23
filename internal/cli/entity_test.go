@@ -595,3 +595,174 @@ func TestEntityFullLifecycle(t *testing.T) {
 		t.Fatalf("expected exit 1 after delete, got %d", r.exitCode)
 	}
 }
+
+func setupGatedPhaseWithUnresolvedQuestion(t *testing.T, dir, dbFile string) {
+	t.Helper()
+	cmds := [][]string{
+		{"--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--db", dbFile, "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Unresolved question", "--status", "active"},
+		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
+	}
+	for _, args := range cmds {
+		r := runCLI(t, dir, args...)
+		if r.exitCode != 0 {
+			t.Fatalf("setup failed (%v): exit=%d stderr=%s", args, r.exitCode, r.stderr)
+		}
+	}
+}
+
+func TestGateBlocksPhaseResolution(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved")
+	if r.exitCode != 2 {
+		t.Fatalf("expected exit 2 (gate blocked), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.EntityUpdateGateResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal gate response: %v\nraw: %s", err, r.stdout)
+	}
+	if !resp.Blocked {
+		t.Error("expected blocked=true")
+	}
+	if resp.EntityID != "PHS-001" {
+		t.Errorf("entity_id = %q; want PHS-001", resp.EntityID)
+	}
+	if resp.EntityType != "phase" {
+		t.Errorf("entity_type = %q; want phase", resp.EntityType)
+	}
+	if resp.FromStatus != "active" {
+		t.Errorf("from_status = %q; want active", resp.FromStatus)
+	}
+	if resp.ToStatus != "resolved" {
+		t.Errorf("to_status = %q; want resolved", resp.ToStatus)
+	}
+	if len(resp.Issues) == 0 {
+		t.Fatal("expected at least one blocking issue")
+	}
+	foundGatesIssue := false
+	for _, iss := range resp.Issues {
+		if iss.Check == "gates" && iss.Entity == "QST-001" {
+			foundGatesIssue = true
+			break
+		}
+	}
+	if !foundGatesIssue {
+		t.Errorf("expected gates issue for QST-001; got issues: %+v", resp.Issues)
+	}
+	if resp.Summary.TotalIssues < 1 {
+		t.Errorf("summary.total_issues = %d; want >= 1", resp.Summary.TotalIssues)
+	}
+}
+
+func TestGateForceBypassWithReason(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
+		"--status", "resolved", "--force", "--reason", "override for testing")
+	if r.exitCode != 0 {
+		t.Fatalf("expected exit 0 (force bypass), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal entity response: %v\nraw: %s", err, r.stdout)
+	}
+	if resp.Entity.ID != "PHS-001" {
+		t.Errorf("entity.id = %q; want PHS-001", resp.Entity.ID)
+	}
+	if resp.Entity.Status != model.EntityStatusResolved {
+		t.Errorf("entity.status = %q; want resolved", resp.Entity.Status)
+	}
+
+	if r.stderr == "" {
+		t.Fatal("expected warnings on stderr")
+	}
+	var warnings []jsoncontract.ValidateIssue
+	if err := json.Unmarshal([]byte(r.stderr), &warnings); err != nil {
+		t.Fatalf("unmarshal stderr warnings: %v\nraw: %s", err, r.stderr)
+	}
+	if len(warnings) == 0 {
+		t.Error("expected at least one warning in stderr")
+	}
+}
+
+func TestGateForceWithoutReasonFails(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
+		"--status", "resolved", "--force")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3 (INVALID_INPUT), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal error response: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("error.code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestGateNotAppliedForNonResolvedTransition(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "draft")
+	if r.exitCode != 0 {
+		t.Fatalf("expected exit 0 for non-gated transition, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+	if resp.Entity.Status != model.EntityStatusDraft {
+		t.Errorf("status = %q; want draft", resp.Entity.Status)
+	}
+}
+
+func TestGatePassesWhenNoIssues(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	cmds := [][]string{
+		{"--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--db", dbFile, "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Resolved question", "--status", "active"},
+		{"--db", dbFile, "entity", "add", "--type", "decision", "--id", "DEC-001", "--title", "Answer", "--status", "active"},
+		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
+		{"--db", dbFile, "relation", "add", "--from", "DEC-001", "--to", "QST-001", "--type", "answers"},
+	}
+	for _, args := range cmds {
+		r := runCLI(t, dir, args...)
+		if r.exitCode != 0 {
+			t.Fatalf("setup failed (%v): exit=%d stderr=%s", args, r.exitCode, r.stderr)
+		}
+	}
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved")
+	if r.exitCode != 0 {
+		t.Fatalf("expected exit 0 (gate passes), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	}
+
+	var resp jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	}
+	if resp.Entity.ID != "PHS-001" {
+		t.Errorf("entity.id = %q; want PHS-001", resp.Entity.ID)
+	}
+	if resp.Entity.Status != model.EntityStatusResolved {
+		t.Errorf("entity.status = %q; want resolved", resp.Entity.Status)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/gate"
 	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
@@ -186,6 +187,8 @@ var entityUpdateCmd = &cobra.Command{
 			handleError(cmd, err)
 		}
 
+		var oldStatus model.EntityStatus
+
 		if cmd.Flags().Changed("title") {
 			v, _ := cmd.Flags().GetString("title")
 			ef.Title = v
@@ -195,6 +198,7 @@ var entityUpdateCmd = &cobra.Command{
 			ef.Description = v
 		}
 		if cmd.Flags().Changed("status") {
+			oldStatus = ef.Status
 			v, _ := cmd.Flags().GetString("status")
 			schema := spectoml.DefaultSchema()
 			if err := schema.ValidateEntity(ef.ID, string(ef.Type), v); err != nil {
@@ -233,6 +237,87 @@ var entityUpdateCmd = &cobra.Command{
 			ef.Metadata = meta
 		}
 
+		// Gate enforcement
+		forceFlag, _ := cmd.Flags().GetBool("force")
+		if cmd.Flags().Changed("status") {
+			target := gate.Target{
+				EntityID:   id,
+				EntityType: ef.Type,
+				FromStatus: oldStatus,
+				ToStatus:   ef.Status,
+			}
+			if policy := gate.LookupPolicy(target); policy != nil {
+				efAdapter := &indexValidateEntityFetcher{idx: queryIndex}
+				rfAdapter := &validateRelationAdapter{fetcher: &indexRelationFetcher{idx: queryIndex}}
+
+				report, err := gate.Enforce(target, rfAdapter, efAdapter)
+				if err != nil {
+					handleError(cmd, fmt.Errorf("gate enforce: %w", err))
+				}
+
+				if report.Blocked {
+					if forceFlag {
+						reason, _ := cmd.Flags().GetString("reason")
+						if reason == "" {
+							handleError(cmd, &model.ErrInvalidInput{Message: "--force requires --reason"})
+						}
+						if len(report.Warnings) > 0 || len(report.BlockingIssues) > 0 {
+							allIssues := append(report.BlockingIssues, report.Warnings...)
+							warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
+							for i, issue := range allIssues {
+								warningOutput[i] = jsoncontract.ValidateIssue{
+									Check:    issue.Check,
+									Severity: string(issue.Severity),
+									Entity:   issue.Entity,
+									Message:  issue.Message,
+								}
+							}
+							warningJSON, _ := json.Marshal(warningOutput)
+							fmt.Fprintf(os.Stderr, "%s\n", warningJSON)
+						}
+					} else {
+						issues := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
+						for i, issue := range report.BlockingIssues {
+							issues[i] = jsoncontract.ValidateIssue{
+								Check:    issue.Check,
+								Severity: string(issue.Severity),
+								Entity:   issue.Entity,
+								Message:  issue.Message,
+							}
+						}
+						warnings := make([]jsoncontract.ValidateIssue, len(report.Warnings))
+						for i, issue := range report.Warnings {
+							warnings[i] = jsoncontract.ValidateIssue{
+								Check:    issue.Check,
+								Severity: string(issue.Severity),
+								Entity:   issue.Entity,
+								Message:  issue.Message,
+							}
+						}
+						bySeverity := make(map[string]int)
+						for _, issue := range report.BlockingIssues {
+							bySeverity[string(issue.Severity)]++
+						}
+						response := jsoncontract.EntityUpdateGateResponse{
+							Blocked:    true,
+							EntityID:   report.EntityID,
+							EntityType: string(report.EntityType),
+							FromStatus: string(report.FromStatus),
+							ToStatus:   string(report.ToStatus),
+							Issues:     issues,
+							Warnings:   warnings,
+							Summary: jsoncontract.ValidateSummary{
+								TotalIssues: len(report.BlockingIssues),
+								BySeverity:  bySeverity,
+							},
+						}
+						writeJSON(cmd, response)
+						os.Exit(2)
+					}
+				}
+			}
+		}
+
 		ef.UpdatedAt = time.Now()
 
 		if err := tomlStore.WriteEntity(ef); err != nil {
@@ -243,11 +328,16 @@ var entityUpdateCmd = &cobra.Command{
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
 
+		detail := source
+		if forceFlag {
+			detail = "force=true; " + detail
+		}
+
 		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
 			Action:    model.ActionUpdate,
 			Reason:    reason,
 			Actor:     actor,
-			Detail:    source,
+			Detail:    detail,
 			Timestamp: time.Now(),
 		}); err != nil {
 			handleError(cmd, fmt.Errorf("append history: %w", err))
@@ -469,6 +559,7 @@ func init() {
 	entityUpdateCmd.Flags().String("reason", "", "reason for update")
 	entityUpdateCmd.Flags().String("actor", "", "actor performing the change")
 	entityUpdateCmd.Flags().String("source", "", "source of the change")
+	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks (requires --reason)")
 
 	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
 	entityDeprecateCmd.Flags().String("actor", "", "actor performing the change")
