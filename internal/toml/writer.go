@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
 
 // MarshalEntityFile produces canonical TOML output for an EntityFile.
-// Key order: schema, id, type, title, description (if non-empty), status, [metadata], [[relations]].
+// Key order: schema, id, type, title, description (if non-empty), status, created_at, updated_at, [metadata], [[relations]].
 // Relations are sorted by (type ASC, to ASC).
 func MarshalEntityFile(ef EntityFile) string {
 	var b strings.Builder
@@ -22,6 +23,13 @@ func MarshalEntityFile(ef EntityFile) string {
 		b.WriteString("description = " + tomlQuote(ef.Description) + "\n")
 	}
 	b.WriteString("status = " + tomlQuote(string(ef.Status)) + "\n")
+
+	if !ef.CreatedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("created_at = %s\n", ef.CreatedAt.Format(time.RFC3339)))
+	}
+	if !ef.UpdatedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("updated_at = %s\n", ef.UpdatedAt.Format(time.RFC3339)))
+	}
 
 	if len(ef.Metadata) > 0 {
 		b.WriteByte('\n')

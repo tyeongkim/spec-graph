@@ -9,16 +9,17 @@ import (
 
 // EntityFile represents the TOML structure for a single entity file.
 // Layer is NOT stored — it is derived from entity type at load time.
-// Timestamps are NOT stored — they are derived from git/filesystem.
 type EntityFile struct {
-	Schema      int              `toml:"schema"`
-	ID          string           `toml:"id"`
-	Type        model.EntityType `toml:"type"`
-	Title       string           `toml:"title"`
-	Description string           `toml:"description,omitempty"`
+	Schema      int                `toml:"schema"`
+	ID          string             `toml:"id"`
+	Type        model.EntityType   `toml:"type"`
+	Title       string             `toml:"title"`
+	Description string             `toml:"description,omitempty"`
 	Status      model.EntityStatus `toml:"status"`
-	Metadata    map[string]any   `toml:"metadata,omitempty"`
-	Relations   []RelationEntry  `toml:"relations,omitempty"`
+	CreatedAt   time.Time          `toml:"created_at,omitempty"`
+	UpdatedAt   time.Time          `toml:"updated_at,omitempty"`
+	Metadata    map[string]any     `toml:"metadata,omitempty"`
+	Relations   []RelationEntry    `toml:"relations,omitempty"`
 }
 
 // RelationEntry represents a single relation within an entity's TOML file.
@@ -47,8 +48,7 @@ type HistoryEntry struct {
 }
 
 // ToEntity converts an EntityFile to a model.Entity.
-// Layer is derived from the entity type. Timestamps are left empty
-// (to be populated by the caller from git/filesystem).
+// Layer is derived from the entity type. Timestamps are formatted as RFC3339.
 func (ef *EntityFile) ToEntity() (model.Entity, error) {
 	var meta json.RawMessage
 	if len(ef.Metadata) > 0 {
@@ -59,6 +59,14 @@ func (ef *EntityFile) ToEntity() (model.Entity, error) {
 		meta = b
 	}
 
+	var createdAt, updatedAt string
+	if !ef.CreatedAt.IsZero() {
+		createdAt = ef.CreatedAt.Format(time.RFC3339)
+	}
+	if !ef.UpdatedAt.IsZero() {
+		updatedAt = ef.UpdatedAt.Format(time.RFC3339)
+	}
+
 	return model.Entity{
 		ID:          ef.ID,
 		Type:        ef.Type,
@@ -67,6 +75,8 @@ func (ef *EntityFile) ToEntity() (model.Entity, error) {
 		Description: ef.Description,
 		Status:      ef.Status,
 		Metadata:    meta,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
 	}, nil
 }
 
@@ -129,6 +139,22 @@ func EntityFileFrom(e model.Entity, relations []model.Relation) (EntityFile, err
 		entries = append(entries, re)
 	}
 
+	var createdAt, updatedAt time.Time
+	if e.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, e.CreatedAt); err == nil {
+			createdAt = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt); err == nil {
+			createdAt = t
+		}
+	}
+	if e.UpdatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, e.UpdatedAt); err == nil {
+			updatedAt = t
+		} else if t, err := time.Parse("2006-01-02 15:04:05", e.UpdatedAt); err == nil {
+			updatedAt = t
+		}
+	}
+
 	return EntityFile{
 		Schema:      1,
 		ID:          e.ID,
@@ -136,6 +162,8 @@ func EntityFileFrom(e model.Entity, relations []model.Relation) (EntityFile, err
 		Title:       e.Title,
 		Description: e.Description,
 		Status:      e.Status,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
 		Metadata:    meta,
 		Relations:   entries,
 	}, nil

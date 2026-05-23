@@ -75,6 +75,8 @@ var entityAddCmd = &cobra.Command{
 			Title:       title,
 			Description: description,
 			Status:      entityStatus,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
 			Metadata:    meta,
 		}
 
@@ -96,15 +98,11 @@ var entityAddCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
-		entity := model.Entity{
-			ID:          id,
-			Type:        et,
-			Layer:       model.LayerForEntityType(et),
-			Title:       title,
-			Description: description,
-			Status:      entityStatus,
-			Metadata:    metadata,
+		entity, err := ef.ToEntity()
+		if err != nil {
+			handleError(cmd, fmt.Errorf("convert entity: %w", err))
 		}
+		entity.Metadata = metadata
 
 		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
@@ -235,6 +233,8 @@ var entityUpdateCmd = &cobra.Command{
 			ef.Metadata = meta
 		}
 
+		ef.UpdatedAt = time.Now()
+
 		if err := tomlStore.WriteEntity(ef); err != nil {
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
@@ -275,6 +275,7 @@ var entityDeprecateCmd = &cobra.Command{
 		}
 
 		ef.Status = model.EntityStatusDeprecated
+		ef.UpdatedAt = time.Now()
 
 		if err := tomlStore.WriteEntity(ef); err != nil {
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
@@ -410,6 +411,8 @@ var entityImportCmd = &cobra.Command{
 				Title:       item.Title,
 				Description: item.Description,
 				Status:      entityStatus,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
 				Metadata:    meta,
 			}
 

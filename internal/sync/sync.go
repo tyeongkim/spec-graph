@@ -88,6 +88,8 @@ func (s *Syncer) ForceRebuild() error {
 			Description: entity.Description,
 			Metadata:    metaStr,
 			FilePath:    s.store.EntityPath(ef.ID, ef.Type),
+			CreatedAt:   entity.CreatedAt,
+			UpdatedAt:   entity.UpdatedAt,
 		})
 
 		relations, err := ef.ToRelations()
