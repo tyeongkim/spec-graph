@@ -53,17 +53,91 @@ Connects arch entities to exec entities. This is where intent meets delivery.
 
 Relation types: `covers` (phase→arch entity), `delivers` (phase→arch entity)
 
-`covers` replaced the removed `planned_in` — direction is inverted (phase→arch, not arch→phase).
-`delivers` replaced the removed `delivered_in` — same inversion.
+### Layer Classification
+
+Layer is determined by entity type prefix. It is always deterministic:
+
+| Prefix | Type | Layer |
+|--------|------|-------|
+| REQ | requirement | arch |
+| DEC | decision | arch |
+| API | interface | arch |
+| STT | state | arch |
+| TST | test | arch |
+| XCT | crosscut | arch |
+| ACT | criterion | arch |
+| ASM | assumption | arch |
+| RSK | risk | arch |
+| QST | question | arch |
+| PLN | plan | exec |
+| PHS | phase | exec |
+
+---
 
 ## Core Principles
 
 1. **Compute first**: never modify by guesswork. Always run `impact` and `validate` to identify targets before making changes.
 2. **JSON contract**: all CLI output goes to JSON stdout. Parse it to decide the next action.
 3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
-4. **Phase gates**: always run `validate --layer mapping --phase` before completing a phase.
-5. **Changeset grouping**: bundle related changes into a single changeset.
-6. **covers/delivers**: use these mapping relations. `planned_in` and `delivered_in` were removed in v1.
+4. **Phase gates**: always run `validate --layer mapping --phase` before starting or completing a phase.
+5. **Git as audit log**: each commit is a logical changeset. Use meaningful commit messages with `--reason` flags to document intent.
+6. **covers/delivers**: use the v1 mapping relations. `covers` expresses planning intent, `delivers` expresses completion.
+
+---
+
+## Storage Architecture
+
+v0.3.0 uses TOML-first storage with SQLite as a disposable index.
+
+- **Source of truth**: TOML files at `.spec-graph/entities/{type}/{id}.toml`
+- **Relations**: embedded in entity TOML files (outbound only)
+- **SQLite index**: `.spec-graph/graph.db`, disposable, auto-rebuilt from TOML on any command if stale
+- **History**: per-entity files at `.spec-graph/history/{id}.toml`
+- **Staleness detection**: content-hash fingerprint per entity file
+- **Gitignored**: `.spec-graph/graph.db*` and `.lock` are never committed
+
+The SQLite index exists purely for fast queries (neighbors, impact, path). If deleted or corrupted, it rebuilds automatically. Never treat it as authoritative.
+
+## TOML File Format
+
+Canonical entity file at `.spec-graph/entities/requirement/REQ-001.toml`:
+
+```toml
+schema = 1
+id = "REQ-001"
+type = "requirement"
+title = "User authentication"
+description = "All APIs require OAuth2"
+status = "active"
+created_at = 2026-05-23T17:00:00+09:00
+updated_at = 2026-05-23T17:30:00+09:00
+
+[metadata]
+priority = "must"
+kind = "non_functional"
+
+[[relations]]
+to = "ACT-001"
+type = "has_criterion"
+
+[[relations]]
+to = "DEC-001"
+type = "constrained_by"
+weight = 0.8
+```
+
+Fields: `schema` (always 1), `id`, `type`, `title`, `description` (optional), `status`,
+`created_at`, `updated_at`, `[metadata]` (type-specific), `[[relations]]` (outbound edges).
+
+## Git Workflow
+
+TOML files are designed for git-friendly collaboration:
+
+- Each entity is a separate file, so merge conflicts are entity-scoped
+- After `git merge` or `git pull` with conflicts, resolve TOML files then run `spec-graph doctor`
+- SQLite index is never committed (listed in `.gitignore`)
+- History is tracked per-entity in `.spec-graph/history/{id}.toml`
+- Commit messages serve as the audit log; use `--reason` flags to document intent in entity history
 
 ---
 
@@ -111,9 +185,8 @@ spec-graph validate --layer exec
 spec-graph validate --layer mapping
 spec-graph validate --check orphans|coverage|cycles|conflicts|invalid_edges|superseded_refs|unresolved
 spec-graph validate --check phase_order|single_active_plan|orphan_phases|exec_cycles|invalid_exec_edges
-spec-graph validate --check plan_coverage|delivery_completeness|mapping_consistency|invalid_mapping_edges|gates|phase_satisfaction
+spec-graph validate --check plan_coverage|delivery_completeness|mapping_consistency|invalid_mapping_edges
 spec-graph validate --phase <PHS-ID>
-spec-graph validate --phase <PHS-ID> --check phase_satisfaction --include-references
 spec-graph validate --entity <ID>
 ```
 
@@ -128,9 +201,9 @@ spec-graph query sql "SELECT ..."
 
 ### History
 ```bash
-spec-graph history changeset <CHG-ID>
 spec-graph history entity <ID>
 spec-graph history relation <FROM>:<TO>:<TYPE>
+# Note: 'history changeset' is deprecated (exit 3). Use 'history entity' instead.
 ```
 
 ### Export
@@ -144,6 +217,15 @@ spec-graph export --layer arch --format dot
 ```bash
 spec-graph bootstrap scan --input ./docs/ [--format json]
 spec-graph bootstrap import --input extracted.json --mode review
+```
+
+### Migration & Integrity
+```bash
+# One-shot migration from old SQLite-only format
+spec-graph migrate [--dry-run] [--keep-db]
+
+# Integrity validation (run after git merge/pull)
+spec-graph doctor [--check <name>] [--fix]
 ```
 
 ---
@@ -183,8 +265,6 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 **Mapping layer (2):**
 `covers`, `delivers`
 
-`planned_in` and `delivered_in` were removed in v1. Use `covers` and `delivers` instead.
-
 ---
 
 ## Agent Workflow Patterns
@@ -206,13 +286,18 @@ spec-graph entity add --type phase --id PHS-001 \
   --title "Phase 1 - Auth" \
   --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete","E2E tests pass"]}'
 
+spec-graph entity add --type phase --id PHS-002 \
+  --title "Phase 2 - Payment" \
+  --metadata '{"goal":"Build payment system","order":2,"exit_criteria":["Payment API complete","E2E tests pass"]}'
+
 # 3. Assign phases to plan
 spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
+spec-graph relation add --from PHS-002 --to PLN-001 --type belongs_to
 
 # 4. Set phase ordering
 spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
 
-# 5. Map arch entities to phases using covers (not planned_in)
+# 5. Map arch entities to phases using covers
 spec-graph relation add --from PHS-001 --to REQ-001 --type covers
 spec-graph relation add --from PHS-001 --to REQ-002 --type covers
 
@@ -255,25 +340,17 @@ spec-graph query scope PHS-002
 # 2. Arch coverage check — missing implementations / tests
 spec-graph validate --layer arch --check coverage
 
-# 3. Unified satisfaction gate — closure satisfied by delivered evidence
-spec-graph validate --layer mapping --phase PHS-002 --check phase_satisfaction
-
-# 4. Mapping completeness — covered items that have no delivery
+# 3. Mapping completeness — covered items that have no delivery
 spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
 
-# 5. Mapping consistency — cross-layer integrity
+# 4. Mapping consistency — cross-layer integrity
 spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
 
-# 6. Exec gate check — phase ordering, plan validity
+# 5. Exec gate check — phase ordering, plan validity
 spec-graph validate --layer exec --check phase_order
 ```
 
 If validate reports issues, do not complete the phase. Resolve issues first.
-
-`phase_satisfaction` is the recommended unified gate. The response includes a per-phase
-`satisfaction` block with the satisfied/total ratio and a per-entity item list explaining
-each outcome. Use `--include-references` if you also want references-linked items surfaced
-as `advisory` (they are reported but never block satisfaction).
 
 #### Handling "covered but not delivered" mapping failures
 
@@ -288,6 +365,7 @@ spec-graph relation list --to REQ-001   # find what implements/verifies REQ-001
 
 # 3. Determine the MINIMAL proxy set — only entities whose delivery in this
 #    phase is necessary and sufficient to consider REQ-001 delivered
+#    Ask: "Which implementing entities are necessary and sufficient?"
 
 # 4. Add delivers ONLY for that minimal set
 spec-graph relation add --from PHS-002 --to API-005 --type delivers
@@ -300,23 +378,10 @@ spec-graph validate --layer mapping --phase PHS-002 --check delivery_completenes
 Critical rules for delivery proxy resolution:
 - Compute the minimum set of implementing entities per requirement. Do not add all related entities.
 - If the check still fails after adding the minimal proxy set, investigate the validator semantics
-  or the graph model before expanding further.
+  or the graph model before expanding further. Do not blindly widen the delivered set.
 - Apply the same precision level consistently across all phases.
 - After adding proxy relations, verify semantic correctness: does each `delivers` accurately
   represent work completed in this phase, or is it just silencing the check?
-
-#### Note on `phase_satisfaction` vs proxy delivery
-
-`phase_satisfaction` differs from `delivery_completeness` in what counts as evidence:
-- `delivery_completeness` requires `phase delivers X` for each `phase covers X` (same entity match).
-- `phase_satisfaction` requires inbound `delivers` to the covered entity itself for requirements,
-  and additionally walks the closure (depends_on outbound, implements inbound) to require each
-  closure member meets its own satisfaction rule.
-
-When using `phase_satisfaction` as the gate, deliver the covered entity directly
-(`PHS-002 delivers REQ-015`) rather than relying on implementation proxies. Implementation
-entities pulled into the closure via `implements` are judged by their own status, not by
-delivery from the phase.
 
 ### Pattern 4: Full Patch Orchestration (recommended)
 
@@ -329,7 +394,7 @@ The safest change-handling flow:
 4. Modify only affected targets (entity update, relation add/delete, etc.)
 5. Semantic review → does each added relation accurately represent the intended meaning?
 6. spec-graph validate → re-verify after modifications
-7. spec-graph history → review changeset records
+7. git log — review commit history for the changed entity files
 ```
 
 The agent modifies only entities in the `affected` list from step 2.
@@ -337,7 +402,8 @@ If an entity outside the list needs modification, first run `query neighbors` to
 
 Step 5 (semantic review) is critical. Before re-validating, review every relation you added
 and ask: "Does this relation reflect a real semantic relationship, or am I adding it to pass a check?"
-Check passage alone does not prove graph correctness.
+Check passage alone does not prove graph correctness. A graph that passes all checks but contains
+over-broad relations is worse than one that fails a check with an honest gap.
 
 ### Pattern 5: Adding a Requirement
 
@@ -389,7 +455,7 @@ cross-reference against the source document before deciding.
 
 When to use each check. See `references/validation-rules.md` for detailed rules.
 
-### Architecture Layer (`--layer arch`)
+### Architecture Layer Checks (`--layer arch`)
 
 | Check | Purpose | When to Run |
 |-------|---------|-------------|
@@ -401,26 +467,24 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | `superseded_refs` | active refs to deprecated entities | after deprecation |
 | `unresolved` | open questions, unverified assumptions, unmitigated risks | before phase start |
 
-### Execution Layer (`--layer exec`)
+### Execution Layer Checks (`--layer exec`)
 
 | Check | Purpose | When to Run |
 |-------|---------|-------------|
-| `phase_order` | valid phase sequence | after adding exec relations |
-| `single_active_plan` | only one active plan | after plan creation or status change |
-| `orphan_phases` | phases not in any plan | after adding phases |
+| `phase_order` | phases with precedes/blocks form a valid sequence | after adding exec relations |
+| `single_active_plan` | only one plan is active | after plan creation or status change |
+| `orphan_phases` | phases not belonging to any plan | after adding phases |
 | `exec_cycles` | circular precedes/blocks chains | after adding exec relations |
 | `invalid_exec_edges` | exec edge matrix violations | after adding exec relations |
 
-### Mapping Layer (`--layer mapping`)
+### Mapping Layer Checks (`--layer mapping`)
 
 | Check | Purpose | When to Run |
 |-------|---------|-------------|
-| `plan_coverage` | all active requirements covered | before phase start |
-| `delivery_completeness` | covered entities have delivery evidence | required before phase exit |
-| `mapping_consistency` | covers/delivers targets are valid arch entities | after adding mapping relations |
+| `plan_coverage` | all active requirements are covered by some phase | before phase start |
+| `delivery_completeness` | covered arch entities have delivery evidence | required before phase exit |
+| `mapping_consistency` | covers/delivers targets exist and are arch entities | after adding mapping relations |
 | `invalid_mapping_edges` | mapping edge matrix violations | after adding mapping relations |
-| `gates` | per-phase scope: unresolved questions/risks/assumptions, draft-decision dependencies | before phase start or completion |
-| `phase_satisfaction` | unified gate: covered closure satisfied by delivered evidence | required before phase exit (recommended) |
 
 ### Common Combinations
 
@@ -433,12 +497,8 @@ spec-graph validate --layer mapping --check plan_coverage
 
 # Before phase completion (required)
 spec-graph validate --layer arch --check coverage
-spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction
 spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
 spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
-
-# Optional: include references-linked items as advisory in the report
-spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction --include-references
 
 # After any change
 spec-graph validate
@@ -456,7 +516,6 @@ Key fields in `impact` JSON output:
     {
       "id": "API-005",
       "type": "interface",
-      "layer": "arch",
       "depth": 1,
       "impact": {
         "overall": "high",
@@ -501,33 +560,37 @@ Key fields in `impact` JSON output:
 ## Caveats
 
 - `bootstrap import` defaults to `--mode review`. Never use `--mode auto`.
-- `supersedes` requires both entities to be the same type.
-- `conflicts_with` does not allow self-loops.
+- `supersedes` requires both entities to be the same type. It is directional: stored in the `from` entity's file. `REQ-002 supersedes REQ-001` means REQ-002 is the newer entity.
+- `conflicts_with` does not allow self-loops. It is symmetric: stored in the lexicographically smaller entity's file. Both directions are queryable via the index.
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.
   On failure, consult the edge matrix in `references/data-model.md`.
 - `metadata` is a JSON string. Each type has required fields — see `references/data-model.md`.
 - `--phase` is only valid with `--layer mapping` or `--layer all`. Using `--phase` with
-  `--layer arch` or `--layer exec` returns an error (exit 3).
+  `--layer arch` or `--layer exec` returns an error.
 - Only one plan may have `active` status at a time. The `single_active_plan` exec check
   enforces this.
+- Entity timestamps (`created_at`, `updated_at`) are stored in TOML and populated automatically on create/update.
+- After `git merge` with conflicts in TOML files, run `spec-graph doctor` to validate integrity.
+- The SQLite index is rebuilt automatically on each command if TOML files changed. No manual sync needed.
+- `history changeset` is deprecated (exit 3). Use `history entity <ID>` to view per-entity change history.
 
 ## Anti-Patterns
 
 These are known failure modes. If you catch yourself doing any of these, stop and reconsider.
 
 ### 1. Mixing arch and exec concerns
-**Symptom**: attempting to add a requirement directly to a phase using `planned_in` (removed in v1),
+**Symptom**: adding a requirement directly to a phase using arch-only relations,
 or treating a phase as an arch entity by linking it with arch-only relations.
 **Why it's wrong**: arch and exec are separate layers with separate edge matrices. Cross-layer
 connections belong in the mapping layer using `covers` and `delivers`.
 **Correct approach**: use `covers` (phase→arch) to express intent, `delivers` (phase→arch)
 to express completion.
 
-### 2. Using planned_in / delivered_in
-**Symptom**: attempting to add `planned_in` or `delivered_in` relations.
-**Why it's wrong**: these relations were removed in v1. They no longer exist in the schema.
-**Correct approach**: use `covers` instead of `planned_in`, `delivers` instead of `delivered_in`.
-Note the direction is inverted: `phase --covers--> arch_entity` (not `arch_entity --planned_in--> phase`).
+### 2. Editing SQLite directly
+**Symptom**: modifying `.spec-graph/graph.db` manually or treating it as the source of truth.
+**Why it's wrong**: the SQLite index is disposable and auto-rebuilt from TOML. Any manual
+edits are lost on the next rebuild.
+**Correct approach**: always use CLI commands to modify entities. The TOML files are the source of truth.
 
 ### 3. Check-driven patching
 **Symptom**: check fails → add relations broadly until check passes → commit.
