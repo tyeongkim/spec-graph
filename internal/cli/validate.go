@@ -16,16 +16,7 @@ type validateRelationAdapter struct {
 }
 
 func (a *validateRelationAdapter) GetByEntity(entityID string) ([]model.Relation, error) {
-	rels, err := a.fetcher.GetByEntity(entityID)
-	if err != nil {
-		return nil, err
-	}
-	for i, r := range rels {
-		if r.Type == model.RelationSupersedes {
-			rels[i].FromID, rels[i].ToID = r.ToID, r.FromID
-		}
-	}
-	return rels, nil
+	return a.fetcher.GetByEntity(entityID)
 }
 
 var validateCmd = &cobra.Command{

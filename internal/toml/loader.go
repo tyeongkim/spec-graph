@@ -11,10 +11,11 @@ import (
 )
 
 // symmetricRelationTypes lists relation types that must be stored in the
-// lexicographically smaller ID's file.
+// lexicographically smaller ID's file. Only truly symmetric (undirected)
+// relations belong here; directional relations like supersedes must NOT
+// be included because their from→to direction carries semantic meaning.
 var symmetricRelationTypes = map[model.RelationType]bool{
 	model.RelationConflictsWith: true,
-	model.RelationSupersedes:    true,
 }
 
 // Store manages TOML file I/O for spec-graph entities and history.
@@ -244,6 +245,12 @@ func atomicWrite(path string, data []byte) error {
 	}
 
 	if err := os.Rename(tmpName, path); err != nil {
+		// On Windows, os.Rename fails if destination exists. Remove and retry.
+		if removeErr := os.Remove(path); removeErr == nil {
+			if retryErr := os.Rename(tmpName, path); retryErr == nil {
+				return nil
+			}
+		}
 		os.Remove(tmpName)
 		return fmt.Errorf("rename temp file to %q: %w", path, err)
 	}

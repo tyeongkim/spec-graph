@@ -11,10 +11,14 @@ func (e *ErrEntityNotFound) Error() string {
 }
 
 type ErrRelationNotFound struct {
-	ID int
+	ID  int
+	Key string
 }
 
 func (e *ErrRelationNotFound) Error() string {
+	if e.Key != "" {
+		return fmt.Sprintf("relation %s not found", e.Key)
+	}
 	return fmt.Sprintf("relation %d not found", e.ID)
 }
 

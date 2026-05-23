@@ -39,12 +39,6 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("init toml store: %w", err)
 		}
 
-		schema := spectoml.DefaultSchema()
-		schemaPath := filepath.Join(root, "schema.toml")
-		if err := writeDefaultSchema(schemaPath, schema); err != nil {
-			return fmt.Errorf("write schema: %w", err)
-		}
-
 		idxPath := filepath.Join(root, "graph.db")
 		idx, err := index.Open(idxPath)
 		if err != nil {
@@ -63,61 +57,6 @@ var initCmd = &cobra.Command{
 		})
 		return nil
 	},
-}
-
-func writeDefaultSchema(path string, schema *spectoml.Schema) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	}
-
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	fmt.Fprintf(f, "version = %d\n", schema.Version)
-
-	for name, cfg := range schema.EntityTypes {
-		fmt.Fprintf(f, "\n[entity_types.%s]\n", name)
-		fmt.Fprintf(f, "prefix = %q\n", cfg.Prefix)
-		fmt.Fprintf(f, "layer = %q\n", cfg.Layer)
-		fmt.Fprintf(f, "allowed_status = [")
-		for i, s := range cfg.AllowedStatus {
-			if i > 0 {
-				fmt.Fprint(f, ", ")
-			}
-			fmt.Fprintf(f, "%q", s)
-		}
-		fmt.Fprint(f, "]\n")
-	}
-
-	for name, cfg := range schema.RelationTypes {
-		fmt.Fprintf(f, "\n[relation_types.%s]\n", name)
-		fmt.Fprintf(f, "layer = %q\n", cfg.Layer)
-		if cfg.Special != "" {
-			fmt.Fprintf(f, "special = %q\n", cfg.Special)
-		} else {
-			fmt.Fprintf(f, "from = [")
-			for i, s := range cfg.From {
-				if i > 0 {
-					fmt.Fprint(f, ", ")
-				}
-				fmt.Fprintf(f, "%q", s)
-			}
-			fmt.Fprint(f, "]\n")
-			fmt.Fprintf(f, "to = [")
-			for i, s := range cfg.To {
-				if i > 0 {
-					fmt.Fprint(f, ", ")
-				}
-				fmt.Fprintf(f, "%q", s)
-			}
-			fmt.Fprint(f, "]\n")
-		}
-	}
-
-	return nil
 }
 
 func createGitignore(root string) error {

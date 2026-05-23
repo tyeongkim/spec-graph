@@ -126,21 +126,19 @@ var historyRelationCmd = &cobra.Command{
 
 		writeJSON(cmd, jsoncontract.RelationHistoryResponse{
 			RelationKey: relationKey,
-			Entries:     toRelationEntries(entries),
+			Entries:     toRelationEntries(entries, relationKey),
 			Count:       len(entries),
 		})
 		return nil
 	},
 }
 
-// toRelationEntries converts entity history entries to relation history entries
-// for backward-compatible JSON output.
-func toRelationEntries(entries []jsoncontract.EntityHistoryEntry) []jsoncontract.RelationHistoryEntry {
+func toRelationEntries(entries []jsoncontract.EntityHistoryEntry, relationKey string) []jsoncontract.RelationHistoryEntry {
 	result := make([]jsoncontract.RelationHistoryEntry, len(entries))
 	for i, e := range entries {
 		result[i] = jsoncontract.RelationHistoryEntry{
 			ID:          e.ID,
-			RelationKey: e.Detail,
+			RelationKey: relationKey,
 			Action:      e.Action,
 			CreatedAt:   e.CreatedAt,
 		}
@@ -149,9 +147,10 @@ func toRelationEntries(entries []jsoncontract.EntityHistoryEntry) []jsoncontract
 }
 
 func matchesRelation(detail, fromID, toID, relType string) bool {
-	return strings.Contains(detail, fromID) &&
-		strings.Contains(detail, toID) &&
-		strings.Contains(detail, relType)
+	// Parse the structured format: "add relation X -> Y [T]; source=..."
+	// or "delete relation X -> Y [T]; source=..."
+	prefix := fmt.Sprintf("%s -> %s [%s]", fromID, toID, relType)
+	return strings.Contains(detail, prefix)
 }
 
 func init() {

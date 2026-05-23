@@ -68,7 +68,9 @@ var relationAddCmd = &cobra.Command{
 			if !json.Valid([]byte(metadataStr)) {
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
 			}
-			json.Unmarshal([]byte(metadataStr), &relMeta)
+			if err := json.Unmarshal([]byte(metadataStr), &relMeta); err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be a JSON object"})
+			}
 		}
 
 		ownerID := from
@@ -235,7 +237,7 @@ var relationDeleteCmd = &cobra.Command{
 		}
 
 		if !found {
-			handleError(cmd, &model.ErrRelationNotFound{ID: 0})
+			handleError(cmd, &model.ErrRelationNotFound{Key: fmt.Sprintf("%s->%s[%s]", from, to, relType)})
 		}
 
 		ef.Relations = filtered
@@ -289,7 +291,7 @@ func isValidRelationType(t model.RelationType) bool {
 }
 
 func isSymmetricRelation(rt model.RelationType) bool {
-	return rt == model.RelationConflictsWith || rt == model.RelationSupersedes
+	return rt == model.RelationConflictsWith
 }
 
 func init() {

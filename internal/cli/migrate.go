@@ -151,13 +151,6 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 10. Write schema.toml.
-	schema := spectoml.DefaultSchema()
-	schemaPath := filepath.Join(root, "schema.toml")
-	if err := writeDefaultSchema(schemaPath, schema); err != nil {
-		return fmt.Errorf("write schema: %w", err)
-	}
-
 	oldDB.Close()
 
 	// 11. Rename graph.db → graph.db.pre-migration.bak (unless --keep-db).

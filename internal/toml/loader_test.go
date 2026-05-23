@@ -310,7 +310,7 @@ func TestStore_SymmetricRelation_Enforced(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "supersedes stored in larger ID - error",
+			name: "supersedes stored in larger ID - ok (directional, not symmetric)",
 			ef: &EntityFile{
 				Schema: 1, ID: "REQ-002", Type: model.EntityTypeRequirement,
 				Title: "r2", Status: model.EntityStatusDraft,
@@ -318,7 +318,7 @@ func TestStore_SymmetricRelation_Enforced(t *testing.T) {
 					{To: "REQ-001", Type: model.RelationSupersedes},
 				},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "non-symmetric relation in larger ID - ok",

@@ -162,7 +162,7 @@ var entityListCmd = &cobra.Command{
 			et := model.EntityType(rec.Type)
 			ef, err := tomlStore.ReadEntity(rec.ID, et)
 			if err != nil {
-				handleError(cmd, &model.ErrEntityNotFound{ID: rec.ID})
+				handleError(cmd, fmt.Errorf("read entity %q: %w", rec.ID, err))
 			}
 			e, err := ef.ToEntity()
 			if err != nil {
@@ -183,7 +183,7 @@ var entityUpdateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
-		ef, et, err := findEntityFile(cmd, id)
+		ef, _, err := findEntityFile(cmd, id)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -210,7 +210,9 @@ var entityUpdateCmd = &cobra.Command{
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
 			}
 			var meta map[string]any
-			json.Unmarshal([]byte(v), &meta)
+			if err := json.Unmarshal([]byte(v), &meta); err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be a JSON object"})
+			}
 			ef.Metadata = meta
 		}
 
@@ -227,7 +229,9 @@ var entityUpdateCmd = &cobra.Command{
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
 			}
 			var meta map[string]any
-			json.Unmarshal(data, &meta)
+			if err := json.Unmarshal(data, &meta); err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain a JSON object"})
+			}
 			ef.Metadata = meta
 		}
 
@@ -249,8 +253,10 @@ var entityUpdateCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
-		entity, _ := ef.ToEntity()
-		_ = et
+		entity, err := ef.ToEntity()
+		if err != nil {
+			handleError(cmd, fmt.Errorf("convert entity %q: %w", id, err))
+		}
 		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
 	},
