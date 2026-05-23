@@ -157,6 +157,7 @@ spec-graph entity add --type <TYPE> --id <ID> --title "..." [--description "..."
 spec-graph entity get <ID>
 spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapping|all]
 spec-graph entity update <ID> --title "..." --reason "..."
+spec-graph entity update <ID> --status resolved [--force --reason "..."]
 spec-graph entity deprecate <ID> --reason "..."
 spec-graph entity delete <ID>
 ```
@@ -253,6 +254,12 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
 
+**Gated transitions (v0.3.1+):** Transitioning a phase or plan to `resolved` is gated.
+The CLI automatically runs `delivery_completeness` + `gates` checks (for phases) or
+`plan_coverage` (for plans). If issues are found, the transition is blocked (exit 2).
+Use `--force --reason "..."` to bypass the gate; warnings are emitted to stderr and
+`force=true` is recorded in entity history.
+
 ### Relation Types (17)
 
 **Architecture layer (12):**
@@ -331,26 +338,49 @@ Never modify related entities by guesswork without running impact first.
 
 ### Pattern 3: Phase Exit
 
-Before completing a phase, always run these checks:
+Phase completion is gated by the CLI (v0.3.1+). Running `entity update --status resolved`
+automatically enforces `delivery_completeness` + `gates` checks. If issues exist, the
+transition is blocked with exit code 2.
 
 ```bash
-# 1. Review phase scope — what arch entities are covered
+# Direct completion attempt — gate runs automatically
+spec-graph entity update PHS-002 --status resolved --reason "Phase complete"
+
+# If blocked, resolve issues first:
+# 1. Review phase scope
 spec-graph query scope PHS-002
 
-# 2. Arch coverage check — missing implementations / tests
+# 2. Check what's missing
+spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
+spec-graph validate --layer mapping --phase PHS-002 --check gates
+
+# 3. Fix issues (add delivers, answer questions, mitigate risks)
+spec-graph relation add --from PHS-002 --to REQ-001 --type delivers
+
+# 4. Retry
+spec-graph entity update PHS-002 --status resolved --reason "Phase complete"
+
+# Force bypass (when issues are accepted risks)
+spec-graph entity update PHS-002 --status resolved --force --reason "Accepted: QST-001 deferred to next phase"
+```
+
+**Pre-flight checks (optional, for visibility before attempting completion):**
+
+```bash
+# Review scope
+spec-graph query scope PHS-002
+
+# Arch coverage
 spec-graph validate --layer arch --check coverage
 
-# 3. Mapping completeness — covered items that have no delivery
-spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
-
-# 4. Mapping consistency — cross-layer integrity
+# Mapping consistency
 spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
 
-# 5. Exec gate check — phase ordering, plan validity
+# Exec ordering
 spec-graph validate --layer exec --check phase_order
 ```
 
-If validate reports issues, do not complete the phase. Resolve issues first.
+If validate reports issues, resolve them before attempting `--status resolved`.
 
 #### Handling "covered but not delivered" mapping failures
 
@@ -482,9 +512,10 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | Check | Purpose | When to Run |
 |-------|---------|-------------|
 | `plan_coverage` | all active requirements are covered by some phase | before phase start |
-| `delivery_completeness` | covered arch entities have delivery evidence | required before phase exit |
+| `delivery_completeness` | covered arch entities have delivery evidence | auto-enforced on phase → resolved |
 | `mapping_consistency` | covers/delivers targets exist and are arch entities | after adding mapping relations |
 | `invalid_mapping_edges` | mapping edge matrix violations | after adding mapping relations |
+| `gates` | unresolved questions, unmitigated risks, draft decisions | auto-enforced on phase → resolved |
 
 ### Common Combinations
 
@@ -495,10 +526,11 @@ spec-graph validate --layer exec --check phase_order
 spec-graph validate --layer arch --check unresolved
 spec-graph validate --layer mapping --check plan_coverage
 
-# Before phase completion (required)
+# Before phase completion (now auto-enforced by entity update --status resolved)
+# These are still useful for pre-flight visibility:
 spec-graph validate --layer arch --check coverage
 spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
-spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
+spec-graph validate --layer mapping --phase PHS-003 --check gates
 
 # After any change
 spec-graph validate
@@ -552,7 +584,7 @@ Key fields in `impact` JSON output:
 |------|---------|--------------|
 | 0 | success | proceed to next step |
 | 1 | runtime error | check error message, retry or report |
-| 2 | validation failure | resolve issues from validate output |
+| 2 | validation failure / gate blocked | resolve issues from output, or use --force --reason |
 | 3 | invalid input | check arguments / schema, retry |
 
 ---
