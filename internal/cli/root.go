@@ -1,23 +1,28 @@
 package cli
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/tyeongkim/spec-graph/internal/db"
+	"github.com/tyeongkim/spec-graph/internal/flock"
+	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	specsync "github.com/tyeongkim/spec-graph/internal/sync"
+	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
 
 var (
-	dbPath    string
-	layerFlag string
-	appDB     *sql.DB
+	specRoot   string
+	dbPath     string
+	layerFlag  string
+	tomlStore  *spectoml.Store
+	queryIndex *index.Index
+	syncer     *specsync.Syncer
+	unlockFn   func()
 )
 
-// Build metadata. These are populated at link time via -ldflags -X.
-// Defaults match goreleaser's snapshot mode for development builds.
 var (
 	Version = "dev"
 	Commit  = "none"
@@ -32,26 +37,48 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		if appDB != nil {
-			return appDB.Close()
+		if unlockFn != nil {
+			unlockFn()
+		}
+		if queryIndex != nil {
+			queryIndex.Close()
 		}
 		return nil
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if cmd.Name() == "init" {
+		if cmd.Name() == "init" || cmd.Name() == "migrate" {
 			return nil
 		}
 
-		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		specRoot = filepath.Dir(dbPath)
+
+		if _, err := os.Stat(specRoot); os.IsNotExist(err) {
 			handleError(cmd, &model.ErrNotInitialized{})
 		}
 
-		database, err := db.OpenDB(dbPath)
+		lockPath := filepath.Join(specRoot, ".lock")
+		unlock, err := flock.Lock(lockPath)
 		if err != nil {
-			return fmt.Errorf("open database: %w", err)
+			return fmt.Errorf("acquire lock: %w", err)
+		}
+		unlockFn = unlock
+
+		tomlStore = spectoml.NewStore(specRoot)
+
+		idx, err := index.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("open index: %w", err)
+		}
+		queryIndex = idx
+
+		syncer = specsync.NewSyncer(tomlStore, queryIndex, specRoot)
+
+		if _, err := syncer.EnsureFresh(); err != nil {
+			if !specsync.IsRebuildError(err) {
+				return fmt.Errorf("sync index: %w", err)
+			}
 		}
 
-		appDB = database
 		return nil
 	},
 }
@@ -71,6 +98,8 @@ func init() {
 	rootCmd.AddCommand(queryCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(migrateCmd)
+	rootCmd.AddCommand(doctorCmd)
 }
 
 func Execute() {
@@ -80,13 +109,6 @@ func Execute() {
 	}
 }
 
-func getDB() *sql.DB {
-	return appDB
-}
-
-// ParseLayerFlag reads the --layer persistent flag from the command and returns
-// the corresponding *model.Layer. It returns nil when the value is "all" (no filter).
-// An error is returned if the value is not a recognized layer.
 func ParseLayerFlag(cmd *cobra.Command) (*model.Layer, error) {
 	val, err := cmd.Flags().GetString("layer")
 	if err != nil {

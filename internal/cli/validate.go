@@ -8,22 +8,24 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
-type validateEntityAdapter struct {
-	store *store.EntityStore
+type validateRelationAdapter struct {
+	fetcher *indexRelationFetcher
 }
 
-func (a *validateEntityAdapter) Get(id string) (model.Entity, error) {
-	return a.store.Get(id)
-}
-
-func (a *validateEntityAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
-	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status, Layer: filters.Layer}
-	entities, _, err := a.store.List(sf)
-	return entities, err
+func (a *validateRelationAdapter) GetByEntity(entityID string) ([]model.Relation, error) {
+	rels, err := a.fetcher.GetByEntity(entityID)
+	if err != nil {
+		return nil, err
+	}
+	for i, r := range rels {
+		if r.Type == model.RelationSupersedes {
+			rels[i].FromID, rels[i].ToID = r.ToID, r.FromID
+		}
+	}
+	return rels, nil
 }
 
 var validateCmd = &cobra.Command{
@@ -46,7 +48,6 @@ var validateCmd = &cobra.Command{
 			return nil
 		}
 
-		// Q3 decision: --phase is only valid with --layer mapping or --layer all (nil).
 		if phaseFlag != "" && layer != nil && *layer != model.LayerMapping {
 			handleError(cmd, &model.ErrInvalidInput{
 				Message: fmt.Sprintf("--phase cannot be used with --layer %s; only --layer mapping or --layer all is allowed", *layer),
@@ -61,15 +62,11 @@ var validateCmd = &cobra.Command{
 			opts.Checks = strings.Split(checkFlag, ",")
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		es := store.NewEntityStore(db, cs, hs)
-		ef := &validateEntityAdapter{store: es}
+		ef := &indexValidateEntityFetcher{idx: queryIndex}
+		rf := &validateRelationAdapter{fetcher: &indexRelationFetcher{idx: queryIndex}}
 
 		if phaseFlag != "" {
-			entity, err := es.Get(phaseFlag)
+			entity, err := ef.Get(phaseFlag)
 			if err != nil {
 				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
 				return nil
@@ -82,14 +79,14 @@ var validateCmd = &cobra.Command{
 		}
 
 		if entityFlag != "" {
-			if _, err := es.Get(entityFlag); err != nil {
+			if _, err := ef.Get(entityFlag); err != nil {
 				handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
 				return nil
 			}
 			opts.EntityID = entityFlag
 		}
 
-		result, err := validate.Validate(opts, rs, ef)
+		result, err := validate.Validate(opts, rf, ef)
 		if err != nil {
 			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			return nil

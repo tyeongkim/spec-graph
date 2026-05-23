@@ -1,10 +1,7 @@
-// Package mcp provides an MCP (Model Context Protocol) server exposing
-// spec-graph read-only query, validation, impact, and export tools.
 package mcp
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,61 +9,134 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tyeongkim/spec-graph/internal/graph"
+	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
-// entityStoreAdapter wraps *store.EntityStore to implement graph.EntityFetcher.
-type entityStoreAdapter struct {
-	store *store.EntityStore
+type entityFetcherAdapter struct {
+	idx *index.Index
 }
 
-func (a *entityStoreAdapter) Get(id string) (model.Entity, error) {
-	return a.store.Get(id)
+func (a *entityFetcherAdapter) Get(id string) (model.Entity, error) {
+	rec, err := a.idx.GetEntity(id)
+	if err != nil {
+		return model.Entity{}, err
+	}
+	if rec == nil {
+		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
+	}
+	return entityFromRecord(rec), nil
 }
 
-func (a *entityStoreAdapter) List(filters graph.EntityListFilters) ([]model.Entity, error) {
-	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status}
-	entities, _, err := a.store.List(sf)
-	return entities, err
+func (a *entityFetcherAdapter) List(filters graph.EntityListFilters) ([]model.Entity, error) {
+	var ef index.EntityFilters
+	if filters.Type != nil {
+		ef.Type = string(*filters.Type)
+	}
+	if filters.Status != nil {
+		ef.Status = string(*filters.Status)
+	}
+	recs, err := a.idx.ListEntities(ef)
+	if err != nil {
+		return nil, err
+	}
+	return entitiesToModel(recs), nil
 }
 
-type validateEntityAdapter struct {
-	store *store.EntityStore
+type validateEntityFetcherAdapter struct {
+	idx *index.Index
 }
 
-func (a *validateEntityAdapter) Get(id string) (model.Entity, error) {
-	return a.store.Get(id)
+func (a *validateEntityFetcherAdapter) Get(id string) (model.Entity, error) {
+	rec, err := a.idx.GetEntity(id)
+	if err != nil {
+		return model.Entity{}, err
+	}
+	if rec == nil {
+		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
+	}
+	return entityFromRecord(rec), nil
 }
 
-func (a *validateEntityAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
-	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status, Layer: filters.Layer}
-	entities, _, err := a.store.List(sf)
-	return entities, err
+func (a *validateEntityFetcherAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
+	var ef index.EntityFilters
+	if filters.Type != nil {
+		ef.Type = string(*filters.Type)
+	}
+	if filters.Status != nil {
+		ef.Status = string(*filters.Status)
+	}
+	if filters.Layer != nil {
+		ef.Layer = string(*filters.Layer)
+	}
+	recs, err := a.idx.ListEntities(ef)
+	if err != nil {
+		return nil, err
+	}
+	return entitiesToModel(recs), nil
 }
 
-// newStores creates the store instances needed by graph functions.
-func newStores(db *sql.DB) (*store.RelationStore, *entityStoreAdapter) {
-	cs := store.NewChangesetStore(db)
-	hs := store.NewHistoryStore(db)
-	rs := store.NewRelationStore(db, cs, hs)
-	es := store.NewEntityStore(db, cs, hs)
-	return rs, &entityStoreAdapter{store: es}
+type relationFetcherAdapter struct {
+	idx *index.Index
 }
 
-// NewSpecGraphServer creates a configured MCP server with 6 read-only tools.
-func NewSpecGraphServer(db *sql.DB) *server.MCPServer {
+func (a *relationFetcherAdapter) GetByEntity(entityID string) ([]model.Relation, error) {
+	recs, err := a.idx.GetRelationsByEntity(entityID)
+	if err != nil {
+		return nil, err
+	}
+	return relationsToModel(recs), nil
+}
+
+func entityFromRecord(rec *index.EntityRecord) model.Entity {
+	return model.Entity{
+		ID:          rec.ID,
+		Type:        model.EntityType(rec.Type),
+		Layer:       model.Layer(rec.Layer),
+		Status:      model.EntityStatus(rec.Status),
+		Title:       rec.Title,
+		Description: rec.Description,
+		Metadata:    json.RawMessage(rec.Metadata),
+		CreatedAt:   rec.CreatedAt,
+		UpdatedAt:   rec.UpdatedAt,
+	}
+}
+
+func entitiesToModel(recs []index.EntityRecord) []model.Entity {
+	entities := make([]model.Entity, len(recs))
+	for i := range recs {
+		entities[i] = entityFromRecord(&recs[i])
+	}
+	return entities
+}
+
+func relationsToModel(recs []index.RelationRecord) []model.Relation {
+	rels := make([]model.Relation, len(recs))
+	for i := range recs {
+		rels[i] = model.Relation{
+			FromID:   recs[i].FromID,
+			ToID:     recs[i].ToID,
+			Type:     model.RelationType(recs[i].Type),
+			Layer:    model.Layer(recs[i].Layer),
+			Weight:   recs[i].Weight,
+			Metadata: json.RawMessage(recs[i].Metadata),
+		}
+	}
+	return rels
+}
+
+func NewSpecGraphServer(idx *index.Index) *server.MCPServer {
 	s := server.NewMCPServer("spec-graph", "0.5.0",
 		server.WithToolCapabilities(true),
 	)
 
-	s.AddTool(queryScope(), handleQueryScope(db))
-	s.AddTool(queryPath(), handleQueryPath(db))
-	s.AddTool(queryUnresolved(), handleQueryUnresolved(db))
-	s.AddTool(impactTool(), handleImpact(db))
-	s.AddTool(validateTool(), handleValidate(db))
-	s.AddTool(exportTool(), handleExport(db))
+	s.AddTool(queryScope(), handleQueryScope(idx))
+	s.AddTool(queryPath(), handleQueryPath(idx))
+	s.AddTool(queryUnresolved(), handleQueryUnresolved(idx))
+	s.AddTool(impactTool(), handleImpact(idx))
+	s.AddTool(validateTool(), handleValidate(idx))
+	s.AddTool(exportTool(), handleExport(idx))
 
 	return s
 }
@@ -162,7 +232,7 @@ func exportTool() mcp.Tool {
 
 // --- Handlers ---
 
-func handleQueryScope(db *sql.DB) server.ToolHandlerFunc {
+func handleQueryScope(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		phaseID, err := req.RequireString("phase_id")
 		if err != nil {
@@ -174,8 +244,9 @@ func handleQueryScope(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		rs, ef := newStores(db)
-		result, err := graph.QueryScope(graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}, rs, ef)
+		ef := &entityFetcherAdapter{idx: idx}
+		rf := &relationFetcherAdapter{idx: idx}
+		result, err := graph.QueryScope(graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}, rf, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -184,7 +255,7 @@ func handleQueryScope(db *sql.DB) server.ToolHandlerFunc {
 	}
 }
 
-func handleQueryPath(db *sql.DB) server.ToolHandlerFunc {
+func handleQueryPath(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		fromID, err := req.RequireString("from_id")
 		if err != nil {
@@ -200,8 +271,9 @@ func handleQueryPath(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		rs, ef := newStores(db)
-		result, err := graph.QueryPath(graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}, rs, ef)
+		ef := &entityFetcherAdapter{idx: idx}
+		rf := &relationFetcherAdapter{idx: idx}
+		result, err := graph.QueryPath(graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}, rf, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -216,7 +288,7 @@ var validUnresolvedTypes = map[string]model.EntityType{
 	"risk":       model.EntityTypeRisk,
 }
 
-func handleQueryUnresolved(db *sql.DB) server.ToolHandlerFunc {
+func handleQueryUnresolved(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		typeStr := req.GetString("type", "")
 
@@ -229,7 +301,7 @@ func handleQueryUnresolved(db *sql.DB) server.ToolHandlerFunc {
 			opts.Type = &et
 		}
 
-		_, ef := newStores(db)
+		ef := &entityFetcherAdapter{idx: idx}
 		result, err := graph.QueryUnresolved(opts, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -239,7 +311,7 @@ func handleQueryUnresolved(db *sql.DB) server.ToolHandlerFunc {
 	}
 }
 
-func handleImpact(db *sql.DB) server.ToolHandlerFunc {
+func handleImpact(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sourcesStr, err := req.RequireString("sources")
 		if err != nil {
@@ -280,8 +352,9 @@ func handleImpact(db *sql.DB) server.ToolHandlerFunc {
 			}
 		}
 
-		rs, ef := newStores(db)
-		result, err := graph.Impact(sources, opts, rs, ef)
+		ef := &entityFetcherAdapter{idx: idx}
+		rf := &relationFetcherAdapter{idx: idx}
+		result, err := graph.Impact(sources, opts, rf, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -290,7 +363,7 @@ func handleImpact(db *sql.DB) server.ToolHandlerFunc {
 	}
 }
 
-func handleValidate(db *sql.DB) server.ToolHandlerFunc {
+func handleValidate(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		checkStr := req.GetString("check", "")
 		phaseStr := req.GetString("phase", "")
@@ -313,9 +386,9 @@ func handleValidate(db *sql.DB) server.ToolHandlerFunc {
 			opts.Phase = &phaseStr
 		}
 
-		rs, ef := newStores(db)
-		vef := &validateEntityAdapter{store: ef.store}
-		result, err := validate.Validate(opts, rs, vef)
+		ef := &validateEntityFetcherAdapter{idx: idx}
+		rf := &relationFetcherAdapter{idx: idx}
+		result, err := validate.Validate(opts, rf, ef)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -324,7 +397,7 @@ func handleValidate(db *sql.DB) server.ToolHandlerFunc {
 	}
 }
 
-func handleExport(db *sql.DB) server.ToolHandlerFunc {
+func handleExport(idx *index.Index) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		format, err := req.RequireString("format")
 		if err != nil {
@@ -336,25 +409,34 @@ func handleExport(db *sql.DB) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		rs, ef := newStores(db)
 		opts := &graph.ExportOptions{Layer: layer}
 
-		entities, listErr := ef.List(graph.EntityListFilters{})
-		if listErr != nil {
-			return mcp.NewToolResultError(listErr.Error()), nil
+		var ef index.EntityFilters
+		if layer != nil {
+			ef.Layer = string(*layer)
 		}
+		entityRecs, err := idx.ListEntities(ef)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		entities := entitiesToModel(entityRecs)
 
-		allRels, relErr := collectAllRelations(rs, entities)
-		if relErr != nil {
-			return mcp.NewToolResultError(relErr.Error()), nil
+		var rf index.RelationFilters
+		if layer != nil {
+			rf.Layer = string(*layer)
 		}
+		relRecs, err := idx.ListRelations(rf)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		relations := relationsToModel(relRecs)
 
 		var output string
 		switch format {
 		case "dot":
-			output = graph.ExportDOT(entities, allRels, opts)
+			output = graph.ExportDOT(entities, relations, opts)
 		case "mermaid":
-			output = graph.ExportMermaid(entities, allRels, opts)
+			output = graph.ExportMermaid(entities, relations, opts)
 		default:
 			return mcp.NewToolResultError(fmt.Sprintf("unknown format %q; must be dot or mermaid", format)), nil
 		}
@@ -364,25 +446,6 @@ func handleExport(db *sql.DB) server.ToolHandlerFunc {
 }
 
 // --- Helpers ---
-
-// collectAllRelations gathers deduplicated relations for all entities.
-func collectAllRelations(rs *store.RelationStore, entities []model.Entity) ([]model.Relation, error) {
-	seen := make(map[int]bool)
-	var all []model.Relation
-	for _, e := range entities {
-		rels, err := rs.GetByEntity(e.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range rels {
-			if !seen[r.ID] {
-				seen[r.ID] = true
-				all = append(all, r)
-			}
-		}
-	}
-	return all, nil
-}
 
 func parseLayerParam(req mcp.CallToolRequest) (*model.Layer, error) {
 	val := req.GetString("layer", "")
@@ -396,7 +459,6 @@ func parseLayerParam(req mcp.CallToolRequest) (*model.Layer, error) {
 	return &l, nil
 }
 
-// marshalResult serializes v to JSON and returns it as a tool text result.
 func marshalResult(v any) (*mcp.CallToolResult, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -405,7 +467,6 @@ func marshalResult(v any) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(data)), nil
 }
 
-// splitCSV splits a comma-separated string into trimmed, non-empty parts.
 func splitCSV(s string) []string {
 	parts := strings.Split(s, ",")
 	result := make([]string, 0, len(parts))

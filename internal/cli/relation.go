@@ -3,11 +3,14 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
+	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
 
 var relationCmd = &cobra.Command{
@@ -29,36 +32,107 @@ var relationAddCmd = &cobra.Command{
 			handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
 		}
 
-		if !isValidRelationType(model.RelationType(relType)) {
+		rt := model.RelationType(relType)
+		if !isValidRelationType(rt) {
 			handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown relation type %q", relType)})
 		}
 
-		var metadata json.RawMessage
+		if from == to {
+			handleError(cmd, &model.ErrSelfLoop{ID: from})
+		}
+
+		fromRec, err := queryIndex.GetEntity(from)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("lookup from entity: %w", err))
+		}
+		if fromRec == nil {
+			handleError(cmd, &model.ErrEntityNotFound{ID: from})
+		}
+
+		toRec, err := queryIndex.GetEntity(to)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("lookup to entity: %w", err))
+		}
+		if toRec == nil {
+			handleError(cmd, &model.ErrEntityNotFound{ID: to})
+		}
+
+		fromType := model.EntityType(fromRec.Type)
+		toType := model.EntityType(toRec.Type)
+		if !model.IsEdgeAllowed(rt, fromType, toType, nil) {
+			handleError(cmd, &model.ErrInvalidEdge{FromType: fromType, ToType: toType, RelationType: rt})
+		}
+
+		var relMeta map[string]any
 		if metadataStr != "" {
 			if !json.Valid([]byte(metadataStr)) {
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
 			}
-			metadata = json.RawMessage(metadataStr)
+			json.Unmarshal([]byte(metadataStr), &relMeta)
 		}
 
-		rel := model.Relation{
-			FromID:   from,
-			ToID:     to,
-			Type:     model.RelationType(relType),
-			Weight:   weight,
-			Metadata: metadata,
+		ownerID := from
+		ownerType := fromType
+		targetID := to
+		if isSymmetricRelation(rt) && from > to {
+			ownerID = to
+			ownerType = toType
+			targetID = from
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
+		ef, err := tomlStore.ReadEntity(ownerID, ownerType)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("read owner entity: %w", err))
+		}
+
+		for _, existing := range ef.Relations {
+			if existing.To == targetID && existing.Type == rt {
+				handleError(cmd, &model.ErrDuplicateRelation{FromID: from, ToID: to, RelationType: rt})
+			}
+		}
+
+		relWeight := weight
+		if relWeight == 1.0 {
+			relWeight = 0
+		}
+
+		ef.Relations = append(ef.Relations, spectoml.RelationEntry{
+			To:       targetID,
+			Type:     rt,
+			Weight:   relWeight,
+			Metadata: relMeta,
+		})
+
+		if err := tomlStore.WriteEntity(ef); err != nil {
+			handleError(cmd, fmt.Errorf("write entity: %w", err))
+		}
+
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
-		created, err := rs.Create(rel, reason, actor, source)
-		if err != nil {
-			handleError(cmd, err)
+
+		if err := tomlStore.AppendHistory(ownerID, spectoml.HistoryEntry{
+			Action:    model.ActionUpdate,
+			Reason:    reason,
+			Actor:     actor,
+			Detail:    fmt.Sprintf("add relation %s -> %s [%s]; source=%s", from, to, relType, source),
+			Timestamp: time.Now(),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", ownerID, err)
+		}
+
+		var metaJSON json.RawMessage
+		if len(relMeta) > 0 {
+			metaJSON, _ = json.Marshal(relMeta)
+		}
+
+		created := model.Relation{
+			FromID:   from,
+			ToID:     to,
+			Type:     rt,
+			Layer:    model.LayerForRelationType(rt),
+			Weight:   weight,
+			Metadata: metaJSON,
 		}
 
 		writeJSON(cmd, jsoncontract.RelationResponse{Relation: created})
@@ -80,29 +154,37 @@ var relationListCmd = &cobra.Command{
 			return nil
 		}
 
-		var filters store.RelationFilters
-		filters.Layer = layer
+		var filters index.RelationFilters
 		if fromFilter != "" {
-			filters.FromID = &fromFilter
+			filters.FromID = fromFilter
 		}
 		if toFilter != "" {
-			filters.ToID = &toFilter
+			filters.ToID = toFilter
 		}
 		if typeFilter != "" {
-			t := model.RelationType(typeFilter)
-			filters.Type = &t
+			filters.Type = typeFilter
+		}
+		if layer != nil {
+			filters.Layer = string(*layer)
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		relations, count, err := rs.List(filters)
+		records, err := queryIndex.ListRelations(filters)
 		if err != nil {
-			handleError(cmd, err)
+			handleError(cmd, fmt.Errorf("list relations: %w", err))
 		}
 
-		writeJSON(cmd, jsoncontract.RelationListResponse{Relations: relations, Count: count})
+		relations := make([]model.Relation, 0, len(records))
+		for _, rec := range records {
+			relations = append(relations, model.Relation{
+				FromID: rec.FromID,
+				ToID:   rec.ToID,
+				Type:   model.RelationType(rec.Type),
+				Layer:  model.Layer(rec.Layer),
+				Weight: rec.Weight,
+			})
+		}
+
+		writeJSON(cmd, jsoncontract.RelationListResponse{Relations: relations, Count: len(relations)})
 		return nil
 	},
 }
@@ -119,15 +201,61 @@ var relationDeleteCmd = &cobra.Command{
 			handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
+		rt := model.RelationType(relType)
+
+		ownerID := from
+		targetID := to
+		if isSymmetricRelation(rt) && from > to {
+			ownerID = to
+			targetID = from
+		}
+
+		ownerRec, err := queryIndex.GetEntity(ownerID)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("lookup owner entity: %w", err))
+		}
+		if ownerRec == nil {
+			handleError(cmd, &model.ErrEntityNotFound{ID: ownerID})
+		}
+
+		ownerType := model.EntityType(ownerRec.Type)
+		ef, err := tomlStore.ReadEntity(ownerID, ownerType)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("read owner entity: %w", err))
+		}
+
+		found := false
+		filtered := make([]spectoml.RelationEntry, 0, len(ef.Relations))
+		for _, rel := range ef.Relations {
+			if rel.To == targetID && rel.Type == rt {
+				found = true
+				continue
+			}
+			filtered = append(filtered, rel)
+		}
+
+		if !found {
+			handleError(cmd, &model.ErrRelationNotFound{ID: 0})
+		}
+
+		ef.Relations = filtered
+
+		if err := tomlStore.WriteEntity(ef); err != nil {
+			handleError(cmd, fmt.Errorf("write entity: %w", err))
+		}
+
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
-		if err := rs.Delete(from, to, model.RelationType(relType), reason, actor, source); err != nil {
-			handleError(cmd, err)
+
+		if err := tomlStore.AppendHistory(ownerID, spectoml.HistoryEntry{
+			Action:    model.ActionUpdate,
+			Reason:    reason,
+			Actor:     actor,
+			Detail:    fmt.Sprintf("delete relation %s -> %s [%s]; source=%s", from, to, relType, source),
+			Timestamp: time.Now(),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", ownerID, err)
 		}
 
 		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: fmt.Sprintf("%s->%s[%s]", from, to, relType)})
@@ -158,6 +286,10 @@ func isValidRelationType(t model.RelationType) bool {
 	default:
 		return false
 	}
+}
+
+func isSymmetricRelation(rt model.RelationType) bool {
+	return rt == model.RelationConflictsWith || rt == model.RelationSupersedes
 }
 
 func init() {

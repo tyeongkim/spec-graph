@@ -8,22 +8,7 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 )
-
-type entityStoreAdapter struct {
-	store *store.EntityStore
-}
-
-func (a *entityStoreAdapter) Get(id string) (model.Entity, error) {
-	return a.store.Get(id)
-}
-
-func (a *entityStoreAdapter) List(filters graph.EntityListFilters) ([]model.Entity, error) {
-	sf := store.EntityFilters{Type: filters.Type, Status: filters.Status}
-	entities, _, err := a.store.List(sf)
-	return entities, err
-}
 
 var impactCmd = &cobra.Command{
 	Use:   "impact [sources...]",
@@ -75,19 +60,16 @@ var impactCmd = &cobra.Command{
 			}
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		es := store.NewEntityStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
 		for _, src := range args {
-			if _, err := es.Get(src); err != nil {
+			if _, err := ef.Get(src); err != nil {
 				handleError(cmd, err)
 			}
 		}
 
-		result, err := graph.Impact(args, opts, rs, &entityStoreAdapter{store: es})
+		result, err := graph.Impact(args, opts, rf, ef)
 		if err != nil {
 			handleError(cmd, err)
 		}

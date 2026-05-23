@@ -101,22 +101,16 @@ func TestHistoryChangeset(t *testing.T) {
 		"--type", "requirement", "--id", "REQ-001", "--title", "CS Test")
 
 	r := runCLI(t, dir, "--db", dbFile, "history", "changeset", "CHG-1")
-	if r.exitCode != 0 {
-		t.Fatalf("history changeset failed: exit=%d stderr=%s", r.exitCode, r.stderr)
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3 (deprecated), got %d; stderr=%s", r.exitCode, r.stderr)
 	}
 
-	var resp jsoncontract.ChangesetResponse
-	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
-		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
 	}
-	if resp.Changeset.ID != "CHG-1" {
-		t.Errorf("changeset.id = %q; want CHG-1", resp.Changeset.ID)
-	}
-	if len(resp.EntityEntries) != 1 {
-		t.Errorf("len(entity_entries) = %d; want 1", len(resp.EntityEntries))
-	}
-	if resp.EntityEntries[0].Action != "create" {
-		t.Errorf("entity entry action = %q; want create", resp.EntityEntries[0].Action)
+	if errResp.Error.Code != "DEPRECATED" {
+		t.Errorf("code = %q; want DEPRECATED", errResp.Error.Code)
 	}
 }
 
@@ -125,16 +119,16 @@ func TestHistoryChangesetNotFound(t *testing.T) {
 	dir := t.TempDir()
 
 	r := runCLI(t, dir, "--db", dbFile, "history", "changeset", "CHG-999")
-	if r.exitCode != 1 {
-		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
 	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
 		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
 	}
-	if errResp.Error.Code != "CHANGESET_NOT_FOUND" {
-		t.Errorf("code = %q; want CHANGESET_NOT_FOUND", errResp.Error.Code)
+	if errResp.Error.Code != "DEPRECATED" {
+		t.Errorf("code = %q; want DEPRECATED", errResp.Error.Code)
 	}
 }
 

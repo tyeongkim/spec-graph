@@ -2,12 +2,15 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
+	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
 
 var entityCmd = &cobra.Command{
@@ -40,31 +43,70 @@ var entityAddCmd = &cobra.Command{
 
 		metadata = resolveMetadata(cmd, metadata)
 
-		entity := model.Entity{
+		et := model.EntityType(entityType)
+		if err := model.ValidateEntityID(id, et); err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+		}
+		if tomlStore.EntityExists(id, et) {
+			handleError(cmd, &model.ErrDuplicateEntity{ID: id})
+		}
+
+		entityStatus := model.EntityStatusDraft
+		if status != "" {
+			entityStatus = model.EntityStatus(status)
+		}
+
+		schema := spectoml.DefaultSchema()
+		if err := schema.ValidateEntity(id, entityType, string(entityStatus)); err != nil {
+			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+		}
+
+		var meta map[string]any
+		if len(metadata) > 0 {
+			if err := json.Unmarshal(metadata, &meta); err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
+			}
+		}
+
+		ef := &spectoml.EntityFile{
+			Schema:      1,
 			ID:          id,
-			Type:        model.EntityType(entityType),
+			Type:        et,
 			Title:       title,
 			Description: description,
-			Metadata:    metadata,
+			Status:      entityStatus,
+			Metadata:    meta,
 		}
-		if status != "" {
-			entity.Status = model.EntityStatus(status)
+
+		if err := tomlStore.WriteEntity(ef); err != nil {
+			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		created, err := es.Create(entity, reason, actor, source)
-		if err != nil {
-			handleError(cmd, err)
+		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
+			Action:    model.ActionCreate,
+			Reason:    reason,
+			Actor:     actor,
+			Detail:    source,
+			Timestamp: time.Now(),
+		}); err != nil {
+			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: created})
+		entity := model.Entity{
+			ID:          id,
+			Type:        et,
+			Layer:       model.LayerForEntityType(et),
+			Title:       title,
+			Description: description,
+			Status:      entityStatus,
+			Metadata:    metadata,
+		}
+
+		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
 	},
 }
@@ -74,11 +116,9 @@ var entityGetCmd = &cobra.Command{
 	Short: "Get an entity by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		entity, err := es.Get(args[0])
+		id := args[0]
+
+		entity, err := readEntityByID(cmd, id)
 		if err != nil {
 			handleError(cmd, err)
 		}
@@ -101,27 +141,37 @@ var entityListCmd = &cobra.Command{
 			return nil
 		}
 
-		var filters store.EntityFilters
-		filters.Layer = layer
+		var filters index.EntityFilters
 		if typeFilter != "" {
-			t := model.EntityType(typeFilter)
-			filters.Type = &t
+			filters.Type = typeFilter
 		}
 		if statusFilter != "" {
-			s := model.EntityStatus(statusFilter)
-			filters.Status = &s
+			filters.Status = statusFilter
+		}
+		if layer != nil {
+			filters.Layer = string(*layer)
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		entities, count, err := es.List(filters)
+		records, err := queryIndex.ListEntities(filters)
 		if err != nil {
-			handleError(cmd, err)
+			handleError(cmd, fmt.Errorf("list entities: %w", err))
 		}
 
-		writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: count})
+		entities := make([]model.Entity, 0, len(records))
+		for _, rec := range records {
+			et := model.EntityType(rec.Type)
+			ef, err := tomlStore.ReadEntity(rec.ID, et)
+			if err != nil {
+				handleError(cmd, &model.ErrEntityNotFound{ID: rec.ID})
+			}
+			e, err := ef.ToEntity()
+			if err != nil {
+				handleError(cmd, fmt.Errorf("convert entity %q: %w", rec.ID, err))
+			}
+			entities = append(entities, e)
+		}
+
+		writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: len(entities)})
 		return nil
 	},
 }
@@ -131,28 +181,37 @@ var entityUpdateCmd = &cobra.Command{
 	Short: "Update an entity",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var fields store.UpdateFields
+		id := args[0]
+
+		ef, et, err := findEntityFile(cmd, id)
+		if err != nil {
+			handleError(cmd, err)
+		}
 
 		if cmd.Flags().Changed("title") {
 			v, _ := cmd.Flags().GetString("title")
-			fields.Title = &v
+			ef.Title = v
 		}
 		if cmd.Flags().Changed("description") {
 			v, _ := cmd.Flags().GetString("description")
-			fields.Description = &v
+			ef.Description = v
 		}
 		if cmd.Flags().Changed("status") {
 			v, _ := cmd.Flags().GetString("status")
-			s := model.EntityStatus(v)
-			fields.Status = &s
+			schema := spectoml.DefaultSchema()
+			if err := schema.ValidateEntity(ef.ID, string(ef.Type), v); err != nil {
+				handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			}
+			ef.Status = model.EntityStatus(v)
 		}
 		if cmd.Flags().Changed("metadata") {
 			v, _ := cmd.Flags().GetString("metadata")
 			if !json.Valid([]byte(v)) {
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
 			}
-			m := json.RawMessage(v)
-			fields.Metadata = &m
+			var meta map[string]any
+			json.Unmarshal([]byte(v), &meta)
+			ef.Metadata = meta
 		}
 
 		metaFile, _ := cmd.Flags().GetString("metadata-file")
@@ -167,24 +226,32 @@ var entityUpdateCmd = &cobra.Command{
 			if !json.Valid(data) {
 				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
 			}
-			m := json.RawMessage(data)
-			fields.Metadata = &m
+			var meta map[string]any
+			json.Unmarshal(data, &meta)
+			ef.Metadata = meta
+		}
+
+		if err := tomlStore.WriteEntity(ef); err != nil {
+			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		updated, err := es.Update(args[0], fields, reason, actor, source, model.ActionUpdate)
-		if err != nil {
-			handleError(cmd, err)
+		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
+			Action:    model.ActionUpdate,
+			Reason:    reason,
+			Actor:     actor,
+			Detail:    source,
+			Timestamp: time.Now(),
+		}); err != nil {
+			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: updated})
+		entity, _ := ef.ToEntity()
+		_ = et
+		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
 	},
 }
@@ -194,23 +261,35 @@ var entityDeprecateCmd = &cobra.Command{
 	Short: "Deprecate an entity",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		status := model.EntityStatusDeprecated
-		fields := store.UpdateFields{Status: &status}
+		id := args[0]
+
+		ef, _, err := findEntityFile(cmd, id)
+		if err != nil {
+			handleError(cmd, err)
+		}
+
+		ef.Status = model.EntityStatusDeprecated
+
+		if err := tomlStore.WriteEntity(ef); err != nil {
+			handleError(cmd, fmt.Errorf("write entity: %w", err))
+		}
 
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		updated, err := es.Update(args[0], fields, reason, actor, source, model.ActionDeprecate)
-		if err != nil {
-			handleError(cmd, err)
+		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
+			Action:    model.ActionDeprecate,
+			Reason:    reason,
+			Actor:     actor,
+			Detail:    source,
+			Timestamp: time.Now(),
+		}); err != nil {
+			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: updated})
+		entity, _ := ef.ToEntity()
+		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
 	},
 }
@@ -221,16 +300,27 @@ var entityDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		if err := es.Delete(id, reason, actor, source); err != nil {
+
+		relations, err := queryIndex.GetRelationsByEntity(id)
+		if err != nil {
+			handleError(cmd, fmt.Errorf("check relations: %w", err))
+		}
+		if len(relations) > 0 {
+			handleError(cmd, &model.ErrInvalidInput{
+				Message: fmt.Sprintf("cannot delete entity %q: %d relation(s) reference it", id, len(relations)),
+			})
+		}
+
+		_, et, err := findEntityFile(cmd, id)
+		if err != nil {
 			handleError(cmd, err)
 		}
+
+		if err := tomlStore.DeleteEntity(id, et); err != nil {
+			handleError(cmd, fmt.Errorf("delete entity: %w", err))
+		}
+
+		_ = tomlStore.DeleteHistory(id)
 
 		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: id})
 		return nil
@@ -269,11 +359,6 @@ var entityImportCmd = &cobra.Command{
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-
 		var created []string
 		var skipped []jsoncontract.BootstrapSkippedItem
 		var errors []jsoncontract.BootstrapErrorItem
@@ -287,32 +372,59 @@ var entityImportCmd = &cobra.Command{
 				continue
 			}
 
-			entity := model.Entity{
-				ID:          item.ID,
-				Type:        model.EntityType(item.Type),
-				Title:       item.Title,
-				Description: item.Description,
-				Metadata:    item.Metadata,
-			}
-			if item.Status != "" {
-				entity.Status = model.EntityStatus(item.Status)
-			}
-
-			_, err := es.Create(entity, reason, actor, source)
-			if err != nil {
-				if isDuplicateError(err) {
-					skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
-						ID:     item.ID,
-						Reason: "already exists",
-					})
-				} else {
-					errors = append(errors, jsoncontract.BootstrapErrorItem{
-						ID:    item.ID,
-						Error: err.Error(),
-					})
-				}
+			et := model.EntityType(item.Type)
+			if tomlStore.EntityExists(item.ID, et) {
+				skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
+					ID:     item.ID,
+					Reason: "already exists",
+				})
 				continue
 			}
+
+			entityStatus := model.EntityStatusDraft
+			if item.Status != "" {
+				entityStatus = model.EntityStatus(item.Status)
+			}
+
+			var meta map[string]any
+			if len(item.Metadata) > 0 {
+				if err := json.Unmarshal(item.Metadata, &meta); err != nil {
+					errors = append(errors, jsoncontract.BootstrapErrorItem{
+						ID:    item.ID,
+						Error: "invalid metadata JSON",
+					})
+					continue
+				}
+			}
+
+			ef := &spectoml.EntityFile{
+				Schema:      1,
+				ID:          item.ID,
+				Type:        et,
+				Title:       item.Title,
+				Description: item.Description,
+				Status:      entityStatus,
+				Metadata:    meta,
+			}
+
+			if err := tomlStore.WriteEntity(ef); err != nil {
+				errors = append(errors, jsoncontract.BootstrapErrorItem{
+					ID:    item.ID,
+					Error: err.Error(),
+				})
+				continue
+			}
+
+			if err := tomlStore.AppendHistory(item.ID, spectoml.HistoryEntry{
+				Action:    model.ActionCreate,
+				Reason:    reason,
+				Actor:     actor,
+				Detail:    source,
+				Timestamp: time.Now(),
+			}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", item.ID, err)
+		}
+
 			created = append(created, item.ID)
 		}
 
@@ -323,11 +435,6 @@ var entityImportCmd = &cobra.Command{
 		})
 		return nil
 	},
-}
-
-func isDuplicateError(err error) bool {
-	_, ok := err.(*model.ErrDuplicateEntity)
-	return ok
 }
 
 func init() {
@@ -392,4 +499,44 @@ func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) json.RawMessage
 		handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
 	}
 	return json.RawMessage(data)
+}
+
+func readEntityByID(cmd *cobra.Command, id string) (model.Entity, error) {
+	rec, err := queryIndex.GetEntity(id)
+	if err != nil {
+		return model.Entity{}, fmt.Errorf("get entity %q: %w", id, err)
+	}
+	if rec == nil {
+		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
+	}
+
+	et := model.EntityType(rec.Type)
+	ef, err := tomlStore.ReadEntity(id, et)
+	if err != nil {
+		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
+	}
+
+	entity, err := ef.ToEntity()
+	if err != nil {
+		return model.Entity{}, fmt.Errorf("convert entity %q: %w", id, err)
+	}
+	return entity, nil
+}
+
+func findEntityFile(cmd *cobra.Command, id string) (*spectoml.EntityFile, model.EntityType, error) {
+	rec, err := queryIndex.GetEntity(id)
+	if err != nil {
+		return nil, "", fmt.Errorf("get entity %q: %w", id, err)
+	}
+	if rec == nil {
+		return nil, "", &model.ErrEntityNotFound{ID: id}
+	}
+
+	et := model.EntityType(rec.Type)
+	ef, err := tomlStore.ReadEntity(id, et)
+	if err != nil {
+		return nil, "", &model.ErrEntityNotFound{ID: id}
+	}
+
+	return ef, et, nil
 }

@@ -1,0 +1,143 @@
+version = 1
+
+[entity_types.requirement]
+prefix = "REQ"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.decision]
+prefix = "DEC"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.phase]
+prefix = "PHS"
+layer = "exec"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.plan]
+prefix = "PLN"
+layer = "exec"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.interface]
+prefix = "API"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.state]
+prefix = "STT"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.test]
+prefix = "TST"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.crosscut]
+prefix = "XCT"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.question]
+prefix = "QST"
+layer = "arch"
+allowed_status = ["draft", "active", "resolved", "deleted"]
+
+[entity_types.assumption]
+prefix = "ASM"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.criterion]
+prefix = "ACT"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[entity_types.risk]
+prefix = "RSK"
+layer = "arch"
+allowed_status = ["draft", "active", "deprecated", "resolved", "deleted"]
+
+[relation_types.implements]
+layer = "arch"
+from = ["interface"]
+to = ["requirement", "criterion"]
+
+[relation_types.verifies]
+layer = "arch"
+from = ["test"]
+to = ["requirement", "criterion", "decision", "interface", "state"]
+
+[relation_types.depends_on]
+layer = "arch"
+from = ["requirement", "decision", "interface", "test", "state"]
+to = ["requirement", "decision", "interface", "state", "crosscut", "assumption"]
+
+[relation_types.constrained_by]
+layer = "arch"
+from = ["requirement", "decision", "interface", "state"]
+to = ["crosscut", "decision", "assumption"]
+
+[relation_types.triggers]
+layer = "arch"
+from = ["interface", "decision"]
+to = ["state"]
+
+[relation_types.answers]
+layer = "arch"
+from = ["decision"]
+to = ["question"]
+
+[relation_types.assumes]
+layer = "arch"
+from = ["requirement", "decision", "interface"]
+to = ["assumption"]
+
+[relation_types.has_criterion]
+layer = "arch"
+from = ["requirement"]
+to = ["criterion"]
+
+[relation_types.mitigates]
+layer = "arch"
+from = ["decision", "test", "crosscut"]
+to = ["risk"]
+
+[relation_types.supersedes]
+layer = "arch"
+special = "same_type"
+
+[relation_types.conflicts_with]
+layer = "arch"
+special = "any_to_any"
+
+[relation_types.references]
+layer = "arch"
+special = "any_to_any"
+
+[relation_types.belongs_to]
+layer = "exec"
+from = ["phase"]
+to = ["plan"]
+
+[relation_types.precedes]
+layer = "exec"
+from = ["phase"]
+to = ["phase"]
+
+[relation_types.blocks]
+layer = "exec"
+from = ["phase"]
+to = ["phase"]
+
+[relation_types.covers]
+layer = "mapping"
+from = ["phase"]
+to = ["requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"]
+
+[relation_types.delivers]
+layer = "mapping"
+from = ["phase"]
+to = ["requirement", "interface", "state", "test", "decision", "criterion"]

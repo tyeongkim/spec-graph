@@ -158,6 +158,9 @@ type EntityHistoryEntry struct {
 	Before      *json.RawMessage `json:"before"`
 	After       *json.RawMessage `json:"after"`
 	CreatedAt   string           `json:"created_at"`
+	Reason      string           `json:"reason,omitempty"`
+	Actor       string           `json:"actor,omitempty"`
+	Detail      string           `json:"detail,omitempty"`
 }
 
 type EntityHistoryResponse struct {

@@ -9,7 +9,6 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 var queryCmd = &cobra.Command{
@@ -24,11 +23,8 @@ var queryScopeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		phaseID := args[0]
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		es := store.NewEntityStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
 		layer, err := ParseLayerFlag(cmd)
 		if err != nil {
@@ -37,7 +33,7 @@ var queryScopeCmd = &cobra.Command{
 		}
 
 		opts := graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}
-		result, err := graph.QueryScope(opts, rs, &entityStoreAdapter{store: es})
+		result, err := graph.QueryScope(opts, rf, ef)
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -119,12 +115,9 @@ var queryUnresolvedCmd = &cobra.Command{
 			opts.Type = &et
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
 
-		result, err := graph.QueryUnresolved(opts, &entityStoreAdapter{store: es})
+		result, err := graph.QueryUnresolved(opts, ef)
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -169,11 +162,8 @@ var queryPathCmd = &cobra.Command{
 		fromID := args[0]
 		toID := args[1]
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		es := store.NewEntityStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
 		layer, err := ParseLayerFlag(cmd)
 		if err != nil {
@@ -182,7 +172,7 @@ var queryPathCmd = &cobra.Command{
 		}
 
 		opts := graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}
-		result, err := graph.QueryPath(opts, rs, &entityStoreAdapter{store: es})
+		result, err := graph.QueryPath(opts, rf, ef)
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -226,13 +216,10 @@ var queryNeighborsCmd = &cobra.Command{
 		entityID := args[0]
 		depth, _ := cmd.Flags().GetInt("depth")
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		rs := store.NewRelationStore(db, cs, hs)
-		es := store.NewEntityStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
-		result, err := graph.Neighbors(entityID, depth, rs, &entityStoreAdapter{store: es})
+		result, err := graph.Neighbors(entityID, depth, rf, ef)
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -295,7 +282,7 @@ var querySQLCmd = &cobra.Command{
 			}
 		}
 
-		rows, err := getDB().QueryContext(context.Background(), query)
+		rows, err := queryIndex.DB().QueryContext(context.Background(), query)
 		if err != nil {
 			handleError(cmd, fmt.Errorf("query execution: %w", err))
 			return nil

@@ -2,11 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
-	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 var historyCmd = &cobra.Command{
@@ -19,58 +21,15 @@ var historyChangesetCmd = &cobra.Command{
 	Short: "Show changeset detail, or list all changesets if no ID given",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-
-		if len(args) == 0 {
-			changesets, err := cs.List()
-			if err != nil {
-				handleError(cmd, err)
-			}
-
-			details := make([]jsoncontract.ChangesetDetail, len(changesets))
-			for i, c := range changesets {
-				details[i] = jsoncontract.ChangesetDetail{
-					ID:        c.ID,
-					Reason:    c.Reason,
-					Actor:     c.Actor,
-					Source:    c.Source,
-					CreatedAt: c.CreatedAt,
-				}
-			}
-
-			writeJSON(cmd, jsoncontract.ChangesetListResponse{
-				Changesets: details,
-				Count:      len(details),
-			})
-			return nil
-		}
-
-		hs := store.NewHistoryStore(db)
-
-		changeset, err := cs.Get(args[0])
-		if err != nil {
-			handleError(cmd, err)
-		}
-
-		entityEntries, relationEntries, err := hs.GetChangesetHistory(args[0])
-		if err != nil {
-			handleError(cmd, err)
-		}
-
-		resp := jsoncontract.ChangesetResponse{
-			Changeset: jsoncontract.ChangesetDetail{
-				ID:        changeset.ID,
-				Reason:    changeset.Reason,
-				Actor:     changeset.Actor,
-				Source:    changeset.Source,
-				CreatedAt: changeset.CreatedAt,
+		resp := jsoncontract.ErrorResponse{
+			Error: jsoncontract.ErrorDetail{
+				Code:    "DEPRECATED",
+				Message: "changeset queries are not supported in TOML storage mode. Use 'history entity <ID>' instead",
 			},
-			EntityEntries:   toJSONEntityEntries(entityEntries),
-			RelationEntries: toJSONRelationEntries(relationEntries),
 		}
-
-		writeJSON(cmd, resp)
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Fprintln(cmd.ErrOrStderr(), string(out))
+		os.Exit(3)
 		return nil
 	},
 }
@@ -80,21 +39,37 @@ var historyEntityCmd = &cobra.Command{
 	Short: "Show all history entries for an entity",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db := getDB()
-		hs := store.NewHistoryStore(db)
-
-		entries, err := hs.GetEntityHistory(args[0])
+		hf, err := tomlStore.ReadHistory(args[0])
 		if err != nil {
+			if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+				writeJSON(cmd, jsoncontract.EntityHistoryResponse{
+					EntityID: args[0],
+					Entries:  []jsoncontract.EntityHistoryEntry{},
+					Count:    0,
+				})
+				return nil
+			}
 			handleError(cmd, err)
 		}
 
-		resp := jsoncontract.EntityHistoryResponse{
-			EntityID: args[0],
-			Entries:  toJSONEntityEntries(entries),
-			Count:    len(entries),
+		entries := make([]jsoncontract.EntityHistoryEntry, len(hf.Entries))
+		for i, e := range hf.Entries {
+			entries[i] = jsoncontract.EntityHistoryEntry{
+				ID:        i + 1,
+				EntityID:  hf.EntityID,
+				Action:    string(e.Action),
+				CreatedAt: e.Timestamp.Format(time.RFC3339),
+				Reason:    e.Reason,
+				Actor:     e.Actor,
+				Detail:    e.Detail,
+			}
 		}
 
-		writeJSON(cmd, resp)
+		writeJSON(cmd, jsoncontract.EntityHistoryResponse{
+			EntityID: hf.EntityID,
+			Entries:  entries,
+			Count:    len(entries),
+		})
 		return nil
 	},
 }
@@ -104,81 +79,83 @@ var historyRelationCmd = &cobra.Command{
 	Short: "Show all history entries for a relation key (format: from:to:type)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		db := getDB()
-		hs := store.NewHistoryStore(db)
+		relationKey := args[0]
 
-		entries, err := hs.GetRelationHistory(args[0])
+		parts := strings.SplitN(relationKey, ":", 3)
+		if len(parts) < 3 {
+			handleError(cmd, fmt.Errorf("invalid relation key format %q, expected from:to:type", relationKey))
+		}
+		ownerID := parts[0]
+		fromID := parts[0]
+		toID := parts[1]
+		relType := parts[2]
+
+		hf, err := tomlStore.ReadHistory(ownerID)
 		if err != nil {
+			if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+				writeJSON(cmd, jsoncontract.RelationHistoryResponse{
+					RelationKey: relationKey,
+					Entries:     []jsoncontract.RelationHistoryEntry{},
+					Count:       0,
+				})
+				return nil
+			}
 			handleError(cmd, err)
 		}
 
-		resp := jsoncontract.RelationHistoryResponse{
-			RelationKey: args[0],
-			Entries:     toJSONRelationEntries(entries),
-			Count:       len(entries),
+		var entries []jsoncontract.EntityHistoryEntry
+		idx := 0
+		for _, e := range hf.Entries {
+			if matchesRelation(e.Detail, fromID, toID, relType) {
+				idx++
+				entries = append(entries, jsoncontract.EntityHistoryEntry{
+					ID:        idx,
+					EntityID:  hf.EntityID,
+					Action:    string(e.Action),
+					CreatedAt: e.Timestamp.Format(time.RFC3339),
+					Reason:    e.Reason,
+					Actor:     e.Actor,
+					Detail:    e.Detail,
+				})
+			}
 		}
 
-		writeJSON(cmd, resp)
+		if entries == nil {
+			entries = []jsoncontract.EntityHistoryEntry{}
+		}
+
+		writeJSON(cmd, jsoncontract.RelationHistoryResponse{
+			RelationKey: relationKey,
+			Entries:     toRelationEntries(entries),
+			Count:       len(entries),
+		})
 		return nil
 	},
+}
+
+// toRelationEntries converts entity history entries to relation history entries
+// for backward-compatible JSON output.
+func toRelationEntries(entries []jsoncontract.EntityHistoryEntry) []jsoncontract.RelationHistoryEntry {
+	result := make([]jsoncontract.RelationHistoryEntry, len(entries))
+	for i, e := range entries {
+		result[i] = jsoncontract.RelationHistoryEntry{
+			ID:          e.ID,
+			RelationKey: e.Detail,
+			Action:      e.Action,
+			CreatedAt:   e.CreatedAt,
+		}
+	}
+	return result
+}
+
+func matchesRelation(detail, fromID, toID, relType string) bool {
+	return strings.Contains(detail, fromID) &&
+		strings.Contains(detail, toID) &&
+		strings.Contains(detail, relType)
 }
 
 func init() {
 	historyCmd.AddCommand(historyChangesetCmd)
 	historyCmd.AddCommand(historyEntityCmd)
 	historyCmd.AddCommand(historyRelationCmd)
-}
-
-func toJSONEntityEntry(e model.EntityHistoryEntry) jsoncontract.EntityHistoryEntry {
-	entry := jsoncontract.EntityHistoryEntry{
-		ID:          e.ID,
-		ChangesetID: e.ChangesetID,
-		EntityID:    e.EntityID,
-		Action:      string(e.Action),
-		CreatedAt:   e.CreatedAt,
-	}
-	if e.BeforeJSON != nil {
-		raw := json.RawMessage(*e.BeforeJSON)
-		entry.Before = &raw
-	}
-	if e.AfterJSON != nil {
-		raw := json.RawMessage(*e.AfterJSON)
-		entry.After = &raw
-	}
-	return entry
-}
-
-func toJSONEntityEntries(entries []model.EntityHistoryEntry) []jsoncontract.EntityHistoryEntry {
-	result := make([]jsoncontract.EntityHistoryEntry, len(entries))
-	for i, e := range entries {
-		result[i] = toJSONEntityEntry(e)
-	}
-	return result
-}
-
-func toJSONRelationEntry(e model.RelationHistoryEntry) jsoncontract.RelationHistoryEntry {
-	entry := jsoncontract.RelationHistoryEntry{
-		ID:          e.ID,
-		ChangesetID: e.ChangesetID,
-		RelationKey: e.RelationKey,
-		Action:      string(e.Action),
-		CreatedAt:   e.CreatedAt,
-	}
-	if e.BeforeJSON != nil {
-		raw := json.RawMessage(*e.BeforeJSON)
-		entry.Before = &raw
-	}
-	if e.AfterJSON != nil {
-		raw := json.RawMessage(*e.AfterJSON)
-		entry.After = &raw
-	}
-	return entry
-}
-
-func toJSONRelationEntries(entries []model.RelationHistoryEntry) []jsoncontract.RelationHistoryEntry {
-	result := make([]jsoncontract.RelationHistoryEntry, len(entries))
-	for i, e := range entries {
-		result[i] = toJSONRelationEntry(e)
-	}
-	return result
 }

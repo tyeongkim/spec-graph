@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/store"
 )
 
 var exportCmd = &cobra.Command{
@@ -25,18 +24,14 @@ var exportCmd = &cobra.Command{
 
 		switch format {
 		case "dot", "mermaid", "json":
-			// valid
 		default:
 			handleError(cmd, &model.ErrInvalidInput{
 				Message: fmt.Sprintf("unknown format %q; must be dot, mermaid, or json", format),
 			})
 		}
 
-		db := getDB()
-		cs := store.NewChangesetStore(db)
-		hs := store.NewHistoryStore(db)
-		es := store.NewEntityStore(db, cs, hs)
-		rs := store.NewRelationStore(db, cs, hs)
+		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
 		opts := &graph.ExportOptions{Layer: layer}
 
@@ -44,7 +39,7 @@ var exportCmd = &cobra.Command{
 		var relations []model.Relation
 
 		if centerFlag != "" {
-			result, err := graph.Neighbors(centerFlag, depthFlag, rs, &entityStoreAdapter{store: es})
+			result, err := graph.Neighbors(centerFlag, depthFlag, rf, ef)
 			if err != nil {
 				handleError(cmd, err)
 				return nil
@@ -56,11 +51,11 @@ var exportCmd = &cobra.Command{
 			relations = result.Relations
 		} else {
 			var err error
-			entities, _, err = es.List(store.EntityFilters{Layer: layer})
+			entities, err = listEntitiesFromIndex(queryIndex, layer)
 			if err != nil {
 				handleError(cmd, err)
 			}
-			relations, _, err = rs.List(store.RelationFilters{Layer: layer})
+			relations, err = listRelationsFromIndex(queryIndex, layer)
 			if err != nil {
 				handleError(cmd, err)
 			}
