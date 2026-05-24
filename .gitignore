@@ -1,6 +1,6 @@
 .agents/
 .sisyphus/
+.spec-graph/
 bin/
 dist/
-spec-graph
 .DS_Store

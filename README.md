@@ -39,7 +39,7 @@ spec-graph export --format mermaid
 
 For full command reference, entity types, and relation types, install the `spec-graph` skill into your AI agent. The skill provides all the context an agent needs to operate this tool.
 ```bash
-bunx --bun skills add https://github.com/tyeongkim/spec-graph-cli.git --skill spec-graph
+bunx --bun skills add https://github.com/tyeongkim/spec-graph.git --skill '*'
 ```
 
 ## Development
