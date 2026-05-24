@@ -262,7 +262,11 @@ func TestForceRebuild_PartialParseFailure(t *testing.T) {
 
 	writeEntity(t, store, "REQ-001", model.EntityTypeRequirement, "Good entity", nil)
 
-	badPath := filepath.Join(root, "entities", "decision", "DEC-BAD.toml")
+	badDir := filepath.Join(root, "entities", "decision")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatalf("create bad dir: %v", err)
+	}
+	badPath := filepath.Join(badDir, "DEC-BAD.toml")
 	if err := os.WriteFile(badPath, []byte("this is not valid toml [[["), 0o644); err != nil {
 		t.Fatalf("write bad file: %v", err)
 	}

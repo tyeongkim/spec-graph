@@ -44,20 +44,24 @@ func TestStore_Init(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
+	entitiesDir := filepath.Join(root, "entities")
+	info, err := os.Stat(entitiesDir)
+	if err != nil {
+		t.Fatalf("expected entities dir to exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected entities to be a directory")
+	}
+
 	for et := range model.TypePrefixMap {
 		dir := filepath.Join(root, "entities", string(et))
-		info, err := os.Stat(dir)
-		if err != nil {
-			t.Errorf("expected directory %s to exist: %v", dir, err)
-			continue
-		}
-		if !info.IsDir() {
-			t.Errorf("expected %s to be a directory", dir)
+		if _, err := os.Stat(dir); err == nil {
+			t.Errorf("expected per-type directory %s to NOT exist after Init (created on-demand)", dir)
 		}
 	}
 
 	histDir := filepath.Join(root, "history")
-	info, err := os.Stat(histDir)
+	info, err = os.Stat(histDir)
 	if err != nil {
 		t.Fatalf("expected history dir to exist: %v", err)
 	}

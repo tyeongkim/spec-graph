@@ -38,13 +38,10 @@ func (s *Store) HistoryPath(entityID string) string {
 	return filepath.Join(s.root, "history", entityID+".toml")
 }
 
-// Init creates the directory structure: entities/{type}/ for all entity types + history/.
 func (s *Store) Init() error {
-	for et := range model.TypePrefixMap {
-		dir := filepath.Join(s.root, "entities", string(et))
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("init entity dir %q: %w", dir, err)
-		}
+	entitiesDir := filepath.Join(s.root, "entities")
+	if err := os.MkdirAll(entitiesDir, 0o755); err != nil {
+		return fmt.Errorf("init entities dir: %w", err)
 	}
 
 	histDir := filepath.Join(s.root, "history")
