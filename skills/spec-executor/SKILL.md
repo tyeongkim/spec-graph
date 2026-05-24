@@ -76,33 +76,20 @@ If user confirms, proceed regardless. Do not block.
 
 #### Case B: User does not specify a PHS
 
-Find the optimal next phase:
+Use the `phase next` shortcut:
 
 ```bash
-# List all phases in active plan
-spec-graph entity list --type phase --layer exec
-
-# Check which are resolved
-spec-graph entity list --type phase --status resolved
+spec-graph phase next --activate
 ```
 
-Selection criteria (in order):
-1. All `precedes` predecessors are `resolved`
-2. Status is `draft` or `active` (not resolved)
-3. Lowest `order` value among candidates
+This command finds the next eligible phase (predecessors resolved, lowest order) within
+the active plan, activates it, and returns scope information in one call.
 
-Present recommendation:
+If you need to inspect without activating:
 
+```bash
+spec-graph phase next
 ```
-Recommended next phase: PHS-XXX "[title]"
-- Goal: [goal from metadata]
-- Predecessors: all resolved
-- Remaining entities to deliver: N
-
-Proceed with this phase?
-```
-
-Wait for user confirmation.
 
 #### Activate the Phase
 
@@ -221,6 +208,7 @@ spec-graph relation add --from PHS-XXX --to API-001 --type delivers
 - Only add when implementation is actually done (not planned, not in-progress)
 - Use the minimal proxy set — not every related entity, only those necessary and sufficient
 - Only add delivers for the current PHS (scope discipline)
+- The CLI auto-transitions target entities from `draft` to `active` on delivers — do NOT manually set status to active after adding delivers
 
 Validate after adding delivers:
 

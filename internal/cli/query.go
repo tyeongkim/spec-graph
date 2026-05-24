@@ -85,6 +85,7 @@ func init() {
 	queryCmd.AddCommand(queryScopeCmd)
 	queryCmd.AddCommand(queryPathCmd)
 	queryUnresolvedCmd.Flags().String("type", "", "filter by entity type (question, assumption, risk)")
+	queryUnresolvedCmd.Flags().String("phase", "", "restrict results to entities in the scope of this phase")
 	queryCmd.AddCommand(queryUnresolvedCmd)
 	queryCmd.AddCommand(querySQLCmd)
 	queryNeighborsCmd.Flags().Int("depth", 1, "traversal depth (0 = center only)")
@@ -102,6 +103,7 @@ var queryUnresolvedCmd = &cobra.Command{
 	Short: "List unresolved questions, assumptions, and risks",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		typeFlag, _ := cmd.Flags().GetString("type")
+		phaseFlag, _ := cmd.Flags().GetString("phase")
 
 		var opts graph.QueryUnresolvedOptions
 		if typeFlag != "" {
@@ -116,11 +118,30 @@ var queryUnresolvedCmd = &cobra.Command{
 		}
 
 		ef := &indexEntityFetcher{idx: queryIndex}
+		rf := &indexRelationFetcher{idx: queryIndex}
 
 		result, err := graph.QueryUnresolved(opts, ef)
 		if err != nil {
 			handleError(cmd, err)
 			return nil
+		}
+
+		if phaseFlag != "" {
+			phaseScope, scopeErr := phaseEntityScope(phaseFlag, rf)
+			if scopeErr != nil {
+				handleError(cmd, &model.ErrInvalidInput{
+					Message: fmt.Sprintf("invalid --phase %q: %v", phaseFlag, scopeErr),
+				})
+				return nil
+			}
+			filtered := make([]model.Entity, 0, len(result.Entities))
+			for _, e := range result.Entities {
+				if phaseScope[e.ID] {
+					filtered = append(filtered, e)
+				}
+			}
+			result.Entities = filtered
+			result.Count = len(filtered)
 		}
 
 		response := convertQueryUnresolvedResult(result)

@@ -166,10 +166,10 @@ Determine phase count based on project scale:
 | Large | Multi-service, CI/CD, monitoring | 6-12 |
 
 ```bash
-# Create plan
+# Create plan (--status active is required for phase next to work)
 spec-graph entity add --type plan --id PLN-001 \
   --title "..." \
-  --metadata '{"status":"active"}'
+  --status active
 
 # Create phases (all as draft)
 spec-graph entity add --type phase --id PHS-001 \

@@ -109,6 +109,10 @@ var relationAddCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
+		if rt == model.RelationDelivers {
+			autoActivateOnDelivers(cmd, to, toType)
+		}
+
 		reason, _ := cmd.Flags().GetString("reason")
 		actor, _ := cmd.Flags().GetString("actor")
 		source, _ := cmd.Flags().GetString("source")
@@ -292,6 +296,29 @@ func isValidRelationType(t model.RelationType) bool {
 
 func isSymmetricRelation(rt model.RelationType) bool {
 	return rt == model.RelationConflictsWith
+}
+
+func autoActivateOnDelivers(cmd *cobra.Command, entityID string, entityType model.EntityType) {
+	targetEF, err := tomlStore.ReadEntity(entityID, entityType)
+	if err != nil {
+		return
+	}
+	if targetEF.Status != model.EntityStatusDraft {
+		return
+	}
+
+	targetEF.Status = model.EntityStatusActive
+	targetEF.UpdatedAt = time.Now()
+	if err := tomlStore.WriteEntity(targetEF); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to auto-activate %s: %v\n", entityID, err)
+
+		return
+	}
+	_ = tomlStore.AppendHistory(entityID, spectoml.HistoryEntry{
+		Action:    model.ActionUpdate,
+		Reason:    fmt.Sprintf("Auto-activated: delivered by phase"),
+		Timestamp: time.Now(),
+	})
 }
 
 func init() {

@@ -100,6 +100,7 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(doctorCmd)
+	rootCmd.AddCommand(phaseCmd)
 }
 
 func Execute() {

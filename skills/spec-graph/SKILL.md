@@ -196,8 +196,13 @@ spec-graph validate --entity <ID>
 spec-graph query neighbors <ID> --depth 2
 spec-graph query path <FROM-ID> <TO-ID>
 spec-graph query scope <PHS-ID>
-spec-graph query unresolved --type question|assumption|risk
+spec-graph query unresolved --type question|assumption|risk [--phase <PHS-ID>]
 spec-graph query sql "SELECT ..."
+```
+
+### Phase Lifecycle
+```bash
+spec-graph phase next [--activate]
 ```
 
 ### History
@@ -253,6 +258,16 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 | PHS | phase | exec | development phase or milestone |
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
+
+**Auto-activation (v0.4.0+):** When a `delivers` relation is added targeting an arch entity,
+the CLI automatically transitions that entity from `draft` to `active`. This means:
+- `draft` = registered, no delivery evidence yet
+- `active` = at least one phase has delivered this entity (auto or manual)
+- `resolved` = verified complete (only spec-verifier should set this)
+
+Do NOT manually transition arch entities to `active` after adding `delivers` — the CLI
+handles it. Do NOT expect `delivers` to auto-resolve entities; resolution requires
+explicit verification.
 
 **Gated transitions (v0.3.1+):** Transitioning a phase or plan to `resolved` is gated.
 The CLI automatically runs `delivery_completeness` + `gates` checks (for phases) or
