@@ -16,6 +16,21 @@ description: >
 Keeps spec-graph synchronized with implementation progress. This skill manages graph
 updates only — implementation approach is the agent's discretion.
 
+## Required Skill Dependencies
+
+**STOP. Before proceeding with this skill, you MUST load the `spec-graph` skill.**
+
+The `spec-graph` skill provides the schema knowledge required to operate spec-graph correctly:
+- Valid entity types and their ID prefixes (API, STT, TST, QST, ASM, etc.)
+- Valid relation types per layer (`delivers`, `covers`, `belongs_to`, `precedes`, etc.)
+- Edge matrix: which `(from_type, to_type, relation_type)` combinations are allowed
+- Impact analysis semantics: what `spec-graph impact` returns and how to act on it
+
+**Without `spec-graph` skill loaded, you will hit `INVALID_INPUT` and `INVALID_EDGE` errors
+and waste tokens guessing at the schema.** This is non-negotiable.
+
+To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
+
 ## Prerequisites
 
 - `spec-graph` CLI installed and available in PATH

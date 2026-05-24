@@ -16,6 +16,21 @@ description: >
 Verifies implementation fidelity against spec-graph and signs off completed phases.
 This skill is the sole authority for transitioning phases to `resolved`.
 
+## Required Skill Dependencies
+
+**STOP. Before proceeding with this skill, you MUST load the `spec-graph` skill.**
+
+The `spec-graph` skill provides the schema knowledge required to operate spec-graph correctly:
+- Valid entity types and their ID prefixes (REQ, DEC, ACT, RSK, API, STT, TST, etc.)
+- Valid relation types per layer (`delivers`, `covers`, `mitigates`, `verifies`, etc.)
+- Validation rules: arch coverage, mapping completeness, unresolved checks (e.g., RSK needs `mitigates`)
+- Phase lifecycle semantics: draft → active → resolved transitions
+
+**Without `spec-graph` skill loaded, you will misinterpret validation output and sign off
+incomplete phases.** This is non-negotiable.
+
+To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
+
 ## Prerequisites
 
 - `spec-graph` CLI installed and available in PATH

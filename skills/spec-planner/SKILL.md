@@ -16,6 +16,21 @@ description: >
 Transforms specifications into a validated spec-graph plan. The graph — not markdown — is
 the source of truth. This skill enforces a strict procedure; follow each step in order.
 
+## Required Skill Dependencies
+
+**STOP. Before proceeding with this skill, you MUST load the `spec-graph` skill.**
+
+The `spec-graph` skill provides the schema knowledge required to operate spec-graph correctly:
+- Valid entity types and their ID prefixes (REQ, DEC, ACT, RSK, PLN, PHS, etc.)
+- Valid relation types per layer (`mitigates`, `has_criterion`, `covers`, `belongs_to`, etc.)
+- Edge matrix: which `(from_type, to_type, relation_type)` combinations are allowed
+- Validation rules: what makes a graph valid across arch/exec/mapping layers
+
+**Without `spec-graph` skill loaded, you will hit `INVALID_INPUT` and `INVALID_EDGE` errors
+and waste tokens guessing at the schema.** This is non-negotiable.
+
+To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
+
 ## Prerequisites
 
 - `spec-graph` CLI installed and available in PATH
