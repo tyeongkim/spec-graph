@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
@@ -58,15 +57,6 @@ func TestStore_Init(t *testing.T) {
 		if _, err := os.Stat(dir); err == nil {
 			t.Errorf("expected per-type directory %s to NOT exist after Init (created on-demand)", dir)
 		}
-	}
-
-	histDir := filepath.Join(root, "history")
-	info, err = os.Stat(histDir)
-	if err != nil {
-		t.Fatalf("expected history dir to exist: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatalf("expected history to be a directory")
 	}
 }
 
@@ -176,99 +166,6 @@ func TestStore_ListEntities(t *testing.T) {
 		if !ids[ef.ID] {
 			t.Errorf("ListEntities missing %s", ef.ID)
 		}
-	}
-}
-
-func TestStore_AppendHistory_CreatesFile(t *testing.T) {
-	s := newTestStore(t)
-
-	entry := HistoryEntry{
-		Action:    model.ActionCreate,
-		Reason:    "initial creation",
-		Actor:     "agent",
-		Timestamp: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-	}
-
-	if err := s.AppendHistory("REQ-001", entry); err != nil {
-		t.Fatalf("AppendHistory: %v", err)
-	}
-
-	hf, err := s.ReadHistory("REQ-001")
-	if err != nil {
-		t.Fatalf("ReadHistory: %v", err)
-	}
-
-	if hf.EntityID != "REQ-001" {
-		t.Errorf("EntityID = %q, want %q", hf.EntityID, "REQ-001")
-	}
-	if len(hf.Entries) != 1 {
-		t.Fatalf("Entries len = %d, want 1", len(hf.Entries))
-	}
-	if hf.Entries[0].Action != model.ActionCreate {
-		t.Errorf("Action = %q, want %q", hf.Entries[0].Action, model.ActionCreate)
-	}
-}
-
-func TestStore_AppendHistory_AppendsToExisting(t *testing.T) {
-	s := newTestStore(t)
-
-	entry1 := HistoryEntry{
-		Action:    model.ActionCreate,
-		Reason:    "initial",
-		Actor:     "agent",
-		Timestamp: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
-	}
-	entry2 := HistoryEntry{
-		Action:    model.ActionUpdate,
-		Reason:    "status change",
-		Actor:     "agent",
-		Detail:    "draft -> active",
-		Timestamp: time.Date(2025, 1, 16, 12, 0, 0, 0, time.UTC),
-	}
-
-	if err := s.AppendHistory("REQ-001", entry1); err != nil {
-		t.Fatalf("AppendHistory 1: %v", err)
-	}
-	if err := s.AppendHistory("REQ-001", entry2); err != nil {
-		t.Fatalf("AppendHistory 2: %v", err)
-	}
-
-	hf, err := s.ReadHistory("REQ-001")
-	if err != nil {
-		t.Fatalf("ReadHistory: %v", err)
-	}
-
-	if len(hf.Entries) != 2 {
-		t.Fatalf("Entries len = %d, want 2", len(hf.Entries))
-	}
-	if hf.Entries[1].Action != model.ActionUpdate {
-		t.Errorf("Entries[1].Action = %q, want %q", hf.Entries[1].Action, model.ActionUpdate)
-	}
-	if hf.Entries[1].Detail != "draft -> active" {
-		t.Errorf("Entries[1].Detail = %q, want %q", hf.Entries[1].Detail, "draft -> active")
-	}
-}
-
-func TestStore_DeleteHistory(t *testing.T) {
-	s := newTestStore(t)
-
-	entry := HistoryEntry{
-		Action:    model.ActionCreate,
-		Reason:    "test",
-		Actor:     "agent",
-		Timestamp: time.Now(),
-	}
-	if err := s.AppendHistory("REQ-001", entry); err != nil {
-		t.Fatalf("AppendHistory: %v", err)
-	}
-
-	if err := s.DeleteHistory("REQ-001"); err != nil {
-		t.Fatalf("DeleteHistory: %v", err)
-	}
-
-	_, err := s.ReadHistory("REQ-001")
-	if err == nil {
-		t.Error("ReadHistory should fail after delete")
 	}
 }
 
@@ -443,15 +340,5 @@ func TestStore_EntityPath(t *testing.T) {
 	want := "/tmp/.spec-graph/entities/requirement/REQ-001.toml"
 	if got != want {
 		t.Errorf("EntityPath = %q, want %q", got, want)
-	}
-}
-
-func TestStore_HistoryPath(t *testing.T) {
-	s := NewStore("/tmp/.spec-graph")
-
-	got := s.HistoryPath("REQ-001")
-	want := "/tmp/.spec-graph/history/REQ-001.toml"
-	if got != want {
-		t.Errorf("HistoryPath = %q, want %q", got, want)
 	}
 }

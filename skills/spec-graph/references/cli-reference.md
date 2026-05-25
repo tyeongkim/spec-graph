@@ -9,9 +9,8 @@
 6. [impact](#impact)
 7. [validate](#validate)
 8. [query](#query)
-9. [history](#history)
-10. [export](#export)
-11. [bootstrap](#bootstrap)
+9. [export](#export)
+10. [bootstrap](#bootstrap)
 
 ---
 
@@ -20,7 +19,6 @@
 - All output is **JSON on stdout** — machine-parseable, not human prose.
 - Error messages go to **stderr**.
 - Exit codes: `0` success, `1` runtime error, `2` validation failure, `3` invalid input / schema violation.
-- Commands with a `--reason` flag record a changeset entry.
 
 ---
 
@@ -92,8 +90,7 @@ spec-graph entity add \
   --title "Title" \
   [--description "Description"] \
   [--status draft|active] \
-  [--metadata '{"key":"value"}'] \
-  [--reason "Creation reason"]
+  [--metadata '{"key":"value"}']
 ```
 
 - `--type`: requirement, decision, plan, phase, interface, state, test, crosscut, question, assumption, criterion, risk
@@ -147,16 +144,13 @@ spec-graph entity update <ID> \
   [--title "New title"] \
   [--description "New description"] \
   [--status <STATUS>] \
-  [--metadata '{}'] \
-  --reason "Change reason"
+  [--metadata '{}']
 ```
-
-`--reason` is required. The change is recorded in a changeset.
 
 ### entity deprecate
 
 ```bash
-spec-graph entity deprecate <ID> --reason "Reason"
+spec-graph entity deprecate <ID>
 ```
 
 Sets status to `deprecated`. Run `validate --check superseded_refs` afterward to clean up references.
@@ -381,30 +375,6 @@ spec-graph query sql "SELECT id, type, layer, title FROM entities WHERE status =
 ```
 Executes raw SQL. Only SELECT statements are allowed. The `layer` column is available on
 both `entities` and `relations` tables.
-
----
-
-## history
-
-Change history lookup.
-
-### history changeset
-```bash
-spec-graph history changeset <CHG-ID>
-```
-Returns all changes (entity + relation) in a specific changeset.
-
-### history entity
-```bash
-spec-graph history entity <ID>
-```
-Returns the full change history for a specific entity.
-
-### history relation
-```bash
-spec-graph history relation <FROM>:<TO>:<TYPE>
-```
-Returns the change history for a specific relation.
 
 ---
 

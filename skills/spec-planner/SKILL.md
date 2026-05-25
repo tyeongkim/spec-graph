@@ -117,7 +117,7 @@ Creating a new plan requires archiving the existing one. Proceed?
 Wait for user confirmation. On confirmation:
 
 ```bash
-spec-graph entity update PLN-XXX --status deprecated --reason "Archived: replaced by new plan"
+spec-graph entity update PLN-XXX --status deprecated
 ```
 
 ### Step 3: Register arch Entities

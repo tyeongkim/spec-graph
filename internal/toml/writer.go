@@ -64,28 +64,6 @@ func MarshalEntityFile(ef EntityFile) string {
 	return b.String()
 }
 
-// MarshalHistoryFile produces canonical TOML output for a HistoryFile.
-// Key order per entry: action, reason, actor, detail (if non-empty), timestamp.
-func MarshalHistoryFile(hf HistoryFile) string {
-	var b strings.Builder
-
-	b.WriteString("entity_id = " + tomlQuote(hf.EntityID) + "\n")
-
-	for _, entry := range hf.Entries {
-		b.WriteByte('\n')
-		b.WriteString("[[entries]]\n")
-		b.WriteString("action = " + tomlQuote(string(entry.Action)) + "\n")
-		b.WriteString("reason = " + tomlQuote(entry.Reason) + "\n")
-		b.WriteString("actor = " + tomlQuote(entry.Actor) + "\n")
-		if entry.Detail != "" {
-			b.WriteString("detail = " + tomlQuote(entry.Detail) + "\n")
-		}
-		b.WriteString(fmt.Sprintf("timestamp = %s\n", entry.Timestamp.Format("2006-01-02T15:04:05-07:00")))
-	}
-
-	return b.String()
-}
-
 // tomlQuote produces a TOML basic string (double-quoted) with proper escaping
 // per the TOML specification. Unlike Go's %q verb, this only uses escape
 // sequences defined by TOML: \b, \t, \n, \f, \r, \", \\, \uXXXX, \UXXXXXXXX.

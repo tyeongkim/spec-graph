@@ -80,7 +80,7 @@ Layer is determined by entity type prefix. It is always deterministic:
 2. **JSON contract**: all CLI output goes to JSON stdout. Parse it to decide the next action.
 3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
 4. **Phase gates**: always run `validate --layer mapping --phase` before starting or completing a phase.
-5. **Git as audit log**: each commit is a logical changeset. Use meaningful commit messages with `--reason` flags to document intent.
+5. **Git as audit log**: each commit is a logical changeset. The project's git history is the sole audit trail for spec-graph changes.
 6. **covers/delivers**: use the v1 mapping relations. `covers` expresses planning intent, `delivers` expresses completion.
 
 ---
@@ -92,7 +92,6 @@ v0.3.0 uses TOML-first storage with SQLite as a disposable index.
 - **Source of truth**: TOML files at `.spec-graph/entities/{type}/{id}.toml`
 - **Relations**: embedded in entity TOML files (outbound only)
 - **SQLite index**: `.spec-graph/graph.db`, disposable, auto-rebuilt from TOML on any command if stale
-- **History**: per-entity files at `.spec-graph/history/{id}.toml`
 - **Staleness detection**: content-hash fingerprint per entity file
 - **Gitignored**: `.spec-graph/graph.db*` and `.lock` are never committed
 
@@ -136,8 +135,17 @@ TOML files are designed for git-friendly collaboration:
 - Each entity is a separate file, so merge conflicts are entity-scoped
 - After `git merge` or `git pull` with conflicts, resolve TOML files then run `spec-graph doctor`
 - SQLite index is never committed (listed in `.gitignore`)
-- History is tracked per-entity in `.spec-graph/history/{id}.toml`
-- Commit messages serve as the audit log; use `--reason` flags to document intent in entity history
+- Commit messages serve as the audit log. Git history is the sole mechanism for tracking entity changes over time.
+
+### Audit Trail
+
+spec-graph does NOT maintain its own history. The project's git history is the sole audit trail.
+
+- Entity changes: `git log -- .spec-graph/entities/{type}/{id}.toml`
+- Relation changes: tracked via the owning entity's file history
+- Phase transitions: `git log -- .spec-graph/entities/phase/PHS-XXX.toml`
+
+**Recommendation**: Commit `.spec-graph/` changes after each logical unit of work (phase activation, delivers batch, entity registration).
 
 ---
 
@@ -156,9 +164,9 @@ spec-graph init --path /custom/path
 spec-graph entity add --type <TYPE> --id <ID> --title "..." [--description "..."] [--metadata '{}']
 spec-graph entity get <ID>
 spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapping|all]
-spec-graph entity update <ID> --title "..." --reason "..."
-spec-graph entity update <ID> --status resolved [--force --reason "..."]
-spec-graph entity deprecate <ID> --reason "..."
+spec-graph entity update <ID> --title "..."
+spec-graph entity update <ID> --status resolved [--force]
+spec-graph entity deprecate <ID>
 spec-graph entity delete <ID>
 ```
 
@@ -203,13 +211,6 @@ spec-graph query sql "SELECT ..."
 ### Phase Lifecycle
 ```bash
 spec-graph phase next [--activate]
-```
-
-### History
-```bash
-spec-graph history entity <ID>
-spec-graph history relation <FROM>:<TO>:<TYPE>
-# Note: 'history changeset' is deprecated (exit 3). Use 'history entity' instead.
 ```
 
 ### Export
@@ -272,8 +273,38 @@ explicit verification.
 **Gated transitions (v0.3.1+):** Transitioning a phase or plan to `resolved` is gated.
 The CLI automatically runs `delivery_completeness` + `gates` checks (for phases) or
 `plan_coverage` (for plans). If issues are found, the transition is blocked (exit 2).
-Use `--force --reason "..."` to bypass the gate; warnings are emitted to stderr and
-`force=true` is recorded in entity history.
+Use `--force` to bypass the gate; warnings are emitted to stderr and
+`force=true` is recorded in the TOML file metadata.
+
+### PLN / PHS Lifecycle
+
+#### Status State Machine
+
+```
+PLN:  draft → active → resolved (gated: plan_coverage)
+                     → deprecated (--force required)
+
+PHS:  draft → active → resolved (gated: delivery_completeness + gates)
+                     → deprecated (--force required)
+```
+
+#### Transition Ownership
+
+| Transition | Owner | Precondition |
+|------------|-------|--------------|
+| PLN: draft → active | spec-planner | Only one active plan allowed |
+| PHS: draft → active | spec-executor | Predecessor phases resolved (soft — warn if not) |
+| PHS: active → resolved | spec-verifier | All deliverables verified, gate passes |
+| Any → deprecated | User (manual) | `--force` required |
+
+#### Rules
+
+1. **Only one active PLN** at a time — `single_active_plan` check enforces this.
+2. **PHS activation order**: phases with `precedes` predecessors should be activated in order. Activating out-of-order is allowed but triggers a warning.
+3. **PHS resolution is gated**: `entity update PHS-XXX --status resolved` auto-runs `delivery_completeness` + `gates`. Blocked (exit 2) if issues exist.
+4. **PLN resolution is gated**: requires `plan_coverage` — all active arch entities must be covered.
+5. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
+6. **deprecated is terminal**: no transitions out of `deprecated`.
 
 ### Relation Types (17)
 
@@ -343,7 +374,7 @@ spec-graph impact DEC-031 | jq '.affected[] | {id, type, impact, reason}'
 spec-graph query unresolved --type question
 
 # 4. Modify only affected targets (do not touch unrelated entities)
-spec-graph entity update DEC-031 --title "New decision" --reason "Policy change"
+spec-graph entity update DEC-031 --title "New decision"
 
 # 5. Full validation
 spec-graph validate
@@ -359,7 +390,7 @@ transition is blocked with exit code 2.
 
 ```bash
 # Direct completion attempt — gate runs automatically
-spec-graph entity update PHS-002 --status resolved --reason "Phase complete"
+spec-graph entity update PHS-002 --status resolved
 
 # If blocked, resolve issues first:
 # 1. Review phase scope
@@ -373,10 +404,10 @@ spec-graph validate --layer mapping --phase PHS-002 --check gates
 spec-graph relation add --from PHS-002 --to REQ-001 --type delivers
 
 # 4. Retry
-spec-graph entity update PHS-002 --status resolved --reason "Phase complete"
+spec-graph entity update PHS-002 --status resolved
 
 # Force bypass (when issues are accepted risks)
-spec-graph entity update PHS-002 --status resolved --force --reason "Accepted: QST-001 deferred to next phase"
+spec-graph entity update PHS-002 --status resolved --force
 ```
 
 **Pre-flight checks (optional, for visibility before attempting completion):**
@@ -439,7 +470,6 @@ The safest change-handling flow:
 4. Modify only affected targets (entity update, relation add/delete, etc.)
 5. Semantic review → does each added relation accurately represent the intended meaning?
 6. spec-graph validate → re-verify after modifications
-7. git log — review commit history for the changed entity files
 ```
 
 The agent modifies only entities in the `affected` list from step 2.
@@ -599,7 +629,7 @@ Key fields in `impact` JSON output:
 |------|---------|--------------|
 | 0 | success | proceed to next step |
 | 1 | runtime error | check error message, retry or report |
-| 2 | validation failure / gate blocked | resolve issues from output, or use --force --reason |
+| 2 | validation failure / gate blocked | resolve issues from output, or use --force |
 | 3 | invalid input | check arguments / schema, retry |
 
 ---
@@ -619,7 +649,6 @@ Key fields in `impact` JSON output:
 - Entity timestamps (`created_at`, `updated_at`) are stored in TOML and populated automatically on create/update.
 - After `git merge` with conflicts in TOML files, run `spec-graph doctor` to validate integrity.
 - The SQLite index is rebuilt automatically on each command if TOML files changed. No manual sync needed.
-- `history changeset` is deprecated (exit 3). Use `history entity <ID>` to view per-entity change history.
 
 ## Anti-Patterns
 

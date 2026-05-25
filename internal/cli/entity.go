@@ -85,20 +85,6 @@ var entityAddCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-
-		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
-			Action:    model.ActionCreate,
-			Reason:    reason,
-			Actor:     actor,
-			Detail:    source,
-			Timestamp: time.Now(),
-		}); err != nil {
-			handleError(cmd, fmt.Errorf("append history: %w", err))
-		}
-
 		entity, err := ef.ToEntity()
 		if err != nil {
 			handleError(cmd, fmt.Errorf("convert entity: %w", err))
@@ -257,10 +243,6 @@ var entityUpdateCmd = &cobra.Command{
 
 				if report.Blocked {
 					if forceFlag {
-						reason, _ := cmd.Flags().GetString("reason")
-						if reason == "" {
-							handleError(cmd, &model.ErrInvalidInput{Message: "--force requires --reason"})
-						}
 						if len(report.Warnings) > 0 || len(report.BlockingIssues) > 0 {
 							allIssues := append(report.BlockingIssues, report.Warnings...)
 							warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
@@ -324,25 +306,6 @@ var entityUpdateCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-
-		detail := source
-		if forceFlag {
-			detail = "force=true; " + detail
-		}
-
-		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
-			Action:    model.ActionUpdate,
-			Reason:    reason,
-			Actor:     actor,
-			Detail:    detail,
-			Timestamp: time.Now(),
-		}); err != nil {
-			handleError(cmd, fmt.Errorf("append history: %w", err))
-		}
-
 		entity, err := ef.ToEntity()
 		if err != nil {
 			handleError(cmd, fmt.Errorf("convert entity %q: %w", id, err))
@@ -369,20 +332,6 @@ var entityDeprecateCmd = &cobra.Command{
 
 		if err := tomlStore.WriteEntity(ef); err != nil {
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
-		}
-
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-
-		if err := tomlStore.AppendHistory(id, spectoml.HistoryEntry{
-			Action:    model.ActionDeprecate,
-			Reason:    reason,
-			Actor:     actor,
-			Detail:    source,
-			Timestamp: time.Now(),
-		}); err != nil {
-			handleError(cmd, fmt.Errorf("append history: %w", err))
 		}
 
 		entity, _ := ef.ToEntity()
@@ -417,8 +366,6 @@ var entityDeleteCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("delete entity: %w", err))
 		}
 
-		_ = tomlStore.DeleteHistory(id)
-
 		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: id})
 		return nil
 	},
@@ -451,10 +398,6 @@ var entityImportCmd = &cobra.Command{
 		if err := json.Unmarshal(data, &items); err != nil {
 			handleError(cmd, &model.ErrInvalidInput{Message: "parse input file: " + err.Error()})
 		}
-
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
 
 		var created []string
 		var skipped []jsoncontract.BootstrapSkippedItem
@@ -514,16 +457,6 @@ var entityImportCmd = &cobra.Command{
 				continue
 			}
 
-			if err := tomlStore.AppendHistory(item.ID, spectoml.HistoryEntry{
-				Action:    model.ActionCreate,
-				Reason:    reason,
-				Actor:     actor,
-				Detail:    source,
-				Timestamp: time.Now(),
-			}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", item.ID, err)
-		}
-
 			created = append(created, item.ID)
 		}
 
@@ -544,9 +477,6 @@ func init() {
 	entityAddCmd.Flags().String("metadata", "", "entity metadata as JSON string")
 	entityAddCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityAddCmd.Flags().String("status", "", "entity status")
-	entityAddCmd.Flags().String("reason", "", "reason for creating this entity")
-	entityAddCmd.Flags().String("actor", "", "actor performing the change")
-	entityAddCmd.Flags().String("source", "", "source of the change")
 
 	entityListCmd.Flags().String("type", "", "filter by entity type")
 	entityListCmd.Flags().String("status", "", "filter by entity status")
@@ -556,23 +486,9 @@ func init() {
 	entityUpdateCmd.Flags().String("status", "", "new status")
 	entityUpdateCmd.Flags().String("metadata", "", "new metadata as JSON string")
 	entityUpdateCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
-	entityUpdateCmd.Flags().String("reason", "", "reason for update")
-	entityUpdateCmd.Flags().String("actor", "", "actor performing the change")
-	entityUpdateCmd.Flags().String("source", "", "source of the change")
-	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks (requires --reason)")
-
-	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
-	entityDeprecateCmd.Flags().String("actor", "", "actor performing the change")
-	entityDeprecateCmd.Flags().String("source", "", "source of the change")
-
-	entityDeleteCmd.Flags().String("reason", "", "reason for deletion")
-	entityDeleteCmd.Flags().String("actor", "", "actor performing the change")
-	entityDeleteCmd.Flags().String("source", "", "source of the change")
+	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks")
 
 	entityImportCmd.Flags().String("input", "", "path to JSON file containing entity array (required)")
-	entityImportCmd.Flags().String("reason", "", "reason for import")
-	entityImportCmd.Flags().String("actor", "", "actor performing the import")
-	entityImportCmd.Flags().String("source", "", "source of the import")
 
 	entityCmd.AddCommand(entityAddCmd)
 	entityCmd.AddCommand(entityGetCmd)

@@ -37,6 +37,34 @@ To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
 - Existing `.spec-graph/` with active plan and phases
 - At least one PHS in `active` status (implementation done, ready for verification)
 
+## PLN / PHS Lifecycle
+
+### Status State Machine
+
+```
+PLN:  draft → active → resolved (gated: plan_coverage)
+                     → deprecated (--force required)
+
+PHS:  draft → active → resolved (gated: delivery_completeness + gates)
+                     → deprecated (--force required)
+```
+
+### Transition Ownership
+
+| Transition | Owner | Precondition |
+|------------|-------|--------------|
+| PLN: draft → active | spec-planner | Only one active plan allowed |
+| PHS: draft → active | spec-executor | Predecessor phases resolved |
+| PHS: active → resolved | **spec-verifier (you)** | All deliverables verified, gate passes |
+| Any → deprecated | User (manual) | `--force` required |
+
+### Rules
+
+1. **Only spec-verifier resolves phases.** No other skill may transition PHS to `resolved`.
+2. **Only `active` phases can be verified.** If a phase is `draft`, reject verification and instruct the user to activate it first via spec-executor.
+3. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
+4. **deprecated is terminal**: no transitions out of `deprecated`.
+
 ## Core Principles
 
 1. **Graph is source of truth**: The spec-graph defines "correct". Not markdown, not memory.
@@ -67,12 +95,32 @@ Run spec-planner first to create a plan.
 
 Determine what to verify:
 - User specifies phase → verify that phase
-- User says "verify all" → verify all active/draft phases in order
-- No specification → find phases in `active` status and verify those
+- User says "verify all" → verify all `active` phases in dependency order
+- No specification → find phases in `active` status and apply selection heuristic
 
 ```bash
 spec-graph entity list --type phase --status active
 ```
+
+#### Phase Selection (when multiple active phases exist)
+
+If multiple phases are in `active` status:
+
+1. **Check dependency order**: Verify phases whose predecessors are already `resolved` first.
+   ```bash
+   spec-graph query neighbors PHS-XXX --depth 1
+   ```
+2. **Present options to user** if no clear ordering exists:
+   ```
+   Multiple active phases found:
+   - PHS-001 "..." (no unresolved dependencies)
+   - PHS-002 "..." (depends on PHS-001)
+
+   Recommend verifying PHS-001 first (unblocks PHS-002).
+   Which phase should I verify?
+   ```
+3. **Never verify a phase whose dependencies aren't resolved** — it will fail the gate anyway.
+4. **Reject `draft` phases** — instruct user to activate via spec-executor first.
 
 ### Step 1: Phase Scope
 
@@ -230,7 +278,7 @@ When all checks pass:
 
 ```bash
 # Attempt resolution — gate runs automatically
-spec-graph entity update PHS-XXX --status resolved --reason "Verification passed: all deliverables confirmed"
+spec-graph entity update PHS-XXX --status resolved
 ```
 
 If the gate blocks (exit 2):
@@ -241,7 +289,7 @@ spec-graph validate --layer mapping --phase PHS-XXX --check delivery_completenes
 spec-graph validate --layer mapping --phase PHS-XXX --check gates
 
 # Fix blocking issues, then retry
-spec-graph entity update PHS-XXX --status resolved --reason "Verification passed"
+spec-graph entity update PHS-XXX --status resolved
 ```
 
 On success:
@@ -250,6 +298,11 @@ On success:
 Phase PHS-XXX: PASSED
 All deliverables verified. Phase resolved.
 Next phase: PHS-YYY "[title]" (if exists)
+```
+
+**Git**: Commit the phase resolution:
+```bash
+git add .spec-graph/ && git commit -m "spec-graph: PHS-XXX resolved - verification passed"
 ```
 
 ---

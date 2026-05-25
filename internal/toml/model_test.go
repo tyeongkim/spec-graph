@@ -3,7 +3,6 @@ package spectoml
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/tyeongkim/spec-graph/internal/model"
@@ -164,74 +163,6 @@ type = "depends_on"
 				t.Errorf("round-trip Relations count: got %d, want %d", len(parsed.Relations), len(tt.input.Relations))
 			}
 		})
-	}
-}
-
-func TestMarshalHistoryFile_RoundTrip(t *testing.T) {
-	ts1 := time.Date(2026, 5, 20, 10, 30, 0, 0, time.FixedZone("KST", 9*3600))
-	ts2 := time.Date(2026, 5, 22, 14, 0, 0, 0, time.FixedZone("KST", 9*3600))
-
-	input := HistoryFile{
-		EntityID: "REQ-001",
-		Entries: []HistoryEntry{
-			{
-				Action:    model.ActionCreate,
-				Reason:    "Initial requirement from product spec",
-				Actor:     "taeyeong",
-				Timestamp: ts1,
-			},
-			{
-				Action:    model.ActionUpdate,
-				Reason:    "Clarified scope",
-				Actor:     "agent-claude",
-				Detail:    "title changed",
-				Timestamp: ts2,
-			},
-		},
-	}
-
-	expected := `entity_id = "REQ-001"
-
-[[entries]]
-action = "create"
-reason = "Initial requirement from product spec"
-actor = "taeyeong"
-timestamp = 2026-05-20T10:30:00+09:00
-
-[[entries]]
-action = "update"
-reason = "Clarified scope"
-actor = "agent-claude"
-detail = "title changed"
-timestamp = 2026-05-22T14:00:00+09:00
-`
-
-	got := MarshalHistoryFile(input)
-	if got != expected {
-		t.Errorf("MarshalHistoryFile() mismatch:\ngot:\n%s\nwant:\n%s", got, expected)
-	}
-
-	var parsed HistoryFile
-	if _, err := toml.Decode(got, &parsed); err != nil {
-		t.Fatalf("failed to parse canonical output: %v", err)
-	}
-
-	if parsed.EntityID != input.EntityID {
-		t.Errorf("round-trip EntityID: got %q, want %q", parsed.EntityID, input.EntityID)
-	}
-	if len(parsed.Entries) != len(input.Entries) {
-		t.Fatalf("round-trip Entries count: got %d, want %d", len(parsed.Entries), len(input.Entries))
-	}
-	for i, entry := range parsed.Entries {
-		if entry.Action != input.Entries[i].Action {
-			t.Errorf("entry[%d] Action: got %q, want %q", i, entry.Action, input.Entries[i].Action)
-		}
-		if entry.Actor != input.Entries[i].Actor {
-			t.Errorf("entry[%d] Actor: got %q, want %q", i, entry.Actor, input.Entries[i].Actor)
-		}
-		if !entry.Timestamp.Equal(input.Entries[i].Timestamp) {
-			t.Errorf("entry[%d] Timestamp: got %v, want %v", i, entry.Timestamp, input.Entries[i].Timestamp)
-		}
 	}
 }
 

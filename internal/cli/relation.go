@@ -113,20 +113,6 @@ var relationAddCmd = &cobra.Command{
 			autoActivateOnDelivers(cmd, to, toType)
 		}
 
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-
-		if err := tomlStore.AppendHistory(ownerID, spectoml.HistoryEntry{
-			Action:    model.ActionUpdate,
-			Reason:    reason,
-			Actor:     actor,
-			Detail:    fmt.Sprintf("add relation %s -> %s [%s]; source=%s", from, to, relType, source),
-			Timestamp: time.Now(),
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", ownerID, err)
-		}
-
 		var metaJSON json.RawMessage
 		if len(relMeta) > 0 {
 			metaJSON, _ = json.Marshal(relMeta)
@@ -250,20 +236,6 @@ var relationDeleteCmd = &cobra.Command{
 			handleError(cmd, fmt.Errorf("write entity: %w", err))
 		}
 
-		reason, _ := cmd.Flags().GetString("reason")
-		actor, _ := cmd.Flags().GetString("actor")
-		source, _ := cmd.Flags().GetString("source")
-
-		if err := tomlStore.AppendHistory(ownerID, spectoml.HistoryEntry{
-			Action:    model.ActionUpdate,
-			Reason:    reason,
-			Actor:     actor,
-			Detail:    fmt.Sprintf("delete relation %s -> %s [%s]; source=%s", from, to, relType, source),
-			Timestamp: time.Now(),
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", ownerID, err)
-		}
-
 		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: fmt.Sprintf("%s->%s[%s]", from, to, relType)})
 		return nil
 	},
@@ -311,14 +283,8 @@ func autoActivateOnDelivers(cmd *cobra.Command, entityID string, entityType mode
 	targetEF.UpdatedAt = time.Now()
 	if err := tomlStore.WriteEntity(targetEF); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to auto-activate %s: %v\n", entityID, err)
-
 		return
 	}
-	_ = tomlStore.AppendHistory(entityID, spectoml.HistoryEntry{
-		Action:    model.ActionUpdate,
-		Reason:    fmt.Sprintf("Auto-activated: delivered by phase"),
-		Timestamp: time.Now(),
-	})
 }
 
 func init() {
@@ -327,9 +293,6 @@ func init() {
 	relationAddCmd.Flags().String("type", "", "relation type (required)")
 	relationAddCmd.Flags().Float64("weight", 1.0, "relation weight")
 	relationAddCmd.Flags().String("metadata", "", "relation metadata as JSON string")
-	relationAddCmd.Flags().String("reason", "", "reason for creating this relation")
-	relationAddCmd.Flags().String("actor", "", "actor performing the change")
-	relationAddCmd.Flags().String("source", "", "source of the change")
 
 	relationListCmd.Flags().String("from", "", "filter by source entity ID")
 	relationListCmd.Flags().String("to", "", "filter by target entity ID")
@@ -338,9 +301,6 @@ func init() {
 	relationDeleteCmd.Flags().String("from", "", "source entity ID (required)")
 	relationDeleteCmd.Flags().String("to", "", "target entity ID (required)")
 	relationDeleteCmd.Flags().String("type", "", "relation type (required)")
-	relationDeleteCmd.Flags().String("reason", "", "reason for deletion")
-	relationDeleteCmd.Flags().String("actor", "", "actor performing the change")
-	relationDeleteCmd.Flags().String("source", "", "source of the change")
 
 	relationCmd.AddCommand(relationAddCmd)
 	relationCmd.AddCommand(relationListCmd)

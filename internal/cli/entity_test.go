@@ -664,7 +664,7 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
 	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
-		"--status", "resolved", "--force", "--reason", "override for testing")
+		"--status", "resolved", "--force")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0 (force bypass), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -689,26 +689,6 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	}
 	if len(warnings) == 0 {
 		t.Error("expected at least one warning in stderr")
-	}
-}
-
-func TestGateForceWithoutReasonFails(t *testing.T) {
-	dbFile := initTestProject(t)
-	dir := t.TempDir()
-	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
-
-	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
-		"--status", "resolved", "--force")
-	if r.exitCode != 3 {
-		t.Fatalf("expected exit 3 (INVALID_INPUT), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
-	}
-
-	var errResp jsoncontract.ErrorResponse
-	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
-		t.Fatalf("unmarshal error response: %v\nraw: %s", err, r.stderr)
-	}
-	if errResp.Error.Code != "INVALID_INPUT" {
-		t.Errorf("error.code = %q; want INVALID_INPUT", errResp.Error.Code)
 	}
 }
 

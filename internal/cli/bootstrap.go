@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/bootstrap"
@@ -117,16 +116,6 @@ func applyCandidatesViaToml(input bootstrap.ScanResult) bootstrap.ApplyResult {
 			continue
 		}
 
-		if err := tomlStore.AppendHistory(c.ID, spectoml.HistoryEntry{
-			Action:    model.ActionCreate,
-			Reason:    "bootstrap import",
-			Actor:     "",
-			Detail:    "bootstrap",
-			Timestamp: time.Now(),
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", c.ID, err)
-		}
-
 		result.Created = append(result.Created, c.ID)
 	}
 
@@ -214,16 +203,6 @@ func applyCandidatesViaToml(input bootstrap.ScanResult) bootstrap.ApplyResult {
 				ID: key, Error: err.Error(),
 			})
 			continue
-		}
-
-		if err := tomlStore.AppendHistory(ownerID, spectoml.HistoryEntry{
-			Action:    model.ActionUpdate,
-			Reason:    "bootstrap import",
-			Actor:     "",
-			Detail:    fmt.Sprintf("add relation %s -> %s [%s]; source=bootstrap", c.From, c.To, c.Type),
-			Timestamp: time.Now(),
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write history for %s: %v\n", ownerID, err)
 		}
 
 		result.Created = append(result.Created, key)

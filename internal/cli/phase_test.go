@@ -128,7 +128,7 @@ func TestPhaseNextRespectsPrerequisites(t *testing.T) {
 	dir := t.TempDir()
 
 	runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
-		"--status", "resolved", "--reason", "done", "--force")
+		"--status", "resolved", "--force")
 
 	r := runCLI(t, dir, "--db", dbFile, "phase", "next")
 	if r.exitCode != 0 {
@@ -172,11 +172,11 @@ func TestPhaseNextAllResolved(t *testing.T) {
 	dir := t.TempDir()
 
 	runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
-		"--status", "resolved", "--reason", "done", "--force")
+		"--status", "resolved", "--force")
 	runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-002",
-		"--status", "resolved", "--reason", "done", "--force")
+		"--status", "resolved", "--force")
 	runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-003",
-		"--status", "resolved", "--reason", "done", "--force")
+		"--status", "resolved", "--force")
 
 	r := runCLI(t, dir, "--db", dbFile, "phase", "next")
 	if r.exitCode == 0 {

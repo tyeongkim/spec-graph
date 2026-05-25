@@ -36,6 +36,38 @@ To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
 - `spec-graph` CLI installed and available in PATH
 - Existing `.spec-graph/` with at least one PLN and PHS entities (created by spec-planner)
 
+## PLN / PHS Lifecycle
+
+### Status State Machine
+
+```
+PLN:  draft → active → resolved (gated: plan_coverage)
+                     → deprecated (--force required)
+
+PHS:  draft → active → resolved (gated: delivery_completeness + gates)
+                     → deprecated (--force required)
+```
+
+### Transition Ownership
+
+| Transition | Owner | Precondition |
+|------------|-------|--------------|
+| PLN: draft → active | spec-planner | Only one active plan allowed |
+| PHS: draft → active | **spec-executor (you)** | Predecessor phases resolved (soft — warn if not) |
+| PHS: active → resolved | spec-verifier | All deliverables verified, gate passes |
+| Any → deprecated | User (manual) | `--force` required |
+
+### Rules
+
+1. **Only one active PLN** at a time — `single_active_plan` check enforces this.
+2. **PHS activation order**: phases with `precedes` predecessors should be activated in order.
+3. **PHS MUST be active before work begins**: If status is `draft`, transition to `active` first. Never work on a draft phase.
+4. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
+5. **deprecated is terminal**: no transitions out of `deprecated`.
+6. **Verify activation**: After `phase next --activate`, confirm the response shows `"activated": true`. If `false`, manually run `entity update PHS-XXX --status active`.
+
+---
+
 ## Core Principles
 
 1. **Graph reflects reality**: Only add `delivers` when implementation is actually complete.
@@ -91,14 +123,24 @@ If you need to inspect without activating:
 spec-graph phase next
 ```
 
-#### Activate the Phase
+#### Activate the Phase (MANDATORY)
+
+**A phase MUST be `active` before any work begins.** Working on a `draft` phase is forbidden.
 
 Once phase is selected, transition to active:
 
 ```bash
 # Only if current status is draft
-spec-graph entity update PHS-XXX --status active --reason "Starting implementation"
+spec-graph entity update PHS-XXX --status active
 ```
+
+**Verification**: After activation, confirm status:
+```bash
+spec-graph entity get PHS-XXX
+# Verify: "status": "active"
+```
+
+If using `phase next --activate`, verify the response contains `"activated": true`.
 
 ### Step 1: Scope Review
 
@@ -226,6 +268,11 @@ Phase PHS-XXX progress:
 - New entities registered: [list]
 - Open questions: [list if any]
 - Remaining: [list]
+```
+
+**Git**: Commit `.spec-graph/` changes after completing the progress report:
+```bash
+git add .spec-graph/ && git commit -m "spec-graph: PHS-XXX progress - delivered M/N entities"
 ```
 
 ---

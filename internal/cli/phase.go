@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
 
 var phaseCmd = &cobra.Command{
@@ -270,13 +269,6 @@ func activatePhase(cmd *cobra.Command, phaseID string) error {
 	ef.UpdatedAt = time.Now()
 	if err := tomlStore.WriteEntity(ef); err != nil {
 		return fmt.Errorf("write phase entity: %w", err)
-	}
-	if err := tomlStore.AppendHistory(phaseID, spectoml.HistoryEntry{
-		Action:    model.ActionUpdate,
-		Reason:    "Activated by phase next --activate",
-		Timestamp: time.Now(),
-	}); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: failed to write history for %s: %v\n", phaseID, err)
 	}
 
 	return nil

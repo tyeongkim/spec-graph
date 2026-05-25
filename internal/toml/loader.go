@@ -18,7 +18,7 @@ var symmetricRelationTypes = map[model.RelationType]bool{
 	model.RelationConflictsWith: true,
 }
 
-// Store manages TOML file I/O for spec-graph entities and history.
+// Store manages TOML file I/O for spec-graph entities.
 type Store struct {
 	root string // .spec-graph/ directory path
 }
@@ -33,20 +33,10 @@ func (s *Store) EntityPath(id string, entityType model.EntityType) string {
 	return filepath.Join(s.root, "entities", string(entityType), id+".toml")
 }
 
-// HistoryPath returns the filesystem path for a history file.
-func (s *Store) HistoryPath(entityID string) string {
-	return filepath.Join(s.root, "history", entityID+".toml")
-}
-
 func (s *Store) Init() error {
 	entitiesDir := filepath.Join(s.root, "entities")
 	if err := os.MkdirAll(entitiesDir, 0o755); err != nil {
 		return fmt.Errorf("init entities dir: %w", err)
-	}
-
-	histDir := filepath.Join(s.root, "history")
-	if err := os.MkdirAll(histDir, 0o755); err != nil {
-		return fmt.Errorf("init history dir: %w", err)
 	}
 
 	return nil
@@ -145,60 +135,6 @@ func (s *Store) ListEntities() ([]EntityFile, error) {
 	}
 
 	return results, nil
-}
-
-// ReadHistory reads and parses a history TOML file for the given entity ID.
-func (s *Store) ReadHistory(entityID string) (*HistoryFile, error) {
-	path := s.HistoryPath(entityID)
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read history %q: %w", entityID, err)
-	}
-
-	var hf HistoryFile
-	if err := toml.Unmarshal(data, &hf); err != nil {
-		return nil, fmt.Errorf("parse history %q (%s): %w", entityID, path, err)
-	}
-
-	return &hf, nil
-}
-
-// AppendHistory reads the existing history file (or creates a new one), appends
-// the entry, and writes back atomically.
-func (s *Store) AppendHistory(entityID string, entry HistoryEntry) error {
-	path := s.HistoryPath(entityID)
-
-	var hf HistoryFile
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := toml.Unmarshal(data, &hf); err != nil {
-			return fmt.Errorf("parse history %q for append: %w", entityID, err)
-		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("read history %q for append: %w", entityID, err)
-	} else {
-		hf.EntityID = entityID
-	}
-
-	hf.Entries = append(hf.Entries, entry)
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create history dir for %q: %w", entityID, err)
-	}
-
-	content := MarshalHistoryFile(hf)
-	return atomicWrite(path, []byte(content))
-}
-
-// DeleteHistory removes a history file from disk.
-func (s *Store) DeleteHistory(entityID string) error {
-	path := s.HistoryPath(entityID)
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("delete history %q: %w", entityID, err)
-	}
-	return nil
 }
 
 // enforceSymmetricRelations validates that symmetric relations (conflicts_with,

@@ -93,7 +93,6 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(entityCmd)
 	rootCmd.AddCommand(relationCmd)
-	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(bootstrapCmd)
 	rootCmd.AddCommand(queryCmd)
 	rootCmd.AddCommand(exportCmd)

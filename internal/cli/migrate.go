@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/db"
@@ -36,31 +34,27 @@ var migrateCmd = &cobra.Command{
 }
 
 type migrateResult struct {
-	Migrated       bool   `json:"migrated,omitempty"`
-	DryRun         bool   `json:"dry_run,omitempty"`
-	Entities       int    `json:"entities"`
-	Relations      int    `json:"relations"`
-	HistoryEntries int    `json:"history_entries"`
-	Backup         string `json:"backup,omitempty"`
-	TOMLRoot       string `json:"toml_root,omitempty"`
+	Migrated  bool   `json:"migrated,omitempty"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Entities  int    `json:"entities"`
+	Relations int    `json:"relations"`
+	Backup    string `json:"backup,omitempty"`
+	TOMLRoot  string `json:"toml_root,omitempty"`
 }
 
 func runMigrate(cmd *cobra.Command, _ []string) error {
 	root := filepath.Dir(dbPath)
 
-	// 1. Check graph.db exists.
 	oldDBPath := filepath.Join(root, "graph.db")
 	if _, err := os.Stat(oldDBPath); os.IsNotExist(err) {
 		return fmt.Errorf("no old database found at %s", oldDBPath)
 	}
 
-	// 2. Check TOML files DON'T already exist (prevent double-migration).
 	entitiesDir := filepath.Join(root, "entities")
 	if hasTomlFiles(entitiesDir) {
 		return fmt.Errorf("TOML entity files already exist in %s; migration may have already been performed", entitiesDir)
 	}
 
-	// 3. Open old DB and run schema migrations so tables exist.
 	oldDB, err := db.OpenDB(oldDBPath)
 	if err != nil {
 		return fmt.Errorf("open old database: %w", err)
@@ -71,7 +65,6 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("migrate old database schema: %w", err)
 	}
 
-	// 4. Read all entities.
 	csStore := store.NewChangesetStore(oldDB)
 	hsStore := store.NewHistoryStore(oldDB)
 	esStore := store.NewEntityStore(oldDB, csStore, hsStore)
@@ -82,50 +75,27 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("list entities: %w", err)
 	}
 
-	// 5. Read all relations and group by from_id.
 	allRelations, _, err := rsStore.List(store.RelationFilters{})
 	if err != nil {
 		return fmt.Errorf("list relations: %w", err)
 	}
 
-		relationsByOwner := buildRelationOwnership(allRelations)
-
-	// 6. Count history entries and build changeset lookup.
-	changesetMap, err := buildChangesetMap(csStore)
-	if err != nil {
-		return fmt.Errorf("load changesets: %w", err)
-	}
-
-	totalHistoryEntries := 0
-	entityHistories := make(map[string][]model.EntityHistoryEntry)
-	for _, e := range entities {
-		entries, err := hsStore.GetEntityHistory(e.ID)
-		if err != nil {
-			return fmt.Errorf("get history for %s: %w", e.ID, err)
-		}
-		if len(entries) > 0 {
-			entityHistories[e.ID] = entries
-			totalHistoryEntries += len(entries)
-		}
-	}
+	relationsByOwner := buildRelationOwnership(allRelations)
 
 	if migrateDryRun {
 		writeJSON(cmd, migrateResult{
-			DryRun:         true,
-			Entities:       len(entities),
-			Relations:      len(allRelations),
-			HistoryEntries: totalHistoryEntries,
+			DryRun:    true,
+			Entities:  len(entities),
+			Relations: len(allRelations),
 		})
 		return nil
 	}
 
-	// 7. Create TOML directory structure.
 	tomlSt := spectoml.NewStore(root)
 	if err := tomlSt.Init(); err != nil {
 		return fmt.Errorf("init toml store: %w", err)
 	}
 
-	// 8. Write entity files with embedded relations.
 	for _, e := range entities {
 		rels := relationsByOwner[e.ID]
 		ef, err := spectoml.EntityFileFrom(e, rels)
@@ -137,23 +107,8 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 9. Write history files.
-	for entityID, entries := range entityHistories {
-		hf := buildHistoryFile(entityID, entries, changesetMap)
-		content := spectoml.MarshalHistoryFile(hf)
-		histPath := tomlSt.HistoryPath(entityID)
-		dir := filepath.Dir(histPath)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("create history dir for %s: %w", entityID, err)
-		}
-		if err := os.WriteFile(histPath, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write history for %s: %w", entityID, err)
-		}
-	}
-
 	oldDB.Close()
 
-	// 11. Rename graph.db → graph.db.pre-migration.bak (unless --keep-db).
 	backupPath := oldDBPath + ".pre-migration.bak"
 	if !migrateKeepDB {
 		for _, suffix := range []string{"", "-wal", "-shm"} {
@@ -170,12 +125,10 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 12. Update .gitignore.
 	if err := updateGitignore(root); err != nil {
 		return fmt.Errorf("update gitignore: %w", err)
 	}
 
-	// 13. Create fresh index + ForceRebuild.
 	idx, err := index.Open(filepath.Join(root, "graph.db"))
 	if err != nil {
 		return fmt.Errorf("create fresh index: %w", err)
@@ -188,13 +141,11 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	}
 	idx.Close()
 
-	// 14. Print summary.
 	result := migrateResult{
-		Migrated:       true,
-		Entities:       len(entities),
-		Relations:      len(allRelations),
-		HistoryEntries: totalHistoryEntries,
-		TOMLRoot:       root + "/",
+		Migrated:  true,
+		Entities:  len(entities),
+		Relations: len(allRelations),
+		TOMLRoot:  root + "/",
 	}
 	if !migrateKeepDB {
 		result.Backup = backupPath
@@ -237,104 +188,6 @@ func buildRelationOwnership(relations []model.Relation) map[string][]model.Relat
 	}
 
 	return result
-}
-
-// buildChangesetMap loads all changesets into a map for quick lookup.
-func buildChangesetMap(csStore *store.ChangesetStore) (map[string]model.Changeset, error) {
-	changesets, err := csStore.List()
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[string]model.Changeset, len(changesets))
-	for _, cs := range changesets {
-		m[cs.ID] = cs
-	}
-	return m, nil
-}
-
-// buildHistoryFile converts old entity_history entries to the new HistoryFile format,
-// joining with changesets for reason/actor.
-func buildHistoryFile(entityID string, entries []model.EntityHistoryEntry, changesets map[string]model.Changeset) spectoml.HistoryFile {
-	hf := spectoml.HistoryFile{
-		EntityID: entityID,
-		Entries:  make([]spectoml.HistoryEntry, 0, len(entries)),
-	}
-
-	for _, e := range entries {
-		cs := changesets[e.ChangesetID]
-
-		ts, err := time.Parse("2006-01-02 15:04:05", e.CreatedAt)
-		if err != nil {
-			ts = time.Now()
-		}
-
-		he := spectoml.HistoryEntry{
-			Action:    e.Action,
-			Reason:    cs.Reason,
-			Actor:     cs.Actor,
-			Timestamp: ts,
-		}
-
-		if e.AfterJSON != nil {
-			he.Detail = buildHistoryDetail(e)
-		}
-
-		hf.Entries = append(hf.Entries, he)
-	}
-
-	return hf
-}
-
-// buildHistoryDetail creates a compact detail string from history entry's before/after.
-func buildHistoryDetail(e model.EntityHistoryEntry) string {
-	switch e.Action {
-	case model.ActionCreate:
-		if e.AfterJSON != nil {
-			var after map[string]any
-			if err := json.Unmarshal([]byte(*e.AfterJSON), &after); err == nil {
-				if title, ok := after["title"].(string); ok {
-					return fmt.Sprintf("created with title %q", title)
-				}
-			}
-		}
-		return "created"
-	case model.ActionUpdate:
-		return summarizeUpdate(e.BeforeJSON, e.AfterJSON)
-	case model.ActionDeprecate:
-		return "deprecated"
-	case model.ActionDelete:
-		return "deleted"
-	default:
-		return ""
-	}
-}
-
-// summarizeUpdate produces a short summary of which fields changed.
-func summarizeUpdate(beforeJSON, afterJSON *string) string {
-	if beforeJSON == nil || afterJSON == nil {
-		return "updated"
-	}
-
-	var before, after map[string]any
-	if err := json.Unmarshal([]byte(*beforeJSON), &before); err != nil {
-		return "updated"
-	}
-	if err := json.Unmarshal([]byte(*afterJSON), &after); err != nil {
-		return "updated"
-	}
-
-	var changed []string
-	for k, v := range after {
-		bv, ok := before[k]
-		if !ok || fmt.Sprint(v) != fmt.Sprint(bv) {
-			changed = append(changed, k)
-		}
-	}
-
-	if len(changed) == 0 {
-		return "updated"
-	}
-	return fmt.Sprintf("updated fields: %s", strings.Join(changed, ", "))
 }
 
 // hasTomlFiles checks if any .toml files exist in the given directory tree.

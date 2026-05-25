@@ -32,21 +32,6 @@ type RelationEntry struct {
 	Metadata map[string]any `toml:"metadata,omitempty"`
 }
 
-// HistoryFile represents the TOML structure for an entity's history file.
-type HistoryFile struct {
-	EntityID string         `toml:"entity_id"`
-	Entries  []HistoryEntry `toml:"entries"`
-}
-
-// HistoryEntry represents a single history entry in the history TOML file.
-type HistoryEntry struct {
-	Action    model.HistoryAction `toml:"action"`
-	Reason    string              `toml:"reason"`
-	Actor     string              `toml:"actor"`
-	Detail    string              `toml:"detail,omitempty"`
-	Timestamp time.Time           `toml:"timestamp"`
-}
-
 // ToEntity converts an EntityFile to a model.Entity.
 // Layer is derived from the entity type. Timestamps are formatted as RFC3339.
 func (ef *EntityFile) ToEntity() (model.Entity, error) {
