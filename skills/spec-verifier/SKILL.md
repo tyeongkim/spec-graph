@@ -175,12 +175,32 @@ Use grep, AST search, file reads to confirm existence.
 ```bash
 # If test runner available
 [run project tests]
-
-# If build command available
-[run build]
 ```
 
-If neither is available, structural verification alone determines the verdict.
+If test runner is not available, structural verification alone determines the test-related verdict.
+
+#### Build/Run Verification (MANDATORY)
+
+**This check is non-negotiable. A phase CANNOT pass without it.**
+
+Every phase must leave the project in a buildable or runnable state. Execute one of the following:
+
+```bash
+# Option 1: Build command (compiled languages, bundled projects)
+[run build command — e.g., make build, go build ./..., npm run build, cargo build]
+
+# Option 2: Dev server start (web apps, interpreted languages)
+[start dev server and confirm it boots without errors — e.g., npm run dev, go run .]
+```
+
+**Rules**:
+- If the project has a build command → run it. Exit code 0 required.
+- If the project has a dev server → start it, confirm no boot errors, then stop it.
+- If both exist → build command is sufficient (it's stricter).
+- If neither exists (e.g., pure library with no build step) → confirm that the language toolchain reports no errors (e.g., `go vet ./...`, `tsc --noEmit`, `python -m py_compile`).
+- **Build/run failure = Critical severity finding.** It blocks phase sign-off unconditionally.
+
+Determine the correct command by checking project config files (Makefile, package.json, Cargo.toml, go.mod, etc.).
 
 ### Step 4: delivers Confirmation
 
@@ -205,7 +225,7 @@ Classify findings by severity:
 
 | Severity | Criteria |
 |----------|----------|
-| Critical (red) | Core requirement unimplemented, blocking dependency missing |
+| Critical (red) | Core requirement unimplemented, blocking dependency missing, **build/run fails** |
 | Major (yellow) | Significant feature gap, test coverage missing |
 | Minor (green) | Non-blocking issue, cosmetic, documentation gap |
 
