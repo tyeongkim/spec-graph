@@ -43,6 +43,7 @@ To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
 3. **Phase continuity**: Phase N+1 depends only on phases ≤ N. No circular dependencies.
 4. **Binary acceptance**: Every exit_criteria in phase metadata must be testable as pass/fail.
 5. **Phase buildability**: Every phase, when completed, MUST leave the project in a state where it builds without errors OR the dev server runs successfully. No phase may end with broken compilation or runtime boot failures.
+6. **Phase test integrity**: Every phase, when completed, MUST have all tests passing. No test failures are allowed. Tests may only be skipped with explicit user confirmation — the skip reason must be recorded in exit_criteria metadata.
 6. **Query before create**: Always check existing graph state before creating entities or relations.
 7. **Compute first**: Run `validate` after every batch of mutations.
 
@@ -185,6 +186,7 @@ spec-graph entity add --type phase --id PHS-002 \
 **Rules for exit_criteria**:
 - Must be binary pass/fail
 - **MANDATORY for every phase**: Must include "Project builds without errors OR dev server starts successfully". This is non-negotiable — a phase that leaves the project in a non-buildable/non-runnable state is invalid regardless of feature completeness.
+- **MANDATORY for every phase**: Must include "All tests pass (no failures)". Tests may only be skipped if the user explicitly confirms the skip — record the skip reason in exit_criteria.
 - No subjective language ("looks good", "works well")
 
 **Phase buildability constraint**: When decomposing work into phases, ensure each phase's scope is self-contained enough that the project remains buildable/runnable after completion. If a feature requires multiple phases to become buildable, use techniques like:

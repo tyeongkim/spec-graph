@@ -179,6 +179,26 @@ Use grep, AST search, file reads to confirm existence.
 
 If test runner is not available, structural verification alone determines the test-related verdict.
 
+#### Test Verification (MANDATORY)
+
+**This check is non-negotiable. A phase CANNOT pass with failing tests.**
+
+Every phase must have all tests passing upon completion. Execute the project's test suite:
+
+```bash
+# Run full test suite
+[run test command — e.g., make test, go test ./..., npm test, cargo test, pytest]
+```
+
+**Rules**:
+- All tests must pass (exit code 0). Any test failure = Critical severity finding.
+- Skipped tests are allowed ONLY with explicit user confirmation. If tests are skipped:
+  1. Ask the user: "Tests X, Y are being skipped. Confirm skip?"
+  2. User must explicitly confirm.
+  3. Record skip reason in the verification report.
+- Pre-existing test failures unrelated to the current phase: flag to user and request confirmation to proceed. Do NOT silently ignore them.
+- If no test runner exists, skip this check (not a failure).
+
 #### Build/Run Verification (MANDATORY)
 
 **This check is non-negotiable. A phase CANNOT pass without it.**
@@ -225,7 +245,7 @@ Classify findings by severity:
 
 | Severity | Criteria |
 |----------|----------|
-| Critical (red) | Core requirement unimplemented, blocking dependency missing, **build/run fails** |
+| Critical (red) | Core requirement unimplemented, blocking dependency missing, **build/run fails**, **tests fail** |
 | Major (yellow) | Significant feature gap, test coverage missing |
 | Minor (green) | Non-blocking issue, cosmetic, documentation gap |
 
