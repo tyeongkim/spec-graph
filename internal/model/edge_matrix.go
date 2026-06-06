@@ -66,7 +66,7 @@ var execEdgeMatrix = map[RelationType]edgeRule{
 // mappingEdgeMatrix defines edge rules for the mapping (cross-layer) layer.
 var mappingEdgeMatrix = map[RelationType]edgeRule{
 	RelationCovers: {
-		From: []EntityType{EntityTypePhase},
+		From: []EntityType{EntityTypePhase, EntityTypeChange},
 		To:   []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk, EntityTypeCriterion, EntityTypeAssumption},
 	},
 	RelationDelivers: {

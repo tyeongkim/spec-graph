@@ -176,3 +176,43 @@ func TestIsEdgeAllowed_NilLayerBackwardCompat(t *testing.T) {
 		})
 	}
 }
+
+func TestChangeEntityEdgeConstraints(t *testing.T) {
+	tests := []struct {
+		name     string
+		relType  RelationType
+		from     EntityType
+		to       EntityType
+		expected bool
+	}{
+		// CHG can be From in covers
+		{"covers/change→requirement", RelationCovers, EntityTypeChange, EntityTypeRequirement, true},
+		{"covers/change→decision", RelationCovers, EntityTypeChange, EntityTypeDecision, true},
+		{"covers/change→interface", RelationCovers, EntityTypeChange, EntityTypeInterface, true},
+
+		// CHG cannot be From in belongs_to, precedes, blocks
+		{"belongs_to/change→plan INVALID", RelationBelongsTo, EntityTypeChange, EntityTypePlan, false},
+		{"precedes/change→phase INVALID", RelationPrecedes, EntityTypeChange, EntityTypePhase, false},
+		{"blocks/change→phase INVALID", RelationBlocks, EntityTypeChange, EntityTypePhase, false},
+
+		// CHG↔CHG not allowed for any relation type (except special cases like supersedes same-type)
+		{"covers/change→change INVALID", RelationCovers, EntityTypeChange, EntityTypeChange, false},
+		{"belongs_to/change→change INVALID", RelationBelongsTo, EntityTypeChange, EntityTypeChange, false},
+		{"precedes/change→change INVALID", RelationPrecedes, EntityTypeChange, EntityTypeChange, false},
+		{"blocks/change→change INVALID", RelationBlocks, EntityTypeChange, EntityTypeChange, false},
+		{"delivers/change→change INVALID", RelationDelivers, EntityTypeChange, EntityTypeChange, false},
+
+		// CHG not in delivers From
+		{"delivers/change→requirement INVALID", RelationDelivers, EntityTypeChange, EntityTypeRequirement, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsEdgeAllowed(tc.relType, tc.from, tc.to, nil)
+			if got != tc.expected {
+				t.Errorf("IsEdgeAllowed(%q, %q, %q, nil) = %v; want %v",
+					tc.relType, tc.from, tc.to, got, tc.expected)
+			}
+		})
+	}
+}

@@ -33,6 +33,8 @@ func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []
 			issues = checkExecCycles(rf, ef)
 		case "invalid_exec_edges":
 			issues = checkInvalidExecEdges(rf, ef)
+		case "orphan_changes":
+			issues = checkOrphanChanges(rf, ef)
 		}
 
 		allIssues = append(allIssues, issues...)
@@ -264,6 +266,7 @@ func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 }
 
 // checkInvalidExecEdges finds exec-layer relations that violate the exec edge matrix.
+// Note: CHG is intentionally absent from execEdgeMatrix; invalid CHG exec edges are caught automatically if added.
 func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := execEntities(ef)
 	if err != nil {
@@ -309,6 +312,57 @@ func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIss
 					Layer:    model.LayerExec,
 				})
 			}
+		}
+	}
+
+	return issues
+}
+
+// checkOrphanChanges finds CHG entities that have no relation to any non-CHG entity.
+func checkOrphanChanges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	changeType := model.EntityTypeChange
+	layer := model.LayerExec
+	changes, err := ef.List(EntityListFilters{Type: &changeType, Layer: &layer})
+	if err != nil {
+		return nil
+	}
+
+	var issues []ValidationIssue
+	for _, chg := range changes {
+		rels, err := rf.GetByEntity(chg.ID)
+		if err != nil {
+			continue
+		}
+
+		hasNonCHGRelation := false
+		for _, r := range rels {
+			otherID := r.ToID
+			if otherID == chg.ID {
+				otherID = r.FromID
+			}
+			other, err := ef.Get(otherID)
+			if err != nil {
+				hasNonCHGRelation = true
+				break
+			}
+			if other.Type != model.EntityTypeChange {
+				hasNonCHGRelation = true
+				break
+			}
+		}
+
+		if !hasNonCHGRelation {
+			severity := SeverityMedium
+			if chg.Status == model.EntityStatusActive || chg.Status == model.EntityStatusResolved || chg.Status == model.EntityStatusDeprecated {
+				severity = SeverityHigh
+			}
+			issues = append(issues, ValidationIssue{
+				Check:    "orphan_changes",
+				Severity: severity,
+				Entity:   chg.ID,
+				Message:  "change has no relations to other entities",
+				Layer:    model.LayerExec,
+			})
 		}
 	}
 

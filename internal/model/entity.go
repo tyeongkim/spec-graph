@@ -22,6 +22,7 @@ const (
 	EntityTypeCriterion   EntityType = "criterion"
 	EntityTypeRisk        EntityType = "risk"
 	EntityTypePlan        EntityType = "plan"
+	EntityTypeChange      EntityType = "change"
 )
 
 var TypePrefixMap = map[EntityType]string{
@@ -37,6 +38,7 @@ var TypePrefixMap = map[EntityType]string{
 	EntityTypeCriterion:   "ACT",
 	EntityTypeRisk:        "RSK",
 	EntityTypePlan:        "PLN",
+	EntityTypeChange:      "CHG",
 }
 
 // PrefixTypeMap is the reverse of TypePrefixMap: prefix string → EntityType.

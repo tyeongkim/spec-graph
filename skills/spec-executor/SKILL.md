@@ -2,7 +2,7 @@
 name: spec-executor
 description: >
   Manages spec-graph updates during implementation. Tracks phase progress by registering
-  new entities discovered during development (API, STT, TST, QST, ASM), adding delivers
+  new entities discovered during development (API, STT, TST, QST, ASM, CHG), adding delivers
   relations for completed work, and running impact analysis before changes. Does NOT
   control how implementation is done — only keeps the graph in sync with reality.
   Use when implementing a phase and needing to update spec-graph, when starting work on
@@ -216,7 +216,19 @@ spec-graph entity add --type state --id STT-001 \
 spec-graph entity add --type question --id QST-001 \
   --title "Should refresh tokens be stored in Redis or DB?" \
   --metadata '{"owner":"backend-team"}'
+
+# Register a change (lightweight work unit — independent of phase)
+spec-graph entity add --type change --id CHG-001 \
+  --title "Fix authentication token expiry bug" \
+  --metadata '{"changed_entities":["internal/auth/token.go","internal/auth/token_test.go"]}'
+
+# Connect change to arch scope via covers
+spec-graph relation add --from CHG-001 --to REQ-001 --type covers
 ```
+
+Note: CHG entities are independent — they do NOT belong to any phase or plan.
+Do NOT add belongs_to, precedes, or blocks relations for CHG.
+CHG uses `covers` only (not `delivers`) — it is a scope marker, not a delivery unit.
 
 Add arch-internal relations:
 

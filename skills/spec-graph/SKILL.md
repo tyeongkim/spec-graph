@@ -2,7 +2,7 @@
 name: spec-graph
 description: >
   Use this skill whenever the project uses spec-graph for managing requirements,
-  decisions, phases, interfaces, states, tests, and other semantic entities in a
+  decisions, phases, changes, interfaces, states, tests, and other semantic entities in a
   typed graph. Trigger when the user mentions spec-graph, or when the task involves
   any of: tracking requirements or decisions, planning development phases, analyzing
   change impact, validating workflow gates, managing entity relationships in a
@@ -41,17 +41,20 @@ Relation types: `implements`, `verifies`, `depends_on`, `constrained_by`, `trigg
 `answers`, `assumes`, `has_criterion`, `mitigates`, `supersedes`, `conflicts_with`, `references`
 
 ### exec (execution layer)
-Contains the "when" and "how" of delivery: plans and phases. A plan groups phases into
-a single active delivery sequence. Only one plan may be active at a time.
+Contains the "when" and "how" of delivery: plans, phases, and changes. A plan groups phases into
+a single active delivery sequence. Only one plan may be active at a time. A change is a lightweight
+independent work unit (PR, bugfix, patch) that covers arch entities without belonging to any plan or phase.
 
-Entity types: `plan`, `phase`
+Entity types: `plan`, `phase`, `change`
 
 Relation types: `belongs_to` (phase→plan), `precedes` (phase→phase), `blocks` (phase→phase)
+
+Note: `change` entities do NOT participate in exec relations (belongs_to, precedes, blocks). They are independent units.
 
 ### mapping (cross-layer)
 Connects arch entities to exec entities. This is where intent meets delivery.
 
-Relation types: `covers` (phase→arch entity), `delivers` (phase→arch entity)
+Relation types: `covers` (phase/change→arch entity), `delivers` (phase→arch entity)
 
 ### Layer Classification
 
@@ -71,6 +74,7 @@ Layer is determined by entity type prefix. It is always deterministic:
 | QST | question | arch |
 | PLN | plan | exec |
 | PHS | phase | exec |
+| CHG | change | exec |
 
 ---
 
@@ -241,7 +245,7 @@ spec-graph doctor [--check <name>] [--fix]
 
 See `references/data-model.md` for full type catalog, metadata schemas, and edge matrices.
 
-### Entity Types (12)
+### Entity Types (13)
 
 | Prefix | Type | Layer | Purpose |
 |--------|------|-------|---------|
@@ -257,6 +261,7 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 | RSK | risk | arch | explicit risk item |
 | PLN | plan | exec | delivery plan grouping phases |
 | PHS | phase | exec | development phase or milestone |
+| CHG | change | exec | lightweight work unit (PR, bugfix, patch) |
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
 
@@ -551,6 +556,7 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | `orphan_phases` | phases not belonging to any plan | after adding phases |
 | `exec_cycles` | circular precedes/blocks chains | after adding exec relations |
 | `invalid_exec_edges` | exec edge matrix violations | after adding exec relations |
+| `orphan_changes` | changes with no relations to other entities | after adding changes |
 
 ### Mapping Layer Checks (`--layer mapping`)
 

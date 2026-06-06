@@ -18,7 +18,7 @@ from the entity type prefix or relation type — there is no ambiguity.
 | Layer | Contains | Purpose |
 |-------|----------|---------|
 | `arch` | REQ, DEC, API, STT, TST, XCT, ACT, ASM, RSK, QST | Semantic meaning: what and why |
-| `exec` | PLN, PHS | Delivery structure: when and how |
+| `exec` | PLN, PHS, CHG | Delivery structure: when and how |
 | `mapping` | covers, delivers | Cross-layer links: intent and completion |
 
 ### Layer Classification Rules
@@ -27,7 +27,7 @@ Entity layer is derived from type prefix:
 
 ```
 REQ, DEC, API, STT, TST, XCT, ACT, ASM, RSK, QST  →  arch
-PLN, PHS                                             →  exec
+PLN, PHS, CHG                                        →  exec
 ```
 
 Relation layer is fixed per relation type:
@@ -142,6 +142,22 @@ enforces this constraint.
 }
 ```
 
+#### change (CHG)
+```json
+{
+  "changed_entities": ["string[] — optional, list of affected file paths or identifiers"]
+}
+```
+
+A change is a lightweight, independent work unit (PR, bugfix, patch). It does NOT
+belong to any plan or phase. It connects directly to arch entities via `covers` to
+mark scope. CHG is NOT a delivery/evidence unit — use PHS `delivers` for that.
+
+Constraints:
+- No `belongs_to`, `precedes`, or `blocks` relations allowed
+- No CHG↔CHG relations of any kind
+- Must have at least one relation to a non-CHG entity (validated as `orphan_changes`)
+
 ---
 
 ## Entity Status Lifecycle
@@ -191,7 +207,7 @@ draft → active → resolved   (question, risk, assumption only)
 
 | Relation | Meaning | Directionality |
 |----------|---------|----------------|
-| `covers` | phase covers an arch entity (intent) | phase→arch |
+| `covers` | phase/change covers an arch entity (intent) | phase/change→arch |
 | `delivers` | phase delivers an arch entity (completion) | phase→arch |
 
 `covers` replaced the removed `planned_in`. Direction is inverted: `phase --covers--> arch_entity`.
@@ -235,7 +251,7 @@ Three separate matrices exist, one per layer.
 
 | Relation | From (allowed source types) | To (allowed target types) |
 |----------|----------------------------|--------------------------|
-| `covers` | phase | requirement, decision, interface, test, question, risk, criterion, assumption |
+| `covers` | phase, change | requirement, decision, interface, test, question, risk, criterion, assumption |
 | `delivers` | phase | requirement, interface, state, test, decision, criterion |
 
 ### Common Mistakes
@@ -248,6 +264,7 @@ Three separate matrices exist, one per layer.
 - `belongs_to`: source is `phase`, target is `plan`. A plan does not belong to a phase.
 - `supersedes`: both sides must be the same type. REQ cannot supersede DEC.
 - `planned_in`/`delivered_in`: removed in v1. Use `covers`/`delivers` instead.
+- `covers` from CHG: CHG can cover arch entities, but CHG CANNOT use `delivers`. Only phases deliver.
 
 ---
 

@@ -86,6 +86,7 @@ var ExecChecks = []string{
 	"orphan_phases",
 	"exec_cycles",
 	"invalid_exec_edges",
+	"orphan_changes",
 }
 
 // MappingChecks lists the default mapping-layer checks. phase_satisfaction

@@ -275,3 +275,106 @@ func TestCheckInvalidExecEdges(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckOrphanChanges(t *testing.T) {
+	tests := []struct {
+		name         string
+		entities     []model.Entity
+		relations    []model.Relation
+		wantIssues   int
+		wantSeverity Severity
+	}{
+		{
+			name: "CHG with covers relation — no issue",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "CHG-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "CHG with no relation, status=draft — medium severity",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusDraft, nil),
+			},
+			relations:    nil,
+			wantIssues:   1,
+			wantSeverity: SeverityMedium,
+		},
+		{
+			name: "CHG with no relation, status=active — high severity",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusActive, nil),
+			},
+			relations:    nil,
+			wantIssues:   1,
+			wantSeverity: SeverityHigh,
+		},
+		{
+			name: "CHG with no relation, status=resolved — high severity",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusResolved, nil),
+			},
+			relations:    nil,
+			wantIssues:   1,
+			wantSeverity: SeverityHigh,
+		},
+		{
+			name: "CHG with no relation, status=deprecated — high severity",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusDeprecated, nil),
+			},
+			relations:    nil,
+			wantIssues:   1,
+			wantSeverity: SeverityHigh,
+		},
+		{
+			name: "CHG only related to another CHG — still orphan",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusActive, nil),
+				execEntity("CHG-2", model.EntityTypeChange, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "CHG-1", "CHG-2", model.RelationReferences),
+			},
+			wantIssues:   2,
+			wantSeverity: SeverityHigh,
+		},
+		{
+			name: "CHG as relation target — no issue",
+			entities: []model.Entity{
+				execEntity("CHG-1", model.EntityTypeChange, model.EntityStatusActive, nil),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "DEC-1", "CHG-1", model.RelationReferences),
+			},
+			wantIssues: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entities...)
+			rf := newMockRelationFetcher(tt.relations...)
+			issues := checkOrphanChanges(rf, ef)
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+			for _, iss := range issues {
+				if iss.Check != "orphan_changes" {
+					t.Errorf("got check %q; want %q", iss.Check, "orphan_changes")
+				}
+				if iss.Layer != model.LayerExec {
+					t.Errorf("got layer %q; want %q", iss.Layer, model.LayerExec)
+				}
+				if tt.wantSeverity != "" && iss.Severity != tt.wantSeverity {
+					t.Errorf("got severity %q; want %q", iss.Severity, tt.wantSeverity)
+				}
+			}
+		})
+	}
+}
