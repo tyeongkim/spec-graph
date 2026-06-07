@@ -41,6 +41,7 @@ To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
 1. **Zero interpretation**: Never invent requirements. Flag ambiguities instead of guessing.
 2. **Full coverage**: Every extracted requirement must map to at least one phase via `covers`.
 3. **Phase continuity**: Phase N+1 depends only on phases ≤ N. No circular dependencies.
+4. **Phase ID ordering**: PHS IDs MUST match execution order numerically. PHS-001 executes first, PHS-002 second, etc. Never assign PHS IDs arbitrarily — the numeric suffix IS the execution sequence.
 4. **Binary acceptance**: Every exit_criteria in phase metadata must be testable as pass/fail.
 5. **Phase buildability**: Every phase, when completed, MUST leave the project in a state where it builds without errors OR the dev server runs successfully. No phase may end with broken compilation or runtime boot failures.
 6. **Phase test integrity**: Every phase, when completed, MUST have all tests passing. No test failures are allowed. Tests may only be skipped with explicit user confirmation — the skip reason must be recorded in exit_criteria metadata.
@@ -182,6 +183,8 @@ spec-graph entity add --type phase --id PHS-002 \
   --title "Phase 2 - ..." \
   --metadata '{"goal":"...","order":2,"exit_criteria":["criterion 1","criterion 2"]}'
 ```
+
+**PHS ID = execution order**: The numeric suffix of PHS IDs determines execution sequence. PHS-001 is always first, PHS-002 always second. Do NOT assign IDs out of order (e.g., PHS-003 before PHS-001). If you reorder phases, renumber the IDs to match.
 
 **Rules for exit_criteria**:
 - Must be binary pass/fail
