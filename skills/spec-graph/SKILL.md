@@ -80,6 +80,7 @@ Layer is determined by entity type prefix. It is always deterministic:
 
 ## Core Principles
 
+0. **English only**: all spec-graph content — entity titles, descriptions, metadata, `--reason` messages, criteria text, and any other field written into the graph — MUST be in English. Regardless of the language used in conversation, never write non-English text into spec-graph entities or relations.
 1. **Compute first**: never modify by guesswork. Always run `impact` and `validate` to identify targets before making changes.
 2. **JSON contract**: all CLI output goes to JSON stdout. Parse it to decide the next action.
 3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
