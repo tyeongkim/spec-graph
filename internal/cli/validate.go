@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,39 +28,33 @@ var validateCmd = &cobra.Command{
 		includeReferencesFlag, _ := cmd.Flags().GetBool("include-references")
 
 		if entityFlag != "" && phaseFlag != "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "--entity and --phase are mutually exclusive"})
-			return nil
+			return handleError(cmd, &model.ErrInvalidInput{Message: "--entity and --phase are mutually exclusive"})
 		}
 
 		layer, err := ParseLayerFlag(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		if phaseFlag != "" && layer != nil && *layer != model.LayerMapping {
-			handleError(cmd, &model.ErrInvalidInput{
+			return handleError(cmd, &model.ErrInvalidInput{
 				Message: fmt.Sprintf("--phase cannot be used with --layer %s; only --layer mapping or --layer all is allowed", *layer),
 			})
-			return nil
 		}
 
 		if phaseFlag != "" {
 			entity, err := engine.GetEntity(cmd.Context(), phaseFlag)
 			if err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
-				return nil
+				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
 			}
 			if entity.Type != model.EntityTypePhase {
-				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("entity %q is type %q, not phase", phaseFlag, entity.Type)})
-				return nil
+				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("entity %q is type %q, not phase", phaseFlag, entity.Type)})
 			}
 		}
 
 		if entityFlag != "" {
 			if _, err := engine.GetEntity(cmd.Context(), entityFlag); err != nil {
-				handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
-				return nil
+				return handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
 			}
 		}
 
@@ -83,8 +76,7 @@ var validateCmd = &cobra.Command{
 			IncludeReferences: includeReferencesFlag,
 		})
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		issues := make([]jsoncontract.ValidateIssue, len(result.Issues))
@@ -137,9 +129,11 @@ var validateCmd = &cobra.Command{
 			Satisfaction: satisfaction,
 		}
 
-		writeJSON(cmd, response)
+		if err := writeJSON(cmd, response); err != nil {
+			return err
+		}
 		if !result.Valid {
-			os.Exit(2)
+			return &exitError{code: 2}
 		}
 		return nil
 	},

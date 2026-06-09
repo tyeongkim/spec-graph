@@ -1,6 +1,9 @@
 package gate
 
-import "github.com/tyeongkim/spec-graph/internal/validate"
+import (
+	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/validate"
+)
 
 // Policy defines which validation checks to enforce for a gated transition
 // and which severities block the transition.
@@ -39,9 +42,9 @@ func LookupPolicy(t Target) *Policy {
 
 	var policies map[transitionKey]Policy
 	switch t.EntityType {
-	case "phase":
+	case model.EntityTypePhase:
 		policies = phasePolicies
-	case "plan":
+	case model.EntityTypePlan:
 		policies = planPolicies
 	default:
 		return nil

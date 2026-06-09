@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,7 +45,7 @@ var rootCmd = &cobra.Command{
 		specRoot = filepath.Dir(dbPath)
 
 		if _, err := os.Stat(specRoot); os.IsNotExist(err) {
-			handleError(cmd, &model.ErrNotInitialized{})
+			return handleError(cmd, &model.ErrNotInitialized{})
 		}
 
 		eng, err := specgraph.Open(cmd.Context(), specgraph.Options{Root: specRoot})
@@ -79,6 +80,10 @@ func init() {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var ee *exitError
+		if errors.As(err, &ee) {
+			os.Exit(ee.code)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -100,4 +105,17 @@ func ParseLayerFlag(cmd *cobra.Command) (*model.Layer, error) {
 	}
 
 	return &l, nil
+}
+
+// ParseLayerFlagString parses the --layer flag and returns it as a string,
+// returning "" for "all"/unset. It reuses ParseLayerFlag's validation.
+func ParseLayerFlagString(cmd *cobra.Command) (string, error) {
+	layer, err := ParseLayerFlag(cmd)
+	if err != nil {
+		return "", err
+	}
+	if layer == nil {
+		return "", nil
+	}
+	return string(*layer), nil
 }

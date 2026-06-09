@@ -8,135 +8,21 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/tyeongkim/spec-graph/internal/graph"
-	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/validate"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
-type entityFetcherAdapter struct {
-	idx *index.Index
-}
-
-func (a *entityFetcherAdapter) Get(id string) (model.Entity, error) {
-	rec, err := a.idx.GetEntity(id)
-	if err != nil {
-		return model.Entity{}, err
-	}
-	if rec == nil {
-		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
-	}
-	return entityFromRecord(rec), nil
-}
-
-func (a *entityFetcherAdapter) List(filters graph.EntityListFilters) ([]model.Entity, error) {
-	var ef index.EntityFilters
-	if filters.Type != nil {
-		ef.Type = string(*filters.Type)
-	}
-	if filters.Status != nil {
-		ef.Status = string(*filters.Status)
-	}
-	recs, err := a.idx.ListEntities(ef)
-	if err != nil {
-		return nil, err
-	}
-	return entitiesToModel(recs), nil
-}
-
-type validateEntityFetcherAdapter struct {
-	idx *index.Index
-}
-
-func (a *validateEntityFetcherAdapter) Get(id string) (model.Entity, error) {
-	rec, err := a.idx.GetEntity(id)
-	if err != nil {
-		return model.Entity{}, err
-	}
-	if rec == nil {
-		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
-	}
-	return entityFromRecord(rec), nil
-}
-
-func (a *validateEntityFetcherAdapter) List(filters validate.EntityListFilters) ([]model.Entity, error) {
-	var ef index.EntityFilters
-	if filters.Type != nil {
-		ef.Type = string(*filters.Type)
-	}
-	if filters.Status != nil {
-		ef.Status = string(*filters.Status)
-	}
-	if filters.Layer != nil {
-		ef.Layer = string(*filters.Layer)
-	}
-	recs, err := a.idx.ListEntities(ef)
-	if err != nil {
-		return nil, err
-	}
-	return entitiesToModel(recs), nil
-}
-
-type relationFetcherAdapter struct {
-	idx *index.Index
-}
-
-func (a *relationFetcherAdapter) GetByEntity(entityID string) ([]model.Relation, error) {
-	recs, err := a.idx.GetRelationsByEntity(entityID)
-	if err != nil {
-		return nil, err
-	}
-	return relationsToModel(recs), nil
-}
-
-func entityFromRecord(rec *index.EntityRecord) model.Entity {
-	return model.Entity{
-		ID:          rec.ID,
-		Type:        model.EntityType(rec.Type),
-		Layer:       model.Layer(rec.Layer),
-		Status:      model.EntityStatus(rec.Status),
-		Title:       rec.Title,
-		Description: rec.Description,
-		Metadata:    json.RawMessage(rec.Metadata),
-		CreatedAt:   rec.CreatedAt,
-		UpdatedAt:   rec.UpdatedAt,
-	}
-}
-
-func entitiesToModel(recs []index.EntityRecord) []model.Entity {
-	entities := make([]model.Entity, len(recs))
-	for i := range recs {
-		entities[i] = entityFromRecord(&recs[i])
-	}
-	return entities
-}
-
-func relationsToModel(recs []index.RelationRecord) []model.Relation {
-	rels := make([]model.Relation, len(recs))
-	for i := range recs {
-		rels[i] = model.Relation{
-			FromID:   recs[i].FromID,
-			ToID:     recs[i].ToID,
-			Type:     model.RelationType(recs[i].Type),
-			Layer:    model.Layer(recs[i].Layer),
-			Weight:   recs[i].Weight,
-			Metadata: json.RawMessage(recs[i].Metadata),
-		}
-	}
-	return rels
-}
-
-func NewSpecGraphServer(idx *index.Index) *server.MCPServer {
+func NewSpecGraphServer(engine *specgraph.Engine) *server.MCPServer {
 	s := server.NewMCPServer("spec-graph", "0.5.0",
 		server.WithToolCapabilities(true),
 	)
 
-	s.AddTool(queryScope(), handleQueryScope(idx))
-	s.AddTool(queryPath(), handleQueryPath(idx))
-	s.AddTool(queryUnresolved(), handleQueryUnresolved(idx))
-	s.AddTool(impactTool(), handleImpact(idx))
-	s.AddTool(validateTool(), handleValidate(idx))
-	s.AddTool(exportTool(), handleExport(idx))
+	s.AddTool(queryScope(), handleQueryScope(engine))
+	s.AddTool(queryPath(), handleQueryPath(engine))
+	s.AddTool(queryUnresolved(), handleQueryUnresolved(engine))
+	s.AddTool(impactTool(), handleImpact(engine))
+	s.AddTool(validateTool(), handleValidate(engine))
+	s.AddTool(exportTool(), handleExport(engine))
 
 	return s
 }
@@ -232,7 +118,7 @@ func exportTool() mcp.Tool {
 
 // --- Handlers ---
 
-func handleQueryScope(idx *index.Index) server.ToolHandlerFunc {
+func handleQueryScope(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		phaseID, err := req.RequireString("phase_id")
 		if err != nil {
@@ -244,9 +130,10 @@ func handleQueryScope(idx *index.Index) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		ef := &entityFetcherAdapter{idx: idx}
-		rf := &relationFetcherAdapter{idx: idx}
-		result, err := graph.QueryScope(graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}, rf, ef)
+		result, err := engine.QueryScope(ctx, specgraph.QueryScopeRequest{
+			PhaseID: phaseID,
+			Layer:   layerToString(layer),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -255,7 +142,7 @@ func handleQueryScope(idx *index.Index) server.ToolHandlerFunc {
 	}
 }
 
-func handleQueryPath(idx *index.Index) server.ToolHandlerFunc {
+func handleQueryPath(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		fromID, err := req.RequireString("from_id")
 		if err != nil {
@@ -271,9 +158,11 @@ func handleQueryPath(idx *index.Index) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		ef := &entityFetcherAdapter{idx: idx}
-		rf := &relationFetcherAdapter{idx: idx}
-		result, err := graph.QueryPath(graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}, rf, ef)
+		result, err := engine.QueryPath(ctx, specgraph.QueryPathRequest{
+			FromID: fromID,
+			ToID:   toID,
+			Layer:  layerToString(layer),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -288,21 +177,17 @@ var validUnresolvedTypes = map[string]model.EntityType{
 	"risk":       model.EntityTypeRisk,
 }
 
-func handleQueryUnresolved(idx *index.Index) server.ToolHandlerFunc {
+func handleQueryUnresolved(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		typeStr := req.GetString("type", "")
 
-		var opts graph.QueryUnresolvedOptions
 		if typeStr != "" {
-			et, ok := validUnresolvedTypes[typeStr]
-			if !ok {
+			if _, ok := validUnresolvedTypes[typeStr]; !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("invalid type %q; must be question, assumption, or risk", typeStr)), nil
 			}
-			opts.Type = &et
 		}
 
-		ef := &entityFetcherAdapter{idx: idx}
-		result, err := graph.QueryUnresolved(opts, ef)
+		result, err := engine.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Type: typeStr})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -311,7 +196,7 @@ func handleQueryUnresolved(idx *index.Index) server.ToolHandlerFunc {
 	}
 }
 
-func handleImpact(idx *index.Index) server.ToolHandlerFunc {
+func handleImpact(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		sourcesStr, err := req.RequireString("sources")
 		if err != nil {
@@ -328,14 +213,10 @@ func handleImpact(idx *index.Index) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		var opts graph.ImpactOptions
-		opts.Layer = layer
-
 		dimStr := req.GetString("dimension", "")
 		if dimStr != "" {
 			switch dimStr {
 			case "structural", "behavioral", "planning":
-				opts.Dimension = &dimStr
 			default:
 				return mcp.NewToolResultError(fmt.Sprintf("invalid dimension %q; must be structural, behavioral, or planning", dimStr)), nil
 			}
@@ -345,16 +226,17 @@ func handleImpact(idx *index.Index) server.ToolHandlerFunc {
 		if minSevStr != "" {
 			switch minSevStr {
 			case "high", "medium", "low":
-				sev := graph.Severity(minSevStr)
-				opts.MinSeverity = &sev
 			default:
 				return mcp.NewToolResultError(fmt.Sprintf("invalid min_severity %q; must be high, medium, or low", minSevStr)), nil
 			}
 		}
 
-		ef := &entityFetcherAdapter{idx: idx}
-		rf := &relationFetcherAdapter{idx: idx}
-		result, err := graph.Impact(sources, opts, rf, ef)
+		result, err := engine.Impact(ctx, specgraph.ImpactRequest{
+			Sources:     sources,
+			Dimension:   dimStr,
+			MinSeverity: minSevStr,
+			Layer:       layerToString(layer),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -363,7 +245,7 @@ func handleImpact(idx *index.Index) server.ToolHandlerFunc {
 	}
 }
 
-func handleValidate(idx *index.Index) server.ToolHandlerFunc {
+func handleValidate(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		checkStr := req.GetString("check", "")
 		phaseStr := req.GetString("phase", "")
@@ -377,18 +259,16 @@ func handleValidate(idx *index.Index) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("phase cannot be used with layer %s; only layer mapping or all is allowed", *layer)), nil
 		}
 
-		var opts validate.ValidateOptions
-		opts.Layer = layer
+		var checks []string
 		if checkStr != "" {
-			opts.Checks = splitCSV(checkStr)
-		}
-		if phaseStr != "" {
-			opts.Phase = &phaseStr
+			checks = splitCSV(checkStr)
 		}
 
-		ef := &validateEntityFetcherAdapter{idx: idx}
-		rf := &relationFetcherAdapter{idx: idx}
-		result, err := validate.Validate(opts, rf, ef)
+		result, err := engine.Validate(ctx, specgraph.ValidateRequest{
+			Checks: checks,
+			Phase:  phaseStr,
+			Layer:  layerToString(layer),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -397,7 +277,7 @@ func handleValidate(idx *index.Index) server.ToolHandlerFunc {
 	}
 }
 
-func handleExport(idx *index.Index) server.ToolHandlerFunc {
+func handleExport(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		format, err := req.RequireString("format")
 		if err != nil {
@@ -409,39 +289,15 @@ func handleExport(idx *index.Index) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		opts := &graph.ExportOptions{Layer: layer}
-
-		var ef index.EntityFilters
-		if layer != nil {
-			ef.Layer = string(*layer)
-		}
-		entityRecs, err := idx.ListEntities(ef)
+		result, err := engine.Export(ctx, specgraph.ExportRequest{
+			Format: format,
+			Layer:  layerToString(layer),
+		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		entities := entitiesToModel(entityRecs)
 
-		var rf index.RelationFilters
-		if layer != nil {
-			rf.Layer = string(*layer)
-		}
-		relRecs, err := idx.ListRelations(rf)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		relations := relationsToModel(relRecs)
-
-		var output string
-		switch format {
-		case "dot":
-			output = graph.ExportDOT(entities, relations, opts)
-		case "mermaid":
-			output = graph.ExportMermaid(entities, relations, opts)
-		default:
-			return mcp.NewToolResultError(fmt.Sprintf("unknown format %q; must be dot or mermaid", format)), nil
-		}
-
-		return mcp.NewToolResultText(output), nil
+		return mcp.NewToolResultText(result.Data), nil
 	}
 }
 
@@ -457,6 +313,15 @@ func parseLayerParam(req mcp.CallToolRequest) (*model.Layer, error) {
 		return nil, fmt.Errorf("invalid layer %q: valid values are arch, exec, mapping, all", val)
 	}
 	return &l, nil
+}
+
+// layerToString converts an optional layer pointer into the string form the
+// engine expects: an empty string means all layers.
+func layerToString(layer *model.Layer) string {
+	if layer == nil {
+		return ""
+	}
+	return string(*layer)
 }
 
 func marshalResult(v any) (*mcp.CallToolResult, error) {

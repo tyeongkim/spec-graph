@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tyeongkim/spec-graph/internal/cli"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
@@ -62,7 +61,7 @@ func TestPhaseNextSelectsLowestOrder(t *testing.T) {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
-	var resp cli.PhaseNextResponse
+	var resp jsoncontract.PhaseNextResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}
@@ -97,7 +96,7 @@ func TestPhaseNextActivateFlag(t *testing.T) {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
-	var resp cli.PhaseNextResponse
+	var resp jsoncontract.PhaseNextResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}
@@ -135,7 +134,7 @@ func TestPhaseNextRespectsPrerequisites(t *testing.T) {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
-	var resp cli.PhaseNextResponse
+	var resp jsoncontract.PhaseNextResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}

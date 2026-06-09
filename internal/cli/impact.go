@@ -20,18 +20,16 @@ var impactCmd = &cobra.Command{
 		minSevStr, _ := cmd.Flags().GetString("min-severity")
 		dimStr, _ := cmd.Flags().GetString("dimension")
 
-		layer, err := ParseLayerFlag(cmd)
+		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		if minSevStr != "" {
 			switch minSevStr {
 			case "high", "medium", "low":
 			default:
-				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown severity %q; must be high, medium, or low", minSevStr)})
-				return nil
+				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown severity %q; must be high, medium, or low", minSevStr)})
 			}
 		}
 
@@ -39,21 +37,14 @@ var impactCmd = &cobra.Command{
 			switch dimStr {
 			case "structural", "behavioral", "planning":
 			default:
-				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown dimension %q; must be structural, behavioral, or planning", dimStr)})
-				return nil
+				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown dimension %q; must be structural, behavioral, or planning", dimStr)})
 			}
 		}
 
 		for _, src := range args {
 			if _, err := engine.GetEntity(cmd.Context(), src); err != nil {
-				handleError(cmd, err)
-				return nil
+				return handleError(cmd, err)
 			}
-		}
-
-		layerStr := ""
-		if layer != nil {
-			layerStr = string(*layer)
 		}
 
 		var follow []string
@@ -69,13 +60,11 @@ var impactCmd = &cobra.Command{
 			Layer:       layerStr,
 		})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		response := convertImpactResult(result)
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 

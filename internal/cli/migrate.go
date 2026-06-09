@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/db"
 	"github.com/tyeongkim/spec-graph/internal/index"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/internal/store"
 	specsync "github.com/tyeongkim/spec-graph/internal/sync"
@@ -31,15 +32,6 @@ var migrateCmd = &cobra.Command{
 	Short: "Migrate old SQLite database to TOML file structure",
 	Long:  `Performs a one-shot migration from the old SQLite database to the new TOML file structure.`,
 	RunE:  runMigrate,
-}
-
-type migrateResult struct {
-	Migrated  bool   `json:"migrated,omitempty"`
-	DryRun    bool   `json:"dry_run,omitempty"`
-	Entities  int    `json:"entities"`
-	Relations int    `json:"relations"`
-	Backup    string `json:"backup,omitempty"`
-	TOMLRoot  string `json:"toml_root,omitempty"`
 }
 
 func runMigrate(cmd *cobra.Command, _ []string) error {
@@ -83,12 +75,11 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	relationsByOwner := buildRelationOwnership(allRelations)
 
 	if migrateDryRun {
-		writeJSON(cmd, migrateResult{
+		return writeJSON(cmd, jsoncontract.MigrateResult{
 			DryRun:    true,
 			Entities:  len(entities),
 			Relations: len(allRelations),
 		})
-		return nil
 	}
 
 	tomlSt := spectoml.NewStore(root)
@@ -141,7 +132,7 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	}
 	idx.Close()
 
-	result := migrateResult{
+	result := jsoncontract.MigrateResult{
 		Migrated:  true,
 		Entities:  len(entities),
 		Relations: len(allRelations),
@@ -150,8 +141,7 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	if !migrateKeepDB {
 		result.Backup = backupPath
 	}
-	writeJSON(cmd, result)
-	return nil
+	return writeJSON(cmd, result)
 }
 
 // buildRelationOwnership assigns each relation to the correct entity file owner,

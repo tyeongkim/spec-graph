@@ -31,7 +31,10 @@ var entityAddCmd = &cobra.Command{
 		if metadataStr != "" {
 			metadata = json.RawMessage(metadataStr)
 		}
-		metadata = resolveMetadata(cmd, metadata)
+		metadata, err := resolveMetadata(cmd, metadata)
+		if err != nil {
+			return err
+		}
 
 		entity, err := engine.CreateEntity(cmd.Context(), specgraph.CreateEntityRequest{
 			Type:        entityType,
@@ -42,11 +45,10 @@ var entityAddCmd = &cobra.Command{
 			Status:      status,
 		})
 		if err != nil {
-			handleEngineError(cmd, err, id)
+			return handleEngineError(cmd, err, id)
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
-		return nil
+		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 	},
 }
 
@@ -59,11 +61,10 @@ var entityGetCmd = &cobra.Command{
 
 		entity, err := engine.GetEntity(cmd.Context(), id)
 		if err != nil {
-			handleEngineError(cmd, err, id)
+			return handleEngineError(cmd, err, id)
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
-		return nil
+		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 	},
 }
 
@@ -74,15 +75,9 @@ var entityListCmd = &cobra.Command{
 		typeFilter, _ := cmd.Flags().GetString("type")
 		statusFilter, _ := cmd.Flags().GetString("status")
 
-		layer, err := ParseLayerFlag(cmd)
+		layerFilter, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
-		}
-
-		var layerFilter string
-		if layer != nil {
-			layerFilter = string(*layer)
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		entities, count, err := engine.ListEntities(cmd.Context(), specgraph.ListEntitiesRequest{
@@ -91,11 +86,10 @@ var entityListCmd = &cobra.Command{
 			Layer:  layerFilter,
 		})
 		if err != nil {
-			handleEngineError(cmd, err, "")
+			return handleEngineError(cmd, err, "")
 		}
 
-		writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: count})
-		return nil
+		return writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: count})
 	},
 }
 
@@ -129,11 +123,11 @@ var entityUpdateCmd = &cobra.Command{
 		metaFile, _ := cmd.Flags().GetString("metadata-file")
 		if metaFile != "" {
 			if cmd.Flags().Changed("metadata") {
-				handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
+				return handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
 			}
 			data, err := os.ReadFile(metaFile)
 			if err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
+				return handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
 			}
 			raw := json.RawMessage(data)
 			req.Metadata = &raw
@@ -148,7 +142,7 @@ var entityUpdateCmd = &cobra.Command{
 		// warnings before applying the change.
 		res, err := engine.UpdateEntity(cmd.Context(), req)
 		if err != nil {
-			handleEngineError(cmd, err, id)
+			return handleEngineError(cmd, err, id)
 		}
 
 		if res.GateReport != nil {
@@ -172,10 +166,9 @@ var entityUpdateCmd = &cobra.Command{
 				req.Force = true
 				forced, ferr := engine.UpdateEntity(cmd.Context(), req)
 				if ferr != nil {
-					handleEngineError(cmd, ferr, id)
+					return handleEngineError(cmd, ferr, id)
 				}
-				writeJSON(cmd, jsoncontract.EntityResponse{Entity: forced.Entity})
-				return nil
+				return writeJSON(cmd, jsoncontract.EntityResponse{Entity: forced.Entity})
 			}
 
 			issues := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
@@ -213,12 +206,13 @@ var entityUpdateCmd = &cobra.Command{
 					BySeverity:  bySeverity,
 				},
 			}
-			writeJSON(cmd, response)
-			os.Exit(2)
+			if err := writeJSON(cmd, response); err != nil {
+				return err
+			}
+			return &exitError{code: 2}
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: res.Entity})
-		return nil
+		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: res.Entity})
 	},
 }
 
@@ -231,11 +225,10 @@ var entityDeprecateCmd = &cobra.Command{
 
 		entity, err := engine.DeprecateEntity(cmd.Context(), id)
 		if err != nil {
-			handleEngineError(cmd, err, id)
+			return handleEngineError(cmd, err, id)
 		}
 
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
-		return nil
+		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 	},
 }
 
@@ -247,11 +240,10 @@ var entityDeleteCmd = &cobra.Command{
 		id := args[0]
 
 		if err := engine.DeleteEntity(cmd.Context(), id); err != nil {
-			handleEngineError(cmd, err, id)
+			return handleEngineError(cmd, err, id)
 		}
 
-		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: id})
-		return nil
+		return writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: id})
 	},
 }
 
@@ -270,17 +262,17 @@ var entityImportCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFile, _ := cmd.Flags().GetString("input")
 		if inputFile == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "--input is required"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "--input is required"})
 		}
 
 		data, err := os.ReadFile(inputFile)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: "read input file: " + err.Error()})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "read input file: " + err.Error()})
 		}
 
 		var items []entityImportInput
 		if err := json.Unmarshal(data, &items); err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: "parse input file: " + err.Error()})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "parse input file: " + err.Error()})
 		}
 
 		var created []string
@@ -322,12 +314,11 @@ var entityImportCmd = &cobra.Command{
 			created = append(created, item.ID)
 		}
 
-		writeJSON(cmd, jsoncontract.BootstrapImportResponse{
+		return writeJSON(cmd, jsoncontract.BootstrapImportResponse{
 			Created: created,
 			Skipped: skipped,
 			Errors:  errItems,
 		})
-		return nil
 	},
 }
 
@@ -366,33 +357,33 @@ func init() {
 // output.go's handleError recognizes, preserving the JSON error code and process
 // exit code. The id is used to reconstruct identifying error messages for
 // not-found and conflict cases. Non-engine errors pass through unchanged.
-func handleEngineError(cmd *cobra.Command, err error, id string) {
+func handleEngineError(cmd *cobra.Command, err error, id string) error {
 	switch {
 	case specgraph.IsNotFound(err):
-		handleError(cmd, &model.ErrEntityNotFound{ID: id})
+		return handleError(cmd, &model.ErrEntityNotFound{ID: id})
 	case specgraph.IsConflict(err):
-		handleError(cmd, &model.ErrDuplicateEntity{ID: id})
+		return handleError(cmd, &model.ErrDuplicateEntity{ID: id})
 	case specgraph.IsInvalidInput(err):
-		handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+		return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 	default:
-		handleError(cmd, err)
+		return handleError(cmd, err)
 	}
 }
 
-func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) json.RawMessage {
+func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) (json.RawMessage, error) {
 	metaFile, _ := cmd.Flags().GetString("metadata-file")
 	if metaFile == "" {
-		return inline
+		return inline, nil
 	}
 	if len(inline) > 0 {
-		handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
+		return nil, handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
 	}
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
-		handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
+		return nil, handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
 	}
 	if !json.Valid(data) {
-		handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
+		return nil, handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
 	}
-	return json.RawMessage(data)
+	return json.RawMessage(data), nil
 }

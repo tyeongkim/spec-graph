@@ -8,33 +8,10 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
 	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
-
-type doctorIssue struct {
-	File    string `json:"file"`
-	Message string `json:"message"`
-}
-
-type doctorCheck struct {
-	Name   string        `json:"name"`
-	Status string        `json:"status"`
-	Issues []doctorIssue `json:"issues"`
-}
-
-type doctorSummary struct {
-	TotalChecks int `json:"total_checks"`
-	Passed      int `json:"passed"`
-	Failed      int `json:"failed"`
-	TotalIssues int `json:"total_issues"`
-}
-
-type doctorReport struct {
-	Healthy bool          `json:"healthy"`
-	Checks  []doctorCheck `json:"checks"`
-	Summary doctorSummary `json:"summary"`
-}
 
 var allCheckNames = []string{
 	"toml_parse",
@@ -66,14 +43,12 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	fixFlag, _ := cmd.Flags().GetBool("fix")
 	if fixFlag {
 		fmt.Fprintln(cmd.ErrOrStderr(), "auto-fix not yet supported")
-		os.Exit(1)
-		return nil
+		return &exitError{code: 1}
 	}
 
 	checksToRun, err := resolveChecks(cmd)
 	if err != nil {
-		writeError(cmd, err, 1)
-		return nil
+		return writeError(cmd, err, 1)
 	}
 
 	checkSet := make(map[string]bool, len(checksToRun))
@@ -84,17 +59,16 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	entitiesDir := filepath.Join(specRoot, "entities")
 	rawFiles, walkErr := walkEntityFiles(entitiesDir)
 	if walkErr != nil {
-		writeError(cmd, fmt.Errorf("walk entities directory: %w", walkErr), 1)
-		return nil
+		return writeError(cmd, fmt.Errorf("walk entities directory: %w", walkErr), 1)
 	}
 
-	var checks []doctorCheck
+	var checks []jsoncontract.DoctorCheck
 
 	for _, name := range allCheckNames {
 		if !checkSet[name] {
 			continue
 		}
-		var issues []doctorIssue
+		var issues []jsoncontract.DoctorIssue
 		switch name {
 		case "toml_parse":
 			issues = checkTOMLParse(rawFiles)
@@ -122,7 +96,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		if len(issues) > 0 {
 			status = "fail"
 		}
-		checks = append(checks, doctorCheck{
+		checks = append(checks, jsoncontract.DoctorCheck{
 			Name:   name,
 			Status: status,
 			Issues: issues,
@@ -141,10 +115,10 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		totalIssues += len(c.Issues)
 	}
 
-	report := doctorReport{
+	report := jsoncontract.DoctorReport{
 		Healthy: failed == 0,
 		Checks:  checks,
-		Summary: doctorSummary{
+		Summary: jsoncontract.DoctorSummary{
 			TotalChecks: len(checks),
 			Passed:      passed,
 			Failed:      failed,
@@ -152,10 +126,12 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		},
 	}
 
-	writeJSON(cmd, report)
+	if err := writeJSON(cmd, report); err != nil {
+		return err
+	}
 
 	if failed > 0 {
-		os.Exit(2)
+		return &exitError{code: 2}
 	}
 	return nil
 }
@@ -259,11 +235,11 @@ func walkEntityFiles(entitiesDir string) ([]rawEntityFile, error) {
 	return files, err
 }
 
-func checkTOMLParse(files []rawEntityFile) []doctorIssue {
-	var issues []doctorIssue
+func checkTOMLParse(files []rawEntityFile) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parseErr != nil {
-			issues = append(issues, doctorIssue{
+			issues = append(issues, jsoncontract.DoctorIssue{
 				File:    f.relPath,
 				Message: fmt.Sprintf("TOML parse error: %v", f.parseErr),
 			})
@@ -272,14 +248,14 @@ func checkTOMLParse(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkIDFilenameMatch(files []rawEntityFile) []doctorIssue {
-	var issues []doctorIssue
+func checkIDFilenameMatch(files []rawEntityFile) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
 		}
 		if f.parsed.ID != f.fileName {
-			issues = append(issues, doctorIssue{
+			issues = append(issues, jsoncontract.DoctorIssue{
 				File:    f.relPath,
 				Message: fmt.Sprintf("ID in file is %q, expected %q", f.parsed.ID, f.fileName),
 			})
@@ -288,14 +264,14 @@ func checkIDFilenameMatch(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkTypeDirectoryMatch(files []rawEntityFile) []doctorIssue {
-	var issues []doctorIssue
+func checkTypeDirectoryMatch(files []rawEntityFile) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
 		}
 		if string(f.parsed.Type) != f.dirName {
-			issues = append(issues, doctorIssue{
+			issues = append(issues, jsoncontract.DoctorIssue{
 				File:    f.relPath,
 				Message: fmt.Sprintf("type in file is %q, expected %q (from directory)", string(f.parsed.Type), f.dirName),
 			})
@@ -304,7 +280,7 @@ func checkTypeDirectoryMatch(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkDuplicateIDs(files []rawEntityFile) []doctorIssue {
+func checkDuplicateIDs(files []rawEntityFile) []jsoncontract.DoctorIssue {
 	idFiles := make(map[string][]string)
 	for _, f := range files {
 		if f.parsed == nil {
@@ -313,11 +289,11 @@ func checkDuplicateIDs(files []rawEntityFile) []doctorIssue {
 		idFiles[f.parsed.ID] = append(idFiles[f.parsed.ID], f.relPath)
 	}
 
-	var issues []doctorIssue
+	var issues []jsoncontract.DoctorIssue
 	for id, paths := range idFiles {
 		if len(paths) > 1 {
 			for _, p := range paths {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File:    p,
 					Message: fmt.Sprintf("duplicate entity ID %q (also in: %s)", id, strings.Join(paths, ", ")),
 				})
@@ -327,7 +303,7 @@ func checkDuplicateIDs(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkOrphanRelations(files []rawEntityFile) []doctorIssue {
+func checkOrphanRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
 	knownIDs := make(map[string]bool)
 	for _, f := range files {
 		if f.parsed == nil {
@@ -336,14 +312,14 @@ func checkOrphanRelations(files []rawEntityFile) []doctorIssue {
 		knownIDs[f.parsed.ID] = true
 	}
 
-	var issues []doctorIssue
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
 		}
 		for _, rel := range f.parsed.Relations {
 			if !knownIDs[rel.To] {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File:    f.relPath,
 					Message: fmt.Sprintf("relation to %q but entity does not exist", rel.To),
 				})
@@ -353,7 +329,7 @@ func checkOrphanRelations(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkEdgeMatrix(files []rawEntityFile) []doctorIssue {
+func checkEdgeMatrix(files []rawEntityFile) []jsoncontract.DoctorIssue {
 	idTypeMap := make(map[string]model.EntityType)
 	for _, f := range files {
 		if f.parsed == nil {
@@ -362,7 +338,7 @@ func checkEdgeMatrix(files []rawEntityFile) []doctorIssue {
 		idTypeMap[f.parsed.ID] = f.parsed.Type
 	}
 
-	var issues []doctorIssue
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
@@ -375,7 +351,7 @@ func checkEdgeMatrix(files []rawEntityFile) []doctorIssue {
 			}
 			layer := model.LayerForRelationType(rel.Type)
 			if !model.IsEdgeAllowed(rel.Type, fromType, toType, &layer) {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File: f.relPath,
 					Message: fmt.Sprintf("relation %q from %s (%s) to %s (%s) not allowed by edge matrix",
 						rel.Type, f.parsed.ID, fromType, rel.To, toType),
@@ -386,8 +362,8 @@ func checkEdgeMatrix(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkSymmetricRelations(files []rawEntityFile) []doctorIssue {
-	var issues []doctorIssue
+func checkSymmetricRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
@@ -397,7 +373,7 @@ func checkSymmetricRelations(files []rawEntityFile) []doctorIssue {
 				continue
 			}
 			if f.parsed.ID > rel.To {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File: f.relPath,
 					Message: fmt.Sprintf("symmetric relation %q from %q to %q must be stored in %q's file (lexicographically smaller)",
 						rel.Type, f.parsed.ID, rel.To, rel.To),
@@ -408,9 +384,9 @@ func checkSymmetricRelations(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkSchemaValidation(files []rawEntityFile) []doctorIssue {
+func checkSchemaValidation(files []rawEntityFile) []jsoncontract.DoctorIssue {
 	schema := spectoml.DefaultSchema()
-	var issues []doctorIssue
+	var issues []jsoncontract.DoctorIssue
 
 	for _, f := range files {
 		if f.parsed == nil {
@@ -418,7 +394,7 @@ func checkSchemaValidation(files []rawEntityFile) []doctorIssue {
 		}
 
 		if err := schema.ValidateEntity(f.parsed.ID, string(f.parsed.Type), string(f.parsed.Status)); err != nil {
-			issues = append(issues, doctorIssue{
+			issues = append(issues, jsoncontract.DoctorIssue{
 				File:    f.relPath,
 				Message: err.Error(),
 			})
@@ -426,7 +402,7 @@ func checkSchemaValidation(files []rawEntityFile) []doctorIssue {
 
 		for _, rel := range f.parsed.Relations {
 			if _, ok := schema.RelationTypes[string(rel.Type)]; !ok {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File:    f.relPath,
 					Message: fmt.Sprintf("unknown relation type %q", rel.Type),
 				})
@@ -436,15 +412,15 @@ func checkSchemaValidation(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkSelfLoopRelations(files []rawEntityFile) []doctorIssue {
-	var issues []doctorIssue
+func checkSelfLoopRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 	for _, f := range files {
 		if f.parsed == nil {
 			continue
 		}
 		for _, rel := range f.parsed.Relations {
 			if f.parsed.ID == rel.To {
-				issues = append(issues, doctorIssue{
+				issues = append(issues, jsoncontract.DoctorIssue{
 					File:    f.relPath,
 					Message: fmt.Sprintf("self-loop: relation %q points from %q to itself", rel.Type, f.parsed.ID),
 				})
@@ -454,12 +430,12 @@ func checkSelfLoopRelations(files []rawEntityFile) []doctorIssue {
 	return issues
 }
 
-func checkStaleIndex(cmd *cobra.Command) []doctorIssue {
-	var issues []doctorIssue
+func checkStaleIndex(cmd *cobra.Command) []jsoncontract.DoctorIssue {
+	var issues []jsoncontract.DoctorIssue
 
 	currentFP, err := engine.Syncer().ComputeFingerprint()
 	if err != nil {
-		issues = append(issues, doctorIssue{
+		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",
 			Message: fmt.Sprintf("failed to compute TOML fingerprint: %v", err),
 		})
@@ -468,7 +444,7 @@ func checkStaleIndex(cmd *cobra.Command) []doctorIssue {
 
 	storedFP, err := engine.Index().GetMeta("toml_fingerprint")
 	if err != nil {
-		issues = append(issues, doctorIssue{
+		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",
 			Message: fmt.Sprintf("failed to read index fingerprint: %v", err),
 		})
@@ -476,7 +452,7 @@ func checkStaleIndex(cmd *cobra.Command) []doctorIssue {
 	}
 
 	if currentFP != storedFP {
-		issues = append(issues, doctorIssue{
+		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",
 			Message: fmt.Sprintf("index is stale: TOML fingerprint %q != stored %q; run sync to update", currentFP[:12]+"...", storedFP[:min(12, len(storedFP))]+"..."),
 		})

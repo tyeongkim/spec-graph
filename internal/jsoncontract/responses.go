@@ -342,3 +342,58 @@ type ExportJSONResult struct {
 	Entities  []ExportJSONEntity   `json:"entities"`
 	Relations []ExportJSONRelation `json:"relations"`
 }
+
+type PhaseNextResponse struct {
+	Phase     PhaseNextDetail `json:"phase"`
+	Scope     PhaseNextScope  `json:"scope"`
+	Activated bool            `json:"activated"`
+}
+
+type PhaseNextDetail struct {
+	ID                   string          `json:"id"`
+	Title                string          `json:"title"`
+	Status               string          `json:"status"`
+	Goal                 string          `json:"goal"`
+	Order                float64         `json:"order"`
+	PredecessorsResolved bool            `json:"predecessors_resolved"`
+	Metadata             json.RawMessage `json:"metadata"`
+}
+
+type PhaseNextScope struct {
+	Total     int      `json:"total"`
+	Delivered int      `json:"delivered"`
+	Remaining []string `json:"remaining"`
+}
+
+type DoctorIssue struct {
+	File    string `json:"file"`
+	Message string `json:"message"`
+}
+
+type DoctorCheck struct {
+	Name   string        `json:"name"`
+	Status string        `json:"status"`
+	Issues []DoctorIssue `json:"issues"`
+}
+
+type DoctorSummary struct {
+	TotalChecks int `json:"total_checks"`
+	Passed      int `json:"passed"`
+	Failed      int `json:"failed"`
+	TotalIssues int `json:"total_issues"`
+}
+
+type DoctorReport struct {
+	Healthy bool          `json:"healthy"`
+	Checks  []DoctorCheck `json:"checks"`
+	Summary DoctorSummary `json:"summary"`
+}
+
+type MigrateResult struct {
+	Migrated  bool   `json:"migrated,omitempty"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Entities  int    `json:"entities"`
+	Relations int    `json:"relations"`
+	Backup    string `json:"backup,omitempty"`
+	TOMLRoot  string `json:"toml_root,omitempty"`
+}

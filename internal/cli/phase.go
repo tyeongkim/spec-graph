@@ -1,9 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
-
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
@@ -11,28 +10,6 @@ import (
 var phaseCmd = &cobra.Command{
 	Use:   "phase",
 	Short: "Phase lifecycle commands",
-}
-
-type PhaseNextResponse struct {
-	Phase     PhaseNextDetail `json:"phase"`
-	Scope     PhaseNextScope  `json:"scope"`
-	Activated bool            `json:"activated"`
-}
-
-type PhaseNextDetail struct {
-	ID                   string          `json:"id"`
-	Title                string          `json:"title"`
-	Status               string          `json:"status"`
-	Goal                 string          `json:"goal"`
-	Order                float64         `json:"order"`
-	PredecessorsResolved bool            `json:"predecessors_resolved"`
-	Metadata             json.RawMessage `json:"metadata"`
-}
-
-type PhaseNextScope struct {
-	Total     int      `json:"total"`
-	Delivered int      `json:"delivered"`
-	Remaining []string `json:"remaining"`
 }
 
 var phaseNextCmd = &cobra.Command{
@@ -48,13 +25,13 @@ var phaseNextCmd = &cobra.Command{
 			// Engine reports "no active plan" as not-found, but the CLI JSON
 			// contract maps all phase-selection failures to INVALID_INPUT.
 			if specgraph.IsNotFound(err) || specgraph.IsInvalidInput(err) {
-				handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+				return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			}
-			handleError(cmd, err)
+			return handleError(cmd, err)
 		}
 
-		response := PhaseNextResponse{
-			Phase: PhaseNextDetail{
+		response := jsoncontract.PhaseNextResponse{
+			Phase: jsoncontract.PhaseNextDetail{
 				ID:                   result.Phase.ID,
 				Title:                result.Phase.Title,
 				Status:               result.Phase.Status,
@@ -63,7 +40,7 @@ var phaseNextCmd = &cobra.Command{
 				PredecessorsResolved: result.Phase.PredecessorsResolved,
 				Metadata:             result.Phase.Metadata,
 			},
-			Scope: PhaseNextScope{
+			Scope: jsoncontract.PhaseNextScope{
 				Total:     result.Scope.Total,
 				Delivered: result.Scope.Delivered,
 				Remaining: result.Scope.Remaining,
@@ -71,8 +48,7 @@ var phaseNextCmd = &cobra.Command{
 			Activated: result.Activated,
 		}
 
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 

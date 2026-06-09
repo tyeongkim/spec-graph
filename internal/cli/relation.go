@@ -57,13 +57,13 @@ var relationAddCmd = &cobra.Command{
 		metadataStr, _ := cmd.Flags().GetString("metadata")
 
 		if from == "" || to == "" || relType == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
 		}
 
 		var metadata json.RawMessage
 		if metadataStr != "" {
 			if !json.Valid([]byte(metadataStr)) {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
+				return handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
 			}
 			metadata = json.RawMessage(metadataStr)
 		}
@@ -76,11 +76,10 @@ var relationAddCmd = &cobra.Command{
 			Metadata: metadata,
 		})
 		if err != nil {
-			handleError(cmd, engineErr(err, from, to))
+			return handleError(cmd, engineErr(err, from, to))
 		}
 
-		writeJSON(cmd, jsoncontract.RelationResponse{Relation: rel})
-		return nil
+		return writeJSON(cmd, jsoncontract.RelationResponse{Relation: rel})
 	},
 }
 
@@ -92,15 +91,9 @@ var relationListCmd = &cobra.Command{
 		toFilter, _ := cmd.Flags().GetString("to")
 		typeFilter, _ := cmd.Flags().GetString("type")
 
-		layer, err := ParseLayerFlag(cmd)
+		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
-		}
-
-		var layerStr string
-		if layer != nil {
-			layerStr = string(*layer)
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		relations, count, err := engine.ListRelations(cmd.Context(), specgraph.ListRelationsRequest{
@@ -110,11 +103,10 @@ var relationListCmd = &cobra.Command{
 			Layer: layerStr,
 		})
 		if err != nil {
-			handleError(cmd, err)
+			return handleError(cmd, err)
 		}
 
-		writeJSON(cmd, jsoncontract.RelationListResponse{Relations: relations, Count: count})
-		return nil
+		return writeJSON(cmd, jsoncontract.RelationListResponse{Relations: relations, Count: count})
 	},
 }
 
@@ -127,7 +119,7 @@ var relationDeleteCmd = &cobra.Command{
 		relType, _ := cmd.Flags().GetString("type")
 
 		if from == "" || to == "" || relType == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "flags --from, --to, and --type are required"})
 		}
 
 		err := engine.DeleteRelation(cmd.Context(), specgraph.DeleteRelationRequest{
@@ -136,11 +128,10 @@ var relationDeleteCmd = &cobra.Command{
 			Type: relType,
 		})
 		if err != nil {
-			handleError(cmd, engineErr(err, from, to))
+			return handleError(cmd, engineErr(err, from, to))
 		}
 
-		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: fmt.Sprintf("%s->%s[%s]", from, to, relType)})
-		return nil
+		return writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: fmt.Sprintf("%s->%s[%s]", from, to, relType)})
 	},
 }
 

@@ -18,24 +18,17 @@ var exportCmd = &cobra.Command{
 		centerFlag, _ := cmd.Flags().GetString("center")
 		depthFlag, _ := cmd.Flags().GetInt("depth")
 
-		layer, err := ParseLayerFlag(cmd)
+		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		switch format {
 		case "dot", "mermaid", "json":
 		default:
-			handleError(cmd, &model.ErrInvalidInput{
+			return handleError(cmd, &model.ErrInvalidInput{
 				Message: fmt.Sprintf("unknown format %q; must be dot, mermaid, or json", format),
 			})
-			return nil
-		}
-
-		layerStr := ""
-		if layer != nil {
-			layerStr = string(*layer)
 		}
 
 		result, err := engine.Export(cmd.Context(), specgraph.ExportRequest{
@@ -45,20 +38,17 @@ var exportCmd = &cobra.Command{
 			Layer:  layerStr,
 		})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		if format == "json" {
 			var jsonResult jsoncontract.ExportJSONResult
 			if err := json.Unmarshal([]byte(result.Data), &jsonResult); err != nil {
-				handleError(cmd, fmt.Errorf("decode export json: %w", err))
-				return nil
+				return handleError(cmd, fmt.Errorf("decode export json: %w", err))
 			}
-			writeJSON(cmd, jsonResult)
-		} else {
-			fmt.Fprint(cmd.OutOrStdout(), result.Data)
+			return writeJSON(cmd, jsonResult)
 		}
+		fmt.Fprint(cmd.OutOrStdout(), result.Data)
 		return nil
 	},
 }

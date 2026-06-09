@@ -21,12 +21,12 @@ var bootstrapScanCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		inputPath, _ := cmd.Flags().GetString("input")
 		if inputPath == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flag --input is required"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "flag --input is required"})
 		}
 
 		fi, err := os.Stat(inputPath)
 		if err != nil {
-			handleError(cmd, err)
+			return handleError(cmd, err)
 		}
 
 		var scanResult bootstrap.ScanResult
@@ -36,11 +36,10 @@ var bootstrapScanCmd = &cobra.Command{
 			scanResult, err = bootstrap.ScanFile(inputPath)
 		}
 		if err != nil {
-			handleError(cmd, err)
+			return handleError(cmd, err)
 		}
 
-		writeJSON(cmd, toScanResponse(scanResult))
-		return nil
+		return writeJSON(cmd, toScanResponse(scanResult))
 	},
 }
 
@@ -52,15 +51,15 @@ var bootstrapImportCmd = &cobra.Command{
 		mode, _ := cmd.Flags().GetString("mode")
 
 		if inputPath == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flag --input is required"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "flag --input is required"})
 		}
 		if mode != "review" && mode != "apply" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flag --mode must be 'review' or 'apply'"})
+			return handleError(cmd, &model.ErrInvalidInput{Message: "flag --mode must be 'review' or 'apply'"})
 		}
 
 		scanResult, err := bootstrap.LoadCandidatesFromFile(inputPath)
 		if err != nil {
-			handleError(cmd, err)
+			return handleError(cmd, err)
 		}
 
 		switch mode {
@@ -70,7 +69,7 @@ var bootstrapImportCmd = &cobra.Command{
 				Entities:  review.Entities,
 				Relations: review.Relations,
 			})
-			writeJSON(cmd, resp)
+			return writeJSON(cmd, resp)
 		case "apply":
 			req := specgraph.BootstrapImportRequest{
 				Entities:  make([]specgraph.BootstrapCandidate, 0, len(scanResult.Entities)),
@@ -94,7 +93,7 @@ var bootstrapImportCmd = &cobra.Command{
 			}
 			importResult, err := engine.BootstrapImport(cmd.Context(), req)
 			if err != nil {
-				handleError(cmd, err)
+				return handleError(cmd, err)
 			}
 			result := bootstrap.ApplyResult{
 				Created: importResult.Created,
@@ -105,7 +104,7 @@ var bootstrapImportCmd = &cobra.Command{
 			for _, e := range importResult.Errors {
 				result.Errors = append(result.Errors, bootstrap.ErrorItem{ID: e.ID, Error: e.Error})
 			}
-			writeJSON(cmd, toImportResponse(result))
+			return writeJSON(cmd, toImportResponse(result))
 		}
 
 		return nil

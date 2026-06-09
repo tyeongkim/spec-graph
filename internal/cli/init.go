@@ -51,11 +51,10 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("resolve path: %w", err)
 		}
 
-		writeJSON(cmd, jsoncontract.InitResponse{
+		return writeJSON(cmd, jsoncontract.InitResponse{
 			Initialized: true,
 			Path:        absPath,
 		})
-		return nil
 	},
 }
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 type EntityType string
@@ -99,7 +98,7 @@ func ValidateEntityID(id string, entityType EntityType) error {
 		return fmt.Errorf("unknown entity type %q", entityType)
 	}
 
-	if !strings.EqualFold(prefix, expectedPrefix) || prefix != expectedPrefix {
+	if prefix != expectedPrefix {
 		return fmt.Errorf("entity ID %q has prefix %q; expected %q for type %q", id, prefix, expectedPrefix, entityType)
 	}
 

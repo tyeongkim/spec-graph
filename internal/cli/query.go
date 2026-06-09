@@ -24,15 +24,9 @@ var queryScopeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		phaseID := args[0]
 
-		layer, err := ParseLayerFlag(cmd)
+		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
-		}
-
-		layerStr := ""
-		if layer != nil {
-			layerStr = string(*layer)
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		result, err := engine.QueryScope(cmd.Context(), specgraph.QueryScopeRequest{
@@ -40,13 +34,11 @@ var queryScopeCmd = &cobra.Command{
 			Layer:   layerStr,
 		})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		response := convertQueryScopeResult(result)
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 
@@ -112,27 +104,24 @@ var queryUnresolvedCmd = &cobra.Command{
 
 		if typeFlag != "" {
 			if _, ok := validUnresolvedTypes[typeFlag]; !ok {
-				handleError(cmd, &model.ErrInvalidInput{
+				return handleError(cmd, &model.ErrInvalidInput{
 					Message: fmt.Sprintf("invalid --type %q; must be question, assumption, or risk", typeFlag),
 				})
-				return nil
 			}
 		}
 
 		result, err := engine.QueryUnresolved(cmd.Context(), specgraph.QueryUnresolvedRequest{Type: typeFlag})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		if phaseFlag != "" {
 			rf := &indexRelationFetcher{idx: engine.Index()}
 			phaseScope, scopeErr := phaseEntityScope(phaseFlag, rf)
 			if scopeErr != nil {
-				handleError(cmd, &model.ErrInvalidInput{
+				return handleError(cmd, &model.ErrInvalidInput{
 					Message: fmt.Sprintf("invalid --phase %q: %v", phaseFlag, scopeErr),
 				})
-				return nil
 			}
 			filtered := make([]model.Entity, 0, len(result.Entities))
 			for _, e := range result.Entities {
@@ -145,8 +134,7 @@ var queryUnresolvedCmd = &cobra.Command{
 		}
 
 		response := convertQueryUnresolvedResult(result)
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 
@@ -183,15 +171,9 @@ var queryPathCmd = &cobra.Command{
 		fromID := args[0]
 		toID := args[1]
 
-		layer, err := ParseLayerFlag(cmd)
+		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			return nil
-		}
-
-		layerStr := ""
-		if layer != nil {
-			layerStr = string(*layer)
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
 		result, err := engine.QueryPath(cmd.Context(), specgraph.QueryPathRequest{
@@ -200,13 +182,11 @@ var queryPathCmd = &cobra.Command{
 			Layer:  layerStr,
 		})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		response := convertQueryPathResult(result)
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 
@@ -247,13 +227,11 @@ var queryNeighborsCmd = &cobra.Command{
 			Depth:    depth,
 		})
 		if err != nil {
-			handleError(cmd, err)
-			return nil
+			return handleError(cmd, err)
 		}
 
 		response := convertNeighborsResult(result)
-		writeJSON(cmd, response)
-		return nil
+		return writeJSON(cmd, response)
 	},
 }
 
@@ -285,10 +263,6 @@ func convertNeighborsResult(r *graph.NeighborResult) jsoncontract.QueryNeighbors
 	}
 }
 
-var forbiddenSQLPrefixes = []string{
-	"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "PRAGMA",
-}
-
 var querySQLCmd = &cobra.Command{
 	Use:   "sql <query>",
 	Short: "Execute a read-only SQL query against the graph database",
@@ -298,27 +272,18 @@ var querySQLCmd = &cobra.Command{
 		upper := strings.ToUpper(query)
 
 		if !strings.HasPrefix(upper, "SELECT") {
-			handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
-			return nil
-		}
-		for _, prefix := range forbiddenSQLPrefixes {
-			if strings.HasPrefix(upper, prefix) {
-				handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
-				return nil
-			}
+			return handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
 		}
 
 		rows, err := engine.Index().DB().QueryContext(context.Background(), query)
 		if err != nil {
-			handleError(cmd, fmt.Errorf("query execution: %w", err))
-			return nil
+			return handleError(cmd, fmt.Errorf("query execution: %w", err))
 		}
 		defer rows.Close()
 
 		columns, err := rows.Columns()
 		if err != nil {
-			handleError(cmd, fmt.Errorf("read columns: %w", err))
-			return nil
+			return handleError(cmd, fmt.Errorf("read columns: %w", err))
 		}
 
 		var result []map[string]interface{}
@@ -329,8 +294,7 @@ var querySQLCmd = &cobra.Command{
 				ptrs[i] = &vals[i]
 			}
 			if err := rows.Scan(ptrs...); err != nil {
-				handleError(cmd, fmt.Errorf("scan row: %w", err))
-				return nil
+				return handleError(cmd, fmt.Errorf("scan row: %w", err))
 			}
 			row := make(map[string]interface{}, len(columns))
 			for i, col := range columns {
@@ -344,19 +308,17 @@ var querySQLCmd = &cobra.Command{
 			result = append(result, row)
 		}
 		if err := rows.Err(); err != nil {
-			handleError(cmd, fmt.Errorf("iterate rows: %w", err))
-			return nil
+			return handleError(cmd, fmt.Errorf("iterate rows: %w", err))
 		}
 
 		if result == nil {
 			result = []map[string]interface{}{}
 		}
 
-		writeJSON(cmd, jsoncontract.QuerySQLResponse{
+		return writeJSON(cmd, jsoncontract.QuerySQLResponse{
 			Columns: columns,
 			Rows:    result,
 			Count:   len(result),
 		})
-		return nil
 	},
 }
