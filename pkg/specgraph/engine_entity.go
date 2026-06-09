@@ -157,6 +157,9 @@ func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (model.Entity, error) {
 	_ = ctx
 
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if req.Type == "" || req.ID == "" || req.Title == "" {
 		return model.Entity{}, newError(CodeInvalidInput, "type, id, and title are required", nil)
 	}
@@ -221,6 +224,9 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 func (e *Engine) GetEntity(ctx context.Context, id string) (model.Entity, error) {
 	_ = ctx
 
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	rec, err := e.idx.GetEntity(id)
 	if err != nil {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
@@ -247,6 +253,9 @@ func (e *Engine) GetEntity(ctx context.Context, id string) (model.Entity, error)
 // compatibility and is not yet observed.
 func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]model.Entity, int, error) {
 	_ = ctx
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	var filters index.EntityFilters
 	if req.Type != "" {
@@ -289,6 +298,9 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 // forward compatibility and is not yet observed.
 func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (UpdateEntityResult, error) {
 	_ = ctx
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	rec, err := e.idx.GetEntity(req.ID)
 	if err != nil {
@@ -384,6 +396,9 @@ func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (Upd
 func (e *Engine) DeprecateEntity(ctx context.Context, id string) (model.Entity, error) {
 	_ = ctx
 
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	rec, err := e.idx.GetEntity(id)
 	if err != nil {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
@@ -422,6 +437,9 @@ func (e *Engine) DeprecateEntity(ctx context.Context, id string) (model.Entity, 
 // compatibility and is not yet observed.
 func (e *Engine) DeleteEntity(ctx context.Context, id string) error {
 	_ = ctx
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	relations, err := e.idx.GetRelationsByEntity(id)
 	if err != nil {

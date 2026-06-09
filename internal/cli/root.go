@@ -71,6 +71,7 @@ func init() {
 	rootCmd.AddCommand(queryCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(phaseCmd)

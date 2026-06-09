@@ -31,6 +31,9 @@ type ValidateRequest struct {
 func (e *Engine) Validate(ctx context.Context, req ValidateRequest) (*validate.ValidateResult, error) {
 	_ = ctx
 
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	var phase *string
 	if req.Phase != "" {
 		p := req.Phase

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	stdsync "sync"
 
 	"github.com/tyeongkim/spec-graph/internal/flock"
 	"github.com/tyeongkim/spec-graph/internal/index"
@@ -22,12 +23,22 @@ type Options struct {
 // holds handles to the TOML store, SQLite index, and syncer, and owns the
 // exclusive file lock that guards concurrent access. Callers must invoke Close
 // to release the lock and flush the index.
+//
+// All exported operation methods are safe for concurrent use by multiple
+// goroutines: read operations acquire mu for reading, while write operations
+// (including Close) acquire mu for writing. Write operations hold the lock
+// across the entire TOML-write + index-sync sequence so a mutation and its
+// index refresh are observed atomically by concurrent readers.
 type Engine struct {
 	root   string
 	store  *spectoml.Store
 	idx    *index.Index
 	syncer *sync.Syncer
 	unlock func()
+	// mu guards all operations against concurrent access. Exported methods
+	// acquire it (RLock for reads, Lock for writes); unexported helpers run
+	// under an already-held lock and must not acquire it themselves.
+	mu stdsync.RWMutex
 }
 
 // Open initializes an Engine rooted at opts.Root. It validates that the
@@ -88,6 +99,9 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 // closing the index. Close is safe to call multiple times; subsequent calls are
 // no-ops. Close does not accept a context.
 func (e *Engine) Close() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if e.unlock == nil {
 		return nil
 	}

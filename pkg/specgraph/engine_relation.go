@@ -62,6 +62,9 @@ func isValidRelationType(rt model.RelationType) bool {
 func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model.Relation, error) {
 	_ = ctx
 
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return model.Relation{}, newError(CodeInvalidInput, "from, to, and type are required", nil)
 	}
@@ -182,6 +185,9 @@ func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model
 func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([]model.Relation, int, error) {
 	_ = ctx
 
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	var filters index.RelationFilters
 	if req.From != "" {
 		filters.FromID = req.From
@@ -224,6 +230,9 @@ func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([
 // yet observed.
 func (e *Engine) DeleteRelation(ctx context.Context, req DeleteRelationRequest) error {
 	_ = ctx
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return newError(CodeInvalidInput, "from, to, and type are required", nil)
