@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/tyeongkim/spec-graph/internal/graph"
+	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var exportCmd = &cobra.Command{
@@ -28,50 +30,34 @@ var exportCmd = &cobra.Command{
 			handleError(cmd, &model.ErrInvalidInput{
 				Message: fmt.Sprintf("unknown format %q; must be dot, mermaid, or json", format),
 			})
+			return nil
 		}
 
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
+		layerStr := ""
+		if layer != nil {
+			layerStr = string(*layer)
+		}
 
-		opts := &graph.ExportOptions{Layer: layer}
-
-		var entities []model.Entity
-		var relations []model.Relation
-
-		if centerFlag != "" {
-			result, err := graph.Neighbors(centerFlag, depthFlag, rf, ef)
-			if err != nil {
-				handleError(cmd, err)
-				return nil
-			}
-			entities = make([]model.Entity, len(result.Entities))
-			for i, ne := range result.Entities {
-				entities[i] = ne.Entity
-			}
-			relations = result.Relations
-		} else {
-			var err error
-			entities, err = listEntitiesFromIndex(queryIndex, layer)
-			if err != nil {
-				handleError(cmd, err)
-			}
-			relations, err = listRelationsFromIndex(queryIndex, layer)
-			if err != nil {
-				handleError(cmd, err)
-			}
+		result, err := engine.Export(cmd.Context(), specgraph.ExportRequest{
+			Format: format,
+			Center: centerFlag,
+			Depth:  depthFlag,
+			Layer:  layerStr,
+		})
+		if err != nil {
+			handleError(cmd, err)
+			return nil
 		}
 
 		if format == "json" {
-			result := graph.ExportJSON(entities, relations, opts)
-			writeJSON(cmd, result)
-		} else {
-			var output string
-			if format == "dot" {
-				output = graph.ExportDOT(entities, relations, opts)
-			} else {
-				output = graph.ExportMermaid(entities, relations, opts)
+			var jsonResult jsoncontract.ExportJSONResult
+			if err := json.Unmarshal([]byte(result.Data), &jsonResult); err != nil {
+				handleError(cmd, fmt.Errorf("decode export json: %w", err))
+				return nil
 			}
-			fmt.Fprint(cmd.OutOrStdout(), output)
+			writeJSON(cmd, jsonResult)
+		} else {
+			fmt.Fprint(cmd.OutOrStdout(), result.Data)
 		}
 		return nil
 	},

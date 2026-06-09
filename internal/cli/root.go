@@ -6,21 +6,15 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/tyeongkim/spec-graph/internal/flock"
-	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	specsync "github.com/tyeongkim/spec-graph/internal/sync"
-	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var (
-	specRoot   string
-	dbPath     string
-	layerFlag  string
-	tomlStore  *spectoml.Store
-	queryIndex *index.Index
-	syncer     *specsync.Syncer
-	unlockFn   func()
+	specRoot  string
+	dbPath    string
+	layerFlag string
+	engine    *specgraph.Engine
 )
 
 var (
@@ -37,11 +31,8 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		if unlockFn != nil {
-			unlockFn()
-		}
-		if queryIndex != nil {
-			queryIndex.Close()
+		if engine != nil {
+			return engine.Close()
 		}
 		return nil
 	},
@@ -56,28 +47,11 @@ var rootCmd = &cobra.Command{
 			handleError(cmd, &model.ErrNotInitialized{})
 		}
 
-		lockPath := filepath.Join(specRoot, ".lock")
-		unlock, err := flock.Lock(lockPath)
+		eng, err := specgraph.Open(cmd.Context(), specgraph.Options{Root: specRoot})
 		if err != nil {
-			return fmt.Errorf("acquire lock: %w", err)
+			return fmt.Errorf("open engine: %w", err)
 		}
-		unlockFn = unlock
-
-		tomlStore = spectoml.NewStore(specRoot)
-
-		idx, err := index.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("open index: %w", err)
-		}
-		queryIndex = idx
-
-		syncer = specsync.NewSyncer(tomlStore, queryIndex, specRoot)
-
-		if _, err := syncer.EnsureFresh(); err != nil {
-			if !specsync.IsRebuildError(err) {
-				return fmt.Errorf("sync index: %w", err)
-			}
-		}
+		engine = eng
 
 		return nil
 	},

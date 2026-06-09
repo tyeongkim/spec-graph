@@ -173,9 +173,9 @@ func TestStore_SymmetricRelation_Enforced(t *testing.T) {
 	s := newTestStore(t)
 
 	tests := []struct {
-		name     string
-		ef       *EntityFile
-		wantErr  bool
+		name    string
+		ef      *EntityFile
+		wantErr bool
 	}{
 		{
 			name: "conflicts_with stored in smaller ID - ok",

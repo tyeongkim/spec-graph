@@ -9,6 +9,7 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var queryCmd = &cobra.Command{
@@ -23,17 +24,21 @@ var queryScopeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		phaseID := args[0]
 
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
-
 		layer, err := ParseLayerFlag(cmd)
 		if err != nil {
 			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			return nil
 		}
 
-		opts := graph.QueryScopeOptions{PhaseID: phaseID, Layer: layer}
-		result, err := graph.QueryScope(opts, rf, ef)
+		layerStr := ""
+		if layer != nil {
+			layerStr = string(*layer)
+		}
+
+		result, err := engine.QueryScope(cmd.Context(), specgraph.QueryScopeRequest{
+			PhaseID: phaseID,
+			Layer:   layerStr,
+		})
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -105,28 +110,23 @@ var queryUnresolvedCmd = &cobra.Command{
 		typeFlag, _ := cmd.Flags().GetString("type")
 		phaseFlag, _ := cmd.Flags().GetString("phase")
 
-		var opts graph.QueryUnresolvedOptions
 		if typeFlag != "" {
-			et, ok := validUnresolvedTypes[typeFlag]
-			if !ok {
+			if _, ok := validUnresolvedTypes[typeFlag]; !ok {
 				handleError(cmd, &model.ErrInvalidInput{
 					Message: fmt.Sprintf("invalid --type %q; must be question, assumption, or risk", typeFlag),
 				})
 				return nil
 			}
-			opts.Type = &et
 		}
 
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
-
-		result, err := graph.QueryUnresolved(opts, ef)
+		result, err := engine.QueryUnresolved(cmd.Context(), specgraph.QueryUnresolvedRequest{Type: typeFlag})
 		if err != nil {
 			handleError(cmd, err)
 			return nil
 		}
 
 		if phaseFlag != "" {
+			rf := &indexRelationFetcher{idx: engine.Index()}
 			phaseScope, scopeErr := phaseEntityScope(phaseFlag, rf)
 			if scopeErr != nil {
 				handleError(cmd, &model.ErrInvalidInput{
@@ -183,17 +183,22 @@ var queryPathCmd = &cobra.Command{
 		fromID := args[0]
 		toID := args[1]
 
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
-
 		layer, err := ParseLayerFlag(cmd)
 		if err != nil {
 			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			return nil
 		}
 
-		opts := graph.QueryPathOptions{FromID: fromID, ToID: toID, Layer: layer}
-		result, err := graph.QueryPath(opts, rf, ef)
+		layerStr := ""
+		if layer != nil {
+			layerStr = string(*layer)
+		}
+
+		result, err := engine.QueryPath(cmd.Context(), specgraph.QueryPathRequest{
+			FromID: fromID,
+			ToID:   toID,
+			Layer:  layerStr,
+		})
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -237,10 +242,10 @@ var queryNeighborsCmd = &cobra.Command{
 		entityID := args[0]
 		depth, _ := cmd.Flags().GetInt("depth")
 
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
-
-		result, err := graph.Neighbors(entityID, depth, rf, ef)
+		result, err := engine.QueryNeighbors(cmd.Context(), specgraph.QueryNeighborsRequest{
+			EntityID: entityID,
+			Depth:    depth,
+		})
 		if err != nil {
 			handleError(cmd, err)
 			return nil
@@ -303,7 +308,7 @@ var querySQLCmd = &cobra.Command{
 			}
 		}
 
-		rows, err := queryIndex.DB().QueryContext(context.Background(), query)
+		rows, err := engine.Index().DB().QueryContext(context.Background(), query)
 		if err != nil {
 			handleError(cmd, fmt.Errorf("query execution: %w", err))
 			return nil

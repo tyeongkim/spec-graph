@@ -222,8 +222,8 @@ func allowlistFor(entityType model.EntityType) ([]model.EntityStatus, bool) {
 //  2. Mandatory members are fetched and judged:
 //     a. Layer 2 (status-only rule, e.g. assumption/decision)
 //     b. Layer 1 (existence of inbound evidence relation, scoped to this
-//        phase when the relation is `delivers`) +
-//        Layer 3 (any matching evidence source has status in per-type allowlist)
+//     phase when the relation is `delivers`) +
+//     Layer 3 (any matching evidence source has status in per-type allowlist)
 //     c. Fallback: type-specific status allowlist if no rule applies
 func evaluateMember(member closureMember, phaseID string, ef EntityFetcher, rf RelationFetcher) SatisfactionItem {
 	if member.class == closureAdvisory {

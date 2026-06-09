@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	"github.com/tyeongkim/spec-graph/internal/validate"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 type validateRelationAdapter struct {
@@ -46,18 +46,8 @@ var validateCmd = &cobra.Command{
 			return nil
 		}
 
-		var opts validate.ValidateOptions
-		opts.Layer = layer
-		opts.IncludeReferences = includeReferencesFlag
-		if checkFlag != "" {
-			opts.Checks = strings.Split(checkFlag, ",")
-		}
-
-		ef := &indexValidateEntityFetcher{idx: queryIndex}
-		rf := &validateRelationAdapter{fetcher: &indexRelationFetcher{idx: queryIndex}}
-
 		if phaseFlag != "" {
-			entity, err := ef.Get(phaseFlag)
+			entity, err := engine.GetEntity(cmd.Context(), phaseFlag)
 			if err != nil {
 				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
 				return nil
@@ -66,18 +56,32 @@ var validateCmd = &cobra.Command{
 				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("entity %q is type %q, not phase", phaseFlag, entity.Type)})
 				return nil
 			}
-			opts.Phase = &phaseFlag
 		}
 
 		if entityFlag != "" {
-			if _, err := ef.Get(entityFlag); err != nil {
+			if _, err := engine.GetEntity(cmd.Context(), entityFlag); err != nil {
 				handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
 				return nil
 			}
-			opts.EntityID = entityFlag
 		}
 
-		result, err := validate.Validate(opts, rf, ef)
+		layerStr := ""
+		if layer != nil {
+			layerStr = string(*layer)
+		}
+
+		var checks []string
+		if checkFlag != "" {
+			checks = strings.Split(checkFlag, ",")
+		}
+
+		result, err := engine.Validate(cmd.Context(), specgraph.ValidateRequest{
+			Checks:            checks,
+			Phase:             phaseFlag,
+			EntityID:          entityFlag,
+			Layer:             layerStr,
+			IncludeReferences: includeReferencesFlag,
+		})
 		if err != nil {
 			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 			return nil

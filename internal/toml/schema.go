@@ -15,7 +15,7 @@ import (
 
 // Schema represents the full spec-graph schema definition.
 type Schema struct {
-	Version       int                          `toml:"version"`
+	Version       int                           `toml:"version"`
 	EntityTypes   map[string]EntityTypeConfig   `toml:"entity_types"`
 	RelationTypes map[string]RelationTypeConfig `toml:"relation_types"`
 }
@@ -80,23 +80,23 @@ func DefaultSchema() *Schema {
 			"risk":        {Prefix: "RSK", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 		},
 		RelationTypes: map[string]RelationTypeConfig{
-			"implements":    {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},
-			"verifies":      {Layer: "arch", From: []string{"test"}, To: []string{"requirement", "criterion", "decision", "interface", "state"}},
-			"depends_on":    {Layer: "arch", From: []string{"requirement", "decision", "interface", "test", "state"}, To: []string{"requirement", "decision", "interface", "state", "crosscut", "assumption"}},
+			"implements":     {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},
+			"verifies":       {Layer: "arch", From: []string{"test"}, To: []string{"requirement", "criterion", "decision", "interface", "state"}},
+			"depends_on":     {Layer: "arch", From: []string{"requirement", "decision", "interface", "test", "state"}, To: []string{"requirement", "decision", "interface", "state", "crosscut", "assumption"}},
 			"constrained_by": {Layer: "arch", From: []string{"requirement", "decision", "interface", "state"}, To: []string{"crosscut", "decision", "assumption"}},
-			"triggers":      {Layer: "arch", From: []string{"interface", "decision"}, To: []string{"state"}},
-			"answers":       {Layer: "arch", From: []string{"decision"}, To: []string{"question"}},
-			"assumes":       {Layer: "arch", From: []string{"requirement", "decision", "interface"}, To: []string{"assumption"}},
-			"has_criterion": {Layer: "arch", From: []string{"requirement"}, To: []string{"criterion"}},
-			"mitigates":     {Layer: "arch", From: []string{"decision", "test", "crosscut"}, To: []string{"risk"}},
-			"supersedes":    {Layer: "arch", Special: "same_type"},
+			"triggers":       {Layer: "arch", From: []string{"interface", "decision"}, To: []string{"state"}},
+			"answers":        {Layer: "arch", From: []string{"decision"}, To: []string{"question"}},
+			"assumes":        {Layer: "arch", From: []string{"requirement", "decision", "interface"}, To: []string{"assumption"}},
+			"has_criterion":  {Layer: "arch", From: []string{"requirement"}, To: []string{"criterion"}},
+			"mitigates":      {Layer: "arch", From: []string{"decision", "test", "crosscut"}, To: []string{"risk"}},
+			"supersedes":     {Layer: "arch", Special: "same_type"},
 			"conflicts_with": {Layer: "arch", Special: "any_to_any"},
-			"references":    {Layer: "arch", Special: "any_to_any"},
-			"belongs_to":    {Layer: "exec", From: []string{"phase"}, To: []string{"plan"}},
-			"precedes":      {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
-			"blocks":        {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
-			"covers":        {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
-			"delivers":      {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
+			"references":     {Layer: "arch", Special: "any_to_any"},
+			"belongs_to":     {Layer: "exec", From: []string{"phase"}, To: []string{"plan"}},
+			"precedes":       {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
+			"blocks":         {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
+			"covers":         {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
+			"delivers":       {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
 		},
 	}
 }

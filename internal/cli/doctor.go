@@ -457,7 +457,7 @@ func checkSelfLoopRelations(files []rawEntityFile) []doctorIssue {
 func checkStaleIndex(cmd *cobra.Command) []doctorIssue {
 	var issues []doctorIssue
 
-	currentFP, err := syncer.ComputeFingerprint()
+	currentFP, err := engine.Syncer().ComputeFingerprint()
 	if err != nil {
 		issues = append(issues, doctorIssue{
 			File:    "",
@@ -466,7 +466,7 @@ func checkStaleIndex(cmd *cobra.Command) []doctorIssue {
 		return issues
 	}
 
-	storedFP, err := queryIndex.GetMeta("toml_fingerprint")
+	storedFP, err := engine.Index().GetMeta("toml_fingerprint")
 	if err != nil {
 		issues = append(issues, doctorIssue{
 			File:    "",

@@ -77,10 +77,10 @@ type ImpactSummary struct {
 
 // ValidateResponse is the top-level JSON response for the validate command.
 type ValidateResponse struct {
-	Valid        bool                          `json:"valid"`
-	Issues       []ValidateIssue               `json:"issues"`
-	Summary      ValidateSummary               `json:"summary"`
-	Satisfaction []ValidatePhaseSatisfaction   `json:"satisfaction,omitempty"`
+	Valid        bool                        `json:"valid"`
+	Issues       []ValidateIssue             `json:"issues"`
+	Summary      ValidateSummary             `json:"summary"`
+	Satisfaction []ValidatePhaseSatisfaction `json:"satisfaction,omitempty"`
 }
 
 // ValidateIssue describes a single validation issue.

@@ -1,14 +1,13 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/bootstrap"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var bootstrapCmd = &cobra.Command{
@@ -72,143 +71,45 @@ var bootstrapImportCmd = &cobra.Command{
 				Relations: review.Relations,
 			})
 			writeJSON(cmd, resp)
-	case "apply":
-		result := applyCandidatesViaToml(scanResult)
-		writeJSON(cmd, toImportResponse(result))
+		case "apply":
+			req := specgraph.BootstrapImportRequest{
+				Entities:  make([]specgraph.BootstrapCandidate, 0, len(scanResult.Entities)),
+				Relations: make([]specgraph.BootstrapRelationCandidate, 0, len(scanResult.Relations)),
+			}
+			for _, e := range scanResult.Entities {
+				req.Entities = append(req.Entities, specgraph.BootstrapCandidate{
+					ID:         e.ID,
+					Type:       e.Type,
+					Title:      e.Title,
+					Confidence: e.Confidence,
+				})
+			}
+			for _, r := range scanResult.Relations {
+				req.Relations = append(req.Relations, specgraph.BootstrapRelationCandidate{
+					From:       r.From,
+					To:         r.To,
+					Type:       r.Type,
+					Confidence: r.Confidence,
+				})
+			}
+			importResult, err := engine.BootstrapImport(cmd.Context(), req)
+			if err != nil {
+				handleError(cmd, err)
+			}
+			result := bootstrap.ApplyResult{
+				Created: importResult.Created,
+			}
+			for _, s := range importResult.Skipped {
+				result.Skipped = append(result.Skipped, bootstrap.SkippedItem{ID: s.ID, Reason: s.Reason})
+			}
+			for _, e := range importResult.Errors {
+				result.Errors = append(result.Errors, bootstrap.ErrorItem{ID: e.ID, Error: e.Error})
+			}
+			writeJSON(cmd, toImportResponse(result))
 		}
 
 		return nil
 	},
-}
-
-// applyCandidatesViaToml imports candidates using the TOML store (source of truth).
-func applyCandidatesViaToml(input bootstrap.ScanResult) bootstrap.ApplyResult {
-	var result bootstrap.ApplyResult
-
-	for _, c := range input.Entities {
-		if c.Confidence < 0.5 {
-			result.Skipped = append(result.Skipped, bootstrap.SkippedItem{
-				ID: c.ID, Reason: "low confidence",
-			})
-			continue
-		}
-
-		et := model.EntityType(c.Type)
-		if tomlStore.EntityExists(c.ID, et) {
-			result.Skipped = append(result.Skipped, bootstrap.SkippedItem{
-				ID: c.ID, Reason: "already exists",
-			})
-			continue
-		}
-
-		ef := &spectoml.EntityFile{
-			Schema: 1,
-			ID:     c.ID,
-			Type:   et,
-			Title:  c.Title,
-			Status: model.EntityStatusDraft,
-		}
-
-		if err := tomlStore.WriteEntity(ef); err != nil {
-			result.Errors = append(result.Errors, bootstrap.ErrorItem{
-				ID: c.ID, Error: err.Error(),
-			})
-			continue
-		}
-
-		result.Created = append(result.Created, c.ID)
-	}
-
-	if err := syncer.ForceRebuild(); err != nil {
-		result.Errors = append(result.Errors, bootstrap.ErrorItem{
-			ID: "_rebuild", Error: fmt.Sprintf("index rebuild after entities: %s", err.Error()),
-		})
-		return result
-	}
-
-	for _, c := range input.Relations {
-		key := fmt.Sprintf("%s:%s:%s", c.From, c.To, c.Type)
-
-		if c.Confidence < 0.5 {
-			result.Skipped = append(result.Skipped, bootstrap.SkippedItem{
-				ID: key, Reason: "low confidence",
-			})
-			continue
-		}
-
-		rt := model.RelationType(c.Type)
-
-		fromRec, err := queryIndex.GetEntity(c.From)
-		if err != nil || fromRec == nil {
-			result.Errors = append(result.Errors, bootstrap.ErrorItem{
-				ID: key, Error: fmt.Sprintf("from entity %q not found", c.From),
-			})
-			continue
-		}
-		toRec, err := queryIndex.GetEntity(c.To)
-		if err != nil || toRec == nil {
-			result.Errors = append(result.Errors, bootstrap.ErrorItem{
-				ID: key, Error: fmt.Sprintf("to entity %q not found", c.To),
-			})
-			continue
-		}
-
-		fromType := model.EntityType(fromRec.Type)
-		toType := model.EntityType(toRec.Type)
-		if !model.IsEdgeAllowed(rt, fromType, toType, nil) {
-			result.Skipped = append(result.Skipped, bootstrap.SkippedItem{
-				ID: key, Reason: "invalid edge",
-			})
-			continue
-		}
-
-		ownerID := c.From
-		ownerType := fromType
-		targetID := c.To
-		if isSymmetricRelation(rt) && c.From > c.To {
-			ownerID = c.To
-			ownerType = toType
-			targetID = c.From
-		}
-
-		ownerEF, err := tomlStore.ReadEntity(ownerID, ownerType)
-		if err != nil {
-			result.Errors = append(result.Errors, bootstrap.ErrorItem{
-				ID: key, Error: fmt.Sprintf("read owner entity: %v", err),
-			})
-			continue
-		}
-
-		duplicate := false
-		for _, existing := range ownerEF.Relations {
-			if existing.To == targetID && existing.Type == rt {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
-			result.Skipped = append(result.Skipped, bootstrap.SkippedItem{
-				ID: key, Reason: "already exists",
-			})
-			continue
-		}
-
-		ownerEF.Relations = append(ownerEF.Relations, spectoml.RelationEntry{
-			To:   targetID,
-			Type: rt,
-		})
-
-		if err := tomlStore.WriteEntity(ownerEF); err != nil {
-			result.Errors = append(result.Errors, bootstrap.ErrorItem{
-				ID: key, Error: err.Error(),
-			})
-			continue
-		}
-
-		result.Created = append(result.Created, key)
-	}
-
-	return result
 }
 
 func toScanResponse(sr bootstrap.ScanResult) jsoncontract.BootstrapScanResponse {

@@ -26,10 +26,10 @@ type EntityFile struct {
 // Weight is omitted if it equals the default (1.0).
 // Metadata is included as an inline table if non-empty.
 type RelationEntry struct {
-	To       string         `toml:"to"`
+	To       string             `toml:"to"`
 	Type     model.RelationType `toml:"type"`
-	Weight   float64        `toml:"weight,omitempty"`
-	Metadata map[string]any `toml:"metadata,omitempty"`
+	Weight   float64            `toml:"weight,omitempty"`
+	Metadata map[string]any     `toml:"metadata,omitempty"`
 }
 
 // ToEntity converts an EntityFile to a model.Entity.

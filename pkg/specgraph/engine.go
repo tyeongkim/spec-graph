@@ -96,3 +96,24 @@ func (e *Engine) Close() error {
 	e.unlock = nil
 	return err
 }
+
+// Root returns the path to the .spec-graph/ directory.
+func (e *Engine) Root() string {
+	return e.root
+}
+
+// Index returns the underlying SQLite index for low-level read operations.
+// Callers must not close the index directly.
+func (e *Engine) Index() *index.Index {
+	return e.idx
+}
+
+// Syncer returns the underlying syncer for low-level operations.
+func (e *Engine) Syncer() *sync.Syncer {
+	return e.syncer
+}
+
+// Store returns the underlying TOML store for low-level operations.
+func (e *Engine) Store() *spectoml.Store {
+	return e.store
+}

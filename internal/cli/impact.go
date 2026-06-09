@@ -8,6 +8,7 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var impactCmd = &cobra.Command{
@@ -25,53 +26,51 @@ var impactCmd = &cobra.Command{
 			return nil
 		}
 
-		var opts graph.ImpactOptions
-		opts.Layer = layer
-
-		if followStr != "" {
-			parts := strings.Split(followStr, ",")
-			follow := make([]model.RelationType, 0, len(parts))
-			for _, p := range parts {
-				rt := model.RelationType(strings.TrimSpace(p))
-				if !isValidRelationType(rt) {
-					handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown relation type %q in --follow", rt)})
-				}
-				follow = append(follow, rt)
-			}
-			opts.Follow = follow
-		}
-
 		if minSevStr != "" {
 			switch minSevStr {
 			case "high", "medium", "low":
-				sev := graph.Severity(minSevStr)
-				opts.MinSeverity = &sev
 			default:
 				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown severity %q; must be high, medium, or low", minSevStr)})
+				return nil
 			}
 		}
 
 		if dimStr != "" {
 			switch dimStr {
 			case "structural", "behavioral", "planning":
-				opts.Dimension = &dimStr
 			default:
 				handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown dimension %q; must be structural, behavioral, or planning", dimStr)})
+				return nil
 			}
 		}
-
-		ef := &indexEntityFetcher{idx: queryIndex}
-		rf := &indexRelationFetcher{idx: queryIndex}
 
 		for _, src := range args {
-			if _, err := ef.Get(src); err != nil {
+			if _, err := engine.GetEntity(cmd.Context(), src); err != nil {
 				handleError(cmd, err)
+				return nil
 			}
 		}
 
-		result, err := graph.Impact(args, opts, rf, ef)
+		layerStr := ""
+		if layer != nil {
+			layerStr = string(*layer)
+		}
+
+		var follow []string
+		if followStr != "" {
+			follow = strings.Split(followStr, ",")
+		}
+
+		result, err := engine.Impact(cmd.Context(), specgraph.ImpactRequest{
+			Sources:     args,
+			Follow:      follow,
+			MinSeverity: minSevStr,
+			Dimension:   dimStr,
+			Layer:       layerStr,
+		})
 		if err != nil {
 			handleError(cmd, err)
+			return nil
 		}
 
 		response := convertImpactResult(result)

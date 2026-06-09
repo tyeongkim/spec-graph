@@ -3,41 +3,10 @@ package cli
 import (
 	"encoding/json"
 
-	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/internal/validate"
 )
-
-type indexEntityFetcher struct {
-	idx *index.Index
-}
-
-func (f *indexEntityFetcher) Get(id string) (model.Entity, error) {
-	rec, err := f.idx.GetEntity(id)
-	if err != nil {
-		return model.Entity{}, err
-	}
-	if rec == nil {
-		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
-	}
-	return entityFromRecord(rec), nil
-}
-
-func (f *indexEntityFetcher) List(filters graph.EntityListFilters) ([]model.Entity, error) {
-	var ef index.EntityFilters
-	if filters.Type != nil {
-		ef.Type = string(*filters.Type)
-	}
-	if filters.Status != nil {
-		ef.Status = string(*filters.Status)
-	}
-	recs, err := f.idx.ListEntities(ef)
-	if err != nil {
-		return nil, err
-	}
-	return entitiesToModel(recs), nil
-}
 
 type indexValidateEntityFetcher struct {
 	idx *index.Index
@@ -123,28 +92,4 @@ func relationsToModel(recs []index.RelationRecord) []model.Relation {
 		rels[i] = relationFromRecord(&recs[i])
 	}
 	return rels
-}
-
-func listEntitiesFromIndex(idx *index.Index, layer *model.Layer) ([]model.Entity, error) {
-	var ef index.EntityFilters
-	if layer != nil {
-		ef.Layer = string(*layer)
-	}
-	recs, err := idx.ListEntities(ef)
-	if err != nil {
-		return nil, err
-	}
-	return entitiesToModel(recs), nil
-}
-
-func listRelationsFromIndex(idx *index.Index, layer *model.Layer) ([]model.Relation, error) {
-	var rf index.RelationFilters
-	if layer != nil {
-		rf.Layer = string(*layer)
-	}
-	recs, err := idx.ListRelations(rf)
-	if err != nil {
-		return nil, err
-	}
-	return relationsToModel(recs), nil
 }

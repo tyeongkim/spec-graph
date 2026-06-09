@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tyeongkim/spec-graph/internal/gate"
-	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
-	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 var entityCmd = &cobra.Command{
@@ -30,66 +27,23 @@ var entityAddCmd = &cobra.Command{
 		metadataStr, _ := cmd.Flags().GetString("metadata")
 		status, _ := cmd.Flags().GetString("status")
 
-		if entityType == "" || id == "" || title == "" {
-			handleError(cmd, &model.ErrInvalidInput{Message: "flags --type, --id, and --title are required"})
-		}
-
 		var metadata json.RawMessage
 		if metadataStr != "" {
-			if !json.Valid([]byte(metadataStr)) {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
-			}
 			metadata = json.RawMessage(metadataStr)
 		}
-
 		metadata = resolveMetadata(cmd, metadata)
 
-		et := model.EntityType(entityType)
-		if err := model.ValidateEntityID(id, et); err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-		}
-		if tomlStore.EntityExists(id, et) {
-			handleError(cmd, &model.ErrDuplicateEntity{ID: id})
-		}
-
-		entityStatus := model.EntityStatusDraft
-		if status != "" {
-			entityStatus = model.EntityStatus(status)
-		}
-
-		schema := spectoml.DefaultSchema()
-		if err := schema.ValidateEntity(id, entityType, string(entityStatus)); err != nil {
-			handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-		}
-
-		var meta map[string]any
-		if len(metadata) > 0 {
-			if err := json.Unmarshal(metadata, &meta); err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
-			}
-		}
-
-		ef := &spectoml.EntityFile{
-			Schema:      1,
+		entity, err := engine.CreateEntity(cmd.Context(), specgraph.CreateEntityRequest{
+			Type:        entityType,
 			ID:          id,
-			Type:        et,
 			Title:       title,
 			Description: description,
-			Status:      entityStatus,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
-			Metadata:    meta,
-		}
-
-		if err := tomlStore.WriteEntity(ef); err != nil {
-			handleError(cmd, fmt.Errorf("write entity: %w", err))
-		}
-
-		entity, err := ef.ToEntity()
+			Metadata:    metadata,
+			Status:      status,
+		})
 		if err != nil {
-			handleError(cmd, fmt.Errorf("convert entity: %w", err))
+			handleEngineError(cmd, err, id)
 		}
-		entity.Metadata = metadata
 
 		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
@@ -103,9 +57,9 @@ var entityGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
-		entity, err := readEntityByID(cmd, id)
+		entity, err := engine.GetEntity(cmd.Context(), id)
 		if err != nil {
-			handleError(cmd, err)
+			handleEngineError(cmd, err, id)
 		}
 
 		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
@@ -126,37 +80,21 @@ var entityListCmd = &cobra.Command{
 			return nil
 		}
 
-		var filters index.EntityFilters
-		if typeFilter != "" {
-			filters.Type = typeFilter
-		}
-		if statusFilter != "" {
-			filters.Status = statusFilter
-		}
+		var layerFilter string
 		if layer != nil {
-			filters.Layer = string(*layer)
+			layerFilter = string(*layer)
 		}
 
-		records, err := queryIndex.ListEntities(filters)
+		entities, count, err := engine.ListEntities(cmd.Context(), specgraph.ListEntitiesRequest{
+			Type:   typeFilter,
+			Status: statusFilter,
+			Layer:  layerFilter,
+		})
 		if err != nil {
-			handleError(cmd, fmt.Errorf("list entities: %w", err))
+			handleEngineError(cmd, err, "")
 		}
 
-		entities := make([]model.Entity, 0, len(records))
-		for _, rec := range records {
-			et := model.EntityType(rec.Type)
-			ef, err := tomlStore.ReadEntity(rec.ID, et)
-			if err != nil {
-				handleError(cmd, fmt.Errorf("read entity %q: %w", rec.ID, err))
-			}
-			e, err := ef.ToEntity()
-			if err != nil {
-				handleError(cmd, fmt.Errorf("convert entity %q: %w", rec.ID, err))
-			}
-			entities = append(entities, e)
-		}
-
-		writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: len(entities)})
+		writeJSON(cmd, jsoncontract.EntityListResponse{Entities: entities, Count: count})
 		return nil
 	},
 }
@@ -168,40 +106,24 @@ var entityUpdateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
-		ef, _, err := findEntityFile(cmd, id)
-		if err != nil {
-			handleError(cmd, err)
-		}
-
-		var oldStatus model.EntityStatus
+		req := specgraph.UpdateEntityRequest{ID: id}
 
 		if cmd.Flags().Changed("title") {
 			v, _ := cmd.Flags().GetString("title")
-			ef.Title = v
+			req.Title = &v
 		}
 		if cmd.Flags().Changed("description") {
 			v, _ := cmd.Flags().GetString("description")
-			ef.Description = v
+			req.Description = &v
 		}
 		if cmd.Flags().Changed("status") {
-			oldStatus = ef.Status
 			v, _ := cmd.Flags().GetString("status")
-			schema := spectoml.DefaultSchema()
-			if err := schema.ValidateEntity(ef.ID, string(ef.Type), v); err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-			}
-			ef.Status = model.EntityStatus(v)
+			req.Status = &v
 		}
 		if cmd.Flags().Changed("metadata") {
 			v, _ := cmd.Flags().GetString("metadata")
-			if !json.Valid([]byte(v)) {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be valid JSON"})
-			}
-			var meta map[string]any
-			if err := json.Unmarshal([]byte(v), &meta); err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata must be a JSON object"})
-			}
-			ef.Metadata = meta
+			raw := json.RawMessage(v)
+			req.Metadata = &raw
 		}
 
 		metaFile, _ := cmd.Flags().GetString("metadata-file")
@@ -213,104 +135,89 @@ var entityUpdateCmd = &cobra.Command{
 			if err != nil {
 				handleError(cmd, &model.ErrInvalidInput{Message: "read metadata file: " + err.Error()})
 			}
-			if !json.Valid(data) {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
-			}
-			var meta map[string]any
-			if err := json.Unmarshal(data, &meta); err != nil {
-				handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain a JSON object"})
-			}
-			ef.Metadata = meta
+			raw := json.RawMessage(data)
+			req.Metadata = &raw
 		}
 
-		// Gate enforcement
 		forceFlag, _ := cmd.Flags().GetBool("force")
-		if cmd.Flags().Changed("status") {
-			target := gate.Target{
-				EntityID:   id,
-				EntityType: ef.Type,
-				FromStatus: oldStatus,
-				ToStatus:   ef.Status,
-			}
-			if policy := gate.LookupPolicy(target); policy != nil {
-				efAdapter := &indexValidateEntityFetcher{idx: queryIndex}
-				rfAdapter := &validateRelationAdapter{fetcher: &indexRelationFetcher{idx: queryIndex}}
+		reason, _ := cmd.Flags().GetString("reason")
+		req.Reason = reason
 
-				report, err := gate.Enforce(target, rfAdapter, efAdapter)
-				if err != nil {
-					handleError(cmd, fmt.Errorf("gate enforce: %w", err))
-				}
-
-				if report.Blocked {
-					if forceFlag {
-						if len(report.Warnings) > 0 || len(report.BlockingIssues) > 0 {
-							allIssues := append(report.BlockingIssues, report.Warnings...)
-							warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
-							for i, issue := range allIssues {
-								warningOutput[i] = jsoncontract.ValidateIssue{
-									Check:    issue.Check,
-									Severity: string(issue.Severity),
-									Entity:   issue.Entity,
-									Message:  issue.Message,
-								}
-							}
-							warningJSON, _ := json.Marshal(warningOutput)
-							fmt.Fprintf(os.Stderr, "%s\n", warningJSON)
-						}
-					} else {
-						issues := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
-						for i, issue := range report.BlockingIssues {
-							issues[i] = jsoncontract.ValidateIssue{
-								Check:    issue.Check,
-								Severity: string(issue.Severity),
-								Entity:   issue.Entity,
-								Message:  issue.Message,
-							}
-						}
-						warnings := make([]jsoncontract.ValidateIssue, len(report.Warnings))
-						for i, issue := range report.Warnings {
-							warnings[i] = jsoncontract.ValidateIssue{
-								Check:    issue.Check,
-								Severity: string(issue.Severity),
-								Entity:   issue.Entity,
-								Message:  issue.Message,
-							}
-						}
-						bySeverity := make(map[string]int)
-						for _, issue := range report.BlockingIssues {
-							bySeverity[string(issue.Severity)]++
-						}
-						response := jsoncontract.EntityUpdateGateResponse{
-							Blocked:    true,
-							EntityID:   report.EntityID,
-							EntityType: string(report.EntityType),
-							FromStatus: string(report.FromStatus),
-							ToStatus:   string(report.ToStatus),
-							Issues:     issues,
-							Warnings:   warnings,
-							Summary: jsoncontract.ValidateSummary{
-								TotalIssues: len(report.BlockingIssues),
-								BySeverity:  bySeverity,
-							},
-						}
-						writeJSON(cmd, response)
-						os.Exit(2)
-					}
-				}
-			}
-		}
-
-		ef.UpdatedAt = time.Now()
-
-		if err := tomlStore.WriteEntity(ef); err != nil {
-			handleError(cmd, fmt.Errorf("write entity: %w", err))
-		}
-
-		entity, err := ef.ToEntity()
+		// Always probe with Force=false first so a blocking gate surfaces a
+		// report. When the caller passed --force we still want to emit the
+		// warnings before applying the change.
+		res, err := engine.UpdateEntity(cmd.Context(), req)
 		if err != nil {
-			handleError(cmd, fmt.Errorf("convert entity %q: %w", id, err))
+			handleEngineError(cmd, err, id)
 		}
-		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
+
+		if res.GateReport != nil {
+			report := res.GateReport
+			if forceFlag {
+				if len(report.Warnings) > 0 || len(report.BlockingIssues) > 0 {
+					allIssues := append(report.BlockingIssues, report.Warnings...)
+					warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
+					for i, issue := range allIssues {
+						warningOutput[i] = jsoncontract.ValidateIssue{
+							Check:    issue.Check,
+							Severity: string(issue.Severity),
+							Entity:   issue.Entity,
+							Message:  issue.Message,
+						}
+					}
+					warningJSON, _ := json.Marshal(warningOutput)
+					fmt.Fprintf(os.Stderr, "%s\n", warningJSON)
+				}
+
+				req.Force = true
+				forced, ferr := engine.UpdateEntity(cmd.Context(), req)
+				if ferr != nil {
+					handleEngineError(cmd, ferr, id)
+				}
+				writeJSON(cmd, jsoncontract.EntityResponse{Entity: forced.Entity})
+				return nil
+			}
+
+			issues := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
+			for i, issue := range report.BlockingIssues {
+				issues[i] = jsoncontract.ValidateIssue{
+					Check:    issue.Check,
+					Severity: string(issue.Severity),
+					Entity:   issue.Entity,
+					Message:  issue.Message,
+				}
+			}
+			warnings := make([]jsoncontract.ValidateIssue, len(report.Warnings))
+			for i, issue := range report.Warnings {
+				warnings[i] = jsoncontract.ValidateIssue{
+					Check:    issue.Check,
+					Severity: string(issue.Severity),
+					Entity:   issue.Entity,
+					Message:  issue.Message,
+				}
+			}
+			bySeverity := make(map[string]int)
+			for _, issue := range report.BlockingIssues {
+				bySeverity[string(issue.Severity)]++
+			}
+			response := jsoncontract.EntityUpdateGateResponse{
+				Blocked:    true,
+				EntityID:   report.EntityID,
+				EntityType: string(report.EntityType),
+				FromStatus: string(report.FromStatus),
+				ToStatus:   string(report.ToStatus),
+				Issues:     issues,
+				Warnings:   warnings,
+				Summary: jsoncontract.ValidateSummary{
+					TotalIssues: len(report.BlockingIssues),
+					BySeverity:  bySeverity,
+				},
+			}
+			writeJSON(cmd, response)
+			os.Exit(2)
+		}
+
+		writeJSON(cmd, jsoncontract.EntityResponse{Entity: res.Entity})
 		return nil
 	},
 }
@@ -322,19 +229,11 @@ var entityDeprecateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
-		ef, _, err := findEntityFile(cmd, id)
+		entity, err := engine.DeprecateEntity(cmd.Context(), id)
 		if err != nil {
-			handleError(cmd, err)
+			handleEngineError(cmd, err, id)
 		}
 
-		ef.Status = model.EntityStatusDeprecated
-		ef.UpdatedAt = time.Now()
-
-		if err := tomlStore.WriteEntity(ef); err != nil {
-			handleError(cmd, fmt.Errorf("write entity: %w", err))
-		}
-
-		entity, _ := ef.ToEntity()
 		writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
 		return nil
 	},
@@ -347,23 +246,8 @@ var entityDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
-		relations, err := queryIndex.GetRelationsByEntity(id)
-		if err != nil {
-			handleError(cmd, fmt.Errorf("check relations: %w", err))
-		}
-		if len(relations) > 0 {
-			handleError(cmd, &model.ErrInvalidInput{
-				Message: fmt.Sprintf("cannot delete entity %q: %d relation(s) reference it", id, len(relations)),
-			})
-		}
-
-		_, et, err := findEntityFile(cmd, id)
-		if err != nil {
-			handleError(cmd, err)
-		}
-
-		if err := tomlStore.DeleteEntity(id, et); err != nil {
-			handleError(cmd, fmt.Errorf("delete entity: %w", err))
+		if err := engine.DeleteEntity(cmd.Context(), id); err != nil {
+			handleEngineError(cmd, err, id)
 		}
 
 		writeJSON(cmd, jsoncontract.DeleteResponse{Deleted: id})
@@ -401,56 +285,34 @@ var entityImportCmd = &cobra.Command{
 
 		var created []string
 		var skipped []jsoncontract.BootstrapSkippedItem
-		var errors []jsoncontract.BootstrapErrorItem
+		var errItems []jsoncontract.BootstrapErrorItem
 
 		for _, item := range items {
 			if item.ID == "" || item.Type == "" || item.Title == "" {
-				errors = append(errors, jsoncontract.BootstrapErrorItem{
+				errItems = append(errItems, jsoncontract.BootstrapErrorItem{
 					ID:    item.ID,
 					Error: "id, type, and title are required",
 				})
 				continue
 			}
 
-			et := model.EntityType(item.Type)
-			if tomlStore.EntityExists(item.ID, et) {
-				skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
-					ID:     item.ID,
-					Reason: "already exists",
-				})
-				continue
-			}
-
-			entityStatus := model.EntityStatusDraft
-			if item.Status != "" {
-				entityStatus = model.EntityStatus(item.Status)
-			}
-
-			var meta map[string]any
-			if len(item.Metadata) > 0 {
-				if err := json.Unmarshal(item.Metadata, &meta); err != nil {
-					errors = append(errors, jsoncontract.BootstrapErrorItem{
-						ID:    item.ID,
-						Error: "invalid metadata JSON",
+			_, err := engine.CreateEntity(cmd.Context(), specgraph.CreateEntityRequest{
+				Type:        item.Type,
+				ID:          item.ID,
+				Title:       item.Title,
+				Description: item.Description,
+				Status:      item.Status,
+				Metadata:    item.Metadata,
+			})
+			if err != nil {
+				if specgraph.IsConflict(err) {
+					skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
+						ID:     item.ID,
+						Reason: "already exists",
 					})
 					continue
 				}
-			}
-
-			ef := &spectoml.EntityFile{
-				Schema:      1,
-				ID:          item.ID,
-				Type:        et,
-				Title:       item.Title,
-				Description: item.Description,
-				Status:      entityStatus,
-				CreatedAt:   time.Now(),
-				UpdatedAt:   time.Now(),
-				Metadata:    meta,
-			}
-
-			if err := tomlStore.WriteEntity(ef); err != nil {
-				errors = append(errors, jsoncontract.BootstrapErrorItem{
+				errItems = append(errItems, jsoncontract.BootstrapErrorItem{
 					ID:    item.ID,
 					Error: err.Error(),
 				})
@@ -463,7 +325,7 @@ var entityImportCmd = &cobra.Command{
 		writeJSON(cmd, jsoncontract.BootstrapImportResponse{
 			Created: created,
 			Skipped: skipped,
-			Errors:  errors,
+			Errors:  errItems,
 		})
 		return nil
 	},
@@ -487,6 +349,7 @@ func init() {
 	entityUpdateCmd.Flags().String("metadata", "", "new metadata as JSON string")
 	entityUpdateCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks")
+	entityUpdateCmd.Flags().String("reason", "", "audit note for the change")
 
 	entityImportCmd.Flags().String("input", "", "path to JSON file containing entity array (required)")
 
@@ -497,6 +360,23 @@ func init() {
 	entityCmd.AddCommand(entityDeprecateCmd)
 	entityCmd.AddCommand(entityDeleteCmd)
 	entityCmd.AddCommand(entityImportCmd)
+}
+
+// handleEngineError translates a *specgraph.Error into the model error type that
+// output.go's handleError recognizes, preserving the JSON error code and process
+// exit code. The id is used to reconstruct identifying error messages for
+// not-found and conflict cases. Non-engine errors pass through unchanged.
+func handleEngineError(cmd *cobra.Command, err error, id string) {
+	switch {
+	case specgraph.IsNotFound(err):
+		handleError(cmd, &model.ErrEntityNotFound{ID: id})
+	case specgraph.IsConflict(err):
+		handleError(cmd, &model.ErrDuplicateEntity{ID: id})
+	case specgraph.IsInvalidInput(err):
+		handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+	default:
+		handleError(cmd, err)
+	}
 }
 
 func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) json.RawMessage {
@@ -515,44 +395,4 @@ func resolveMetadata(cmd *cobra.Command, inline json.RawMessage) json.RawMessage
 		handleError(cmd, &model.ErrInvalidInput{Message: "metadata file must contain valid JSON"})
 	}
 	return json.RawMessage(data)
-}
-
-func readEntityByID(cmd *cobra.Command, id string) (model.Entity, error) {
-	rec, err := queryIndex.GetEntity(id)
-	if err != nil {
-		return model.Entity{}, fmt.Errorf("get entity %q: %w", id, err)
-	}
-	if rec == nil {
-		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
-	}
-
-	et := model.EntityType(rec.Type)
-	ef, err := tomlStore.ReadEntity(id, et)
-	if err != nil {
-		return model.Entity{}, &model.ErrEntityNotFound{ID: id}
-	}
-
-	entity, err := ef.ToEntity()
-	if err != nil {
-		return model.Entity{}, fmt.Errorf("convert entity %q: %w", id, err)
-	}
-	return entity, nil
-}
-
-func findEntityFile(cmd *cobra.Command, id string) (*spectoml.EntityFile, model.EntityType, error) {
-	rec, err := queryIndex.GetEntity(id)
-	if err != nil {
-		return nil, "", fmt.Errorf("get entity %q: %w", id, err)
-	}
-	if rec == nil {
-		return nil, "", &model.ErrEntityNotFound{ID: id}
-	}
-
-	et := model.EntityType(rec.Type)
-	ef, err := tomlStore.ReadEntity(id, et)
-	if err != nil {
-		return nil, "", &model.ErrEntityNotFound{ID: id}
-	}
-
-	return ef, et, nil
 }
