@@ -133,10 +133,6 @@ func TestCreateEntity(t *testing.T) {
 				req:  specgraph.CreateEntityRequest{Type: "", ID: "REQ-001", Title: "T"},
 			},
 			{
-				name: "empty id",
-				req:  specgraph.CreateEntityRequest{Type: "requirement", ID: "", Title: "T"},
-			},
-			{
 				name: "empty title",
 				req:  specgraph.CreateEntityRequest{Type: "requirement", ID: "REQ-001", Title: ""},
 			},
@@ -172,6 +168,114 @@ func TestCreateEntity(t *testing.T) {
 		if got["priority"] != "high" {
 			t.Errorf("metadata priority = %v, want %q", got["priority"], "high")
 		}
+	})
+}
+
+func TestCreateEntityAutoID(t *testing.T) {
+	t.Parallel()
+
+	createIDs := func(t *testing.T, eng *specgraph.Engine, ids ...string) {
+		t.Helper()
+		ctx := context.Background()
+		for _, id := range ids {
+			if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+				Type:  "requirement",
+				ID:    id,
+				Title: "seed " + id,
+			}); err != nil {
+				t.Fatalf("seed CreateEntity %q: %v", id, err)
+			}
+		}
+	}
+
+	tests := []struct {
+		name   string
+		seed   []string
+		want   string
+		create func(t *testing.T, eng *specgraph.Engine)
+	}{
+		{name: "empty graph", seed: nil, want: "REQ-1"},
+		{name: "unpadded sequence", seed: []string{"REQ-1", "REQ-2"}, want: "REQ-3"},
+		{name: "padded sequence", seed: []string{"REQ-001"}, want: "REQ-002"},
+		{name: "mixed padded wins width", seed: []string{"REQ-001", "REQ-5"}, want: "REQ-006"},
+		{name: "gap unpadded", seed: []string{"REQ-1", "REQ-9"}, want: "REQ-10"},
+		{name: "width crossing", seed: []string{"REQ-999"}, want: "REQ-1000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			eng := openTestEngine(t)
+			ctx := context.Background()
+			createIDs(t, eng, tt.seed...)
+
+			ent, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+				Type:  "requirement",
+				Title: "auto",
+			})
+			if err != nil {
+				t.Fatalf("CreateEntity (auto): %v", err)
+			}
+			if ent.ID != tt.want {
+				t.Errorf("auto ID = %q, want %q", ent.ID, tt.want)
+			}
+
+			got, err := eng.GetEntity(ctx, tt.want)
+			if err != nil {
+				t.Fatalf("GetEntity %q after auto-create: %v", tt.want, err)
+			}
+			if got.ID != tt.want {
+				t.Errorf("persisted ID = %q, want %q", got.ID, tt.want)
+			}
+		})
+	}
+
+	t.Run("per-type independent counters", func(t *testing.T) {
+		t.Parallel()
+		eng := openTestEngine(t)
+		ctx := context.Background()
+		createIDs(t, eng, "REQ-1", "REQ-2")
+
+		dec, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+			Type:  "decision",
+			Title: "first decision",
+		})
+		if err != nil {
+			t.Fatalf("CreateEntity decision: %v", err)
+		}
+		if dec.ID != "DEC-1" {
+			t.Errorf("decision auto ID = %q, want %q", dec.ID, "DEC-1")
+		}
+	})
+
+	t.Run("unparseable id is skipped", func(t *testing.T) {
+		t.Parallel()
+		eng := openTestEngine(t)
+		ctx := context.Background()
+		createIDs(t, eng, "REQ-3")
+
+		ent, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+			Type:  "requirement",
+			Title: "auto after gap",
+		})
+		if err != nil {
+			t.Fatalf("CreateEntity (auto): %v", err)
+		}
+		if ent.ID != "REQ-4" {
+			t.Errorf("auto ID = %q, want %q", ent.ID, "REQ-4")
+		}
+	})
+
+	t.Run("unknown type errors", func(t *testing.T) {
+		t.Parallel()
+		eng := openTestEngine(t)
+		ctx := context.Background()
+
+		_, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+			Type:  "bogus",
+			Title: "no prefix",
+		})
+		assertErrorCode(t, err, specgraph.CodeInvalidInput)
 	})
 }
 

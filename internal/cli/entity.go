@@ -324,7 +324,7 @@ var entityImportCmd = &cobra.Command{
 
 func init() {
 	entityAddCmd.Flags().String("type", "", "entity type (required)")
-	entityAddCmd.Flags().String("id", "", "entity ID (required)")
+	entityAddCmd.Flags().String("id", "", "entity ID in PREFIX-NNN form (auto-generated from --type when omitted)")
 	entityAddCmd.Flags().String("title", "", "entity title (required)")
 	entityAddCmd.Flags().String("description", "", "entity description")
 	entityAddCmd.Flags().String("metadata", "", "entity metadata as JSON string")

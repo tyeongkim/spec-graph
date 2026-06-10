@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 )
 
 type EntityType string
@@ -82,17 +83,32 @@ type Entity struct {
 
 var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-(\d+)$`)
 
+// ParseEntityID splits a PREFIX-NNN id into its prefix, numeric value, and the
+// character width of the numeric segment (width detects zero-padding: "REQ-001"
+// has width 3). ok is false when id does not match the PREFIX-NNN format.
+func ParseEntityID(id string) (prefix string, num int, width int, ok bool) {
+	matches := entityIDPattern.FindStringSubmatch(id)
+	if matches == nil {
+		return "", 0, 0, false
+	}
+	digits := matches[2]
+	n, err := strconv.Atoi(digits)
+	if err != nil {
+		return "", 0, 0, false
+	}
+	return matches[1], n, len(digits), true
+}
+
 func ValidateEntityID(id string, entityType EntityType) error {
 	if id == "" {
 		return fmt.Errorf("entity ID must not be empty")
 	}
 
-	matches := entityIDPattern.FindStringSubmatch(id)
-	if matches == nil {
+	prefix, _, _, ok := ParseEntityID(id)
+	if !ok {
 		return fmt.Errorf("entity ID %q does not match format PREFIX-NNN", id)
 	}
 
-	prefix := matches[1]
 	expectedPrefix, ok := TypePrefixMap[entityType]
 	if !ok {
 		return fmt.Errorf("unknown entity type %q", entityType)

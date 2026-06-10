@@ -17,7 +17,8 @@ import (
 type CreateEntityRequest struct {
 	// Type is the entity type (e.g. "requirement", "decision"). Required.
 	Type string
-	// ID is the entity identifier in PREFIX-NNN form. Required.
+	// ID is the entity identifier in PREFIX-NNN form. Optional; when empty it is
+	// auto-generated from Type using the next available number for that type.
 	ID string
 	// Title is the human-readable title. Required.
 	Title string
@@ -160,17 +161,25 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if req.Type == "" || req.ID == "" || req.Title == "" {
-		return model.Entity{}, newError(CodeInvalidInput, "type, id, and title are required", nil)
+	if req.Type == "" || req.Title == "" {
+		return model.Entity{}, newError(CodeInvalidInput, "type and title are required", nil)
 	}
 
 	et := model.EntityType(req.Type)
-	if err := model.ValidateEntityID(req.ID, et); err != nil {
+
+	id := req.ID
+	if id == "" {
+		generated, err := e.nextEntityID(et)
+		if err != nil {
+			return model.Entity{}, err
+		}
+		id = generated
+	} else if err := model.ValidateEntityID(id, et); err != nil {
 		return model.Entity{}, newError(CodeInvalidInput, err.Error(), err)
 	}
 
-	if e.store.EntityExists(req.ID, et) {
-		return model.Entity{}, newError(CodeConflict, fmt.Sprintf("entity %q already exists", req.ID), nil)
+	if e.store.EntityExists(id, et) {
+		return model.Entity{}, newError(CodeConflict, fmt.Sprintf("entity %q already exists", id), nil)
 	}
 
 	status := model.EntityStatusDraft
@@ -179,7 +188,7 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 	}
 
 	schema := spectoml.DefaultSchema()
-	if err := schema.ValidateEntity(req.ID, string(et), string(status)); err != nil {
+	if err := schema.ValidateEntity(id, string(et), string(status)); err != nil {
 		return model.Entity{}, newError(CodeInvalidInput, err.Error(), err)
 	}
 
@@ -193,7 +202,7 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 	now := time.Now()
 	ef := &spectoml.EntityFile{
 		Schema:      1,
-		ID:          req.ID,
+		ID:          id,
 		Type:        et,
 		Title:       req.Title,
 		Description: req.Description,
@@ -204,7 +213,7 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 	}
 
 	if err := e.store.WriteEntity(ef); err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", req.ID), err)
+		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", id), err)
 	}
 
 	if _, err := e.syncer.EnsureFresh(); err != nil {
@@ -213,9 +222,59 @@ func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (mod
 
 	entity, err := ef.ToEntity()
 	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), err)
+		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", id), err)
 	}
 	return entity, nil
+}
+
+// nextEntityID derives the next available ID for et by scanning existing
+// entities of that type in the TOML store (the source of truth). It follows the
+// dominant numbering format: if any existing ID is zero-padded it pads new IDs
+// to the widest observed width, otherwise it emits unpadded IDs. A collision
+// guard increments past any ID already present on disk.
+func (e *Engine) nextEntityID(et model.EntityType) (string, error) {
+	prefix, ok := model.TypePrefixMap[et]
+	if !ok {
+		return "", newError(CodeInvalidInput, fmt.Sprintf("unknown entity type %q", et), nil)
+	}
+
+	files, err := e.store.ListEntities()
+	if err != nil {
+		return "", newError(CodeRuntime, "scan existing entities for ID generation", err)
+	}
+
+	maxNum := 0
+	width := 1
+	padded := false
+	for i := range files {
+		p, num, w, ok := model.ParseEntityID(files[i].ID)
+		if !ok || p != prefix {
+			continue
+		}
+		if num > maxNum {
+			maxNum = num
+		}
+		if w > 1 {
+			padded = true
+			if w > width {
+				width = w
+			}
+		}
+	}
+
+	next := maxNum + 1
+	for {
+		var id string
+		if padded {
+			id = fmt.Sprintf("%s-%0*d", prefix, width, next)
+		} else {
+			id = fmt.Sprintf("%s-%d", prefix, next)
+		}
+		if !e.store.EntityExists(id, et) {
+			return id, nil
+		}
+		next++
+	}
 }
 
 // GetEntity returns the entity with the given ID. It returns a not-found error

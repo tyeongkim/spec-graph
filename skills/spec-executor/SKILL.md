@@ -193,6 +193,8 @@ This step is informational. It does not block implementation.
 
 As implementation reveals new artifacts, register them:
 
+> **Note**: `--id` is now optional for single creates (auto-generated, capture from `.entity.id` via `jq -r '.entity.id'`). The examples below use explicit `--id` because they cross-reference IDs in the immediately following `relation add` commands. For one-off creates where you don't need the ID in the same script block, omit `--id` and capture the returned value.
+
 ```bash
 # Query first — avoid duplicates
 spec-graph entity list --type interface --layer arch

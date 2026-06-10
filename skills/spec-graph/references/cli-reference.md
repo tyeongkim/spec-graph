@@ -86,25 +86,34 @@ Fails with exit 1 if already initialized.
 ```bash
 spec-graph entity add \
   --type <TYPE> \
-  --id <PREFIX-NNN> \
   --title "Title" \
+  [--id <PREFIX-NNN>] \
   [--description "Description"] \
   [--status draft|active] \
   [--metadata '{"key":"value"}']
 ```
 
 - `--type`: requirement, decision, plan, phase, interface, state, test, crosscut, question, assumption, criterion, risk
-- `--id`: type prefix + number. e.g. REQ-001, DEC-003, PLN-001, PHS-002
+- `--id`: optional. Type prefix + number (e.g. REQ-001, DEC-003). When omitted, auto-generated from `--type` using `MAX(existing number)+1`. Generated ID is returned in `.entity.id` of the JSON response. Format: unpadded (`REQ-1`, `REQ-2`) for fresh graphs; follows existing zero-padding if padded IDs already exist (e.g. after `REQ-001`, next auto is `REQ-002`). Counters are per-type and independent. Manual `--id` is still validated (prefix must match type) and auto-gen respects manually-set numbers.
 - `--status`: defaults to `draft`
 - `--metadata`: type-specific required fields — see `references/data-model.md`
 
 **Examples**:
 ```bash
-spec-graph entity add --type requirement --id REQ-001 \
+# Auto-generated ID (capture returned id for subsequent commands)
+spec-graph entity add --type requirement \
   --title "All APIs require authentication" \
   --description "No anonymous access allowed" \
   --metadata '{"priority":"must","kind":"functional","owner":"auth-team"}'
+# → returns {"entity":{"id":"REQ-1", ...}}
 
+# Capture the generated ID for use in relation commands
+REQ_ID=$(spec-graph entity add --type requirement \
+  --title "Payments must be idempotent" \
+  --metadata '{"priority":"must","kind":"non_functional"}' | jq -r '.entity.id')
+spec-graph relation add --from PHS-001 --to "$REQ_ID" --type covers
+
+# Explicit ID (recommended for batch/cross-referencing workflows)
 spec-graph entity add --type plan --id PLN-001 \
   --title "v1 Delivery Plan" \
   --metadata '{"status":"active"}'

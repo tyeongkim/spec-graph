@@ -166,7 +166,8 @@ spec-graph init --path /custom/path
 
 ### Entity CRUD
 ```bash
-spec-graph entity add --type <TYPE> --id <ID> --title "..." [--description "..."] [--metadata '{}']
+spec-graph entity add --type <TYPE> --title "..." [--id <ID>] [--description "..."] [--metadata '{}']
+# --id is optional. When omitted, auto-generated (MAX+1 for that type). Capture returned .entity.id via jq -r '.entity.id'.
 spec-graph entity get <ID>
 spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapping|all]
 spec-graph entity update <ID> --title "..."
@@ -334,6 +335,8 @@ This section is the heart of this skill. Agents follow these patterns.
 
 Create a plan, add phases to it, and wire up the mapping:
 
+> **Note**: This pattern uses explicit `--id` because it's a batch/cross-referencing flow where IDs are referenced before all entities exist. For single interactive creates, you can omit `--id` and capture the auto-generated ID from `.entity.id` (via `jq -r '.entity.id'`).
+
 ```bash
 # 1. Create the plan (only one active plan allowed)
 spec-graph entity add --type plan --id PLN-001 \
@@ -489,6 +492,8 @@ over-broad relations is worse than one that fails a check with an honest gap.
 ### Pattern 5: Adding a Requirement
 
 Typical flow for adding a new requirement and wiring it into the graph:
+
+> **Tip**: For a single ad-hoc requirement, you can omit `--id` and capture the returned ID: `REQ_ID=$(spec-graph entity add --type requirement --title "..." --metadata '...' | jq -r '.entity.id')`. The example below uses explicit IDs for clarity.
 
 ```bash
 # 1. Create requirement
@@ -656,6 +661,7 @@ Key fields in `impact` JSON output:
 - Entity timestamps (`created_at`, `updated_at`) are stored in TOML and populated automatically on create/update.
 - After `git merge` with conflicts in TOML files, run `spec-graph doctor` to validate integrity.
 - The SQLite index is rebuilt automatically on each command if TOML files changed. No manual sync needed.
+- Auto-generated IDs use `MAX(existing number)+1` per type. If an entity is deleted and its number was the highest, the next auto-gen may reuse that number. IDs are not stably unique across deletes. (Delete is rare and refused while relations reference the entity.)
 
 ## Anti-Patterns
 

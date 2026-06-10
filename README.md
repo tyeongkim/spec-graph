@@ -24,12 +24,15 @@ make build
 # Initialize project
 spec-graph init
 
-# Add entities
-spec-graph entity add --type requirement --id REQ-001 --title "User authentication"
-spec-graph entity add --type decision --id DEC-001 --title "Adopt JWT"
+# Add entities (--id is optional; auto-generated when omitted)
+spec-graph entity add --type requirement --title "User authentication"
+# → {"entity":{"id":"REQ-1", ...}}
 
-# Add relation
-spec-graph relation add --from DEC-001 --to REQ-001 --type implements
+spec-graph entity add --type decision --title "Adopt JWT"
+# → {"entity":{"id":"DEC-1", ...}}
+
+# Use the returned IDs in relations
+spec-graph relation add --from DEC-1 --to REQ-1 --type implements
 
 # Export graph
 spec-graph export --format mermaid

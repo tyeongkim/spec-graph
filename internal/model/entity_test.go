@@ -174,6 +174,43 @@ func TestValidateEntityID(t *testing.T) {
 	}
 }
 
+func TestParseEntityID(t *testing.T) {
+	tests := []struct {
+		name      string
+		id        string
+		wantOK    bool
+		wantPref  string
+		wantNum   int
+		wantWidth int
+	}{
+		{"unpadded", "REQ-1", true, "REQ", 1, 1},
+		{"padded width 3", "REQ-001", true, "REQ", 1, 3},
+		{"padded high", "REQ-042", true, "REQ", 42, 3},
+		{"wide number", "REQ-1000", true, "REQ", 1000, 4},
+		{"other prefix", "DEC-7", true, "DEC", 7, 1},
+		{"empty", "", false, "", 0, 0},
+		{"no number", "REQ-", false, "", 0, 0},
+		{"no dash", "REQ001", false, "", 0, 0},
+		{"letters after dash", "REQ-AB", false, "", 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix, num, width, ok := ParseEntityID(tt.id)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v; want %v", ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if prefix != tt.wantPref || num != tt.wantNum || width != tt.wantWidth {
+				t.Errorf("ParseEntityID(%q) = (%q, %d, %d); want (%q, %d, %d)",
+					tt.id, prefix, num, width, tt.wantPref, tt.wantNum, tt.wantWidth)
+			}
+		})
+	}
+}
+
 func TestEntityStruct(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	meta := json.RawMessage(`{"priority":"must"}`)

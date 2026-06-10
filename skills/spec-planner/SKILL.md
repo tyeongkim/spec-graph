@@ -127,6 +127,8 @@ spec-graph entity update PLN-XXX --status deprecated
 
 Register extracted entities. Query before creating to avoid duplicates.
 
+> **Note**: `--id` is now optional for single creates (auto-generated, capture from `.entity.id`). However, this batch planning workflow uses explicit `--id` so that IDs can be cross-referenced in subsequent `relation add` commands within the same pass. Keep explicit IDs here.
+
 ```bash
 # Check existing
 spec-graph entity list --type requirement --layer arch
