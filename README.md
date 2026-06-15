@@ -1,6 +1,6 @@
 # spec-graph
 
-CLI tool for managing software specifications as a typed graph. Track entities (requirements, decisions, interfaces, phases, etc.) and their relations in a SQLite-backed graph with built-in impact analysis, validation, and visualization.
+CLI tool for managing software specifications as a typed graph. Track entities (requirements, decisions, interfaces, phases, etc.) and their relations in a TOML-file-backed graph with built-in impact analysis, validation, and export.
 
 > This tool is designed to be operated by AI agents, not humans. All commands output structured JSON for machine consumption. Human-friendly formatting is not a goal.
 
@@ -24,17 +24,17 @@ make build
 # Initialize project
 spec-graph init
 
-# Add entities (--id is optional; auto-generated when omitted)
-spec-graph entity add --type requirement --title "User authentication"
+# Add entities
+spec-graph entity add --type requirement --id REQ-1 --title "User authentication"
 # → {"entity":{"id":"REQ-1", ...}}
 
-spec-graph entity add --type decision --title "Adopt JWT"
+spec-graph entity add --type decision --id DEC-1 --title "Adopt JWT"
 # → {"entity":{"id":"DEC-1", ...}}
 
-# Use the returned IDs in relations
-spec-graph relation add --from DEC-1 --to REQ-1 --type implements
+# Add relations between entities
+spec-graph relation add --from DEC-1 --to REQ-1 --type depends_on
 
-# Export graph
+# Export graph (dot, mermaid, json)
 spec-graph export --format mermaid
 ```
 
