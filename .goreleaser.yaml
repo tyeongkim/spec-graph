@@ -70,7 +70,9 @@ release:
     **Full Changelog**: https://github.com/tyeongkim/spec-graph/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 homebrew_casks:
+  # Stable cask: updated only on full releases. Skipped for prereleases (e.g. -beta).
   - name: spec-graph
+    skip_upload: auto
     repository:
       owner: tyeongkim
       name: homebrew-tap
@@ -85,3 +87,21 @@ homebrew_casks:
       post:
         install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]'
     commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"
+
+  # Beta cask: updated only on prereleases. Installed via `brew install tyeongkim/tap/spec-graph@beta`.
+  - name: spec-graph@beta
+    skip_upload: '{{ if .Prerelease }}false{{ else }}true{{ end }}'
+    repository:
+      owner: tyeongkim
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    url:
+      template: "https://github.com/tyeongkim/spec-graph/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    homepage: https://github.com/tyeongkim/spec-graph
+    description: Typed specification graph CLI for managing requirements, decisions, and phases (beta channel)
+    binaries:
+      - spec-graph
+    hooks:
+      post:
+        install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]'
+    commit_msg_template: "Update {{ .ProjectName }} (beta) to {{ .Tag }}"
