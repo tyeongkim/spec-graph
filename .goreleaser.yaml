@@ -66,6 +66,7 @@ changelog:
 
 release:
   name_template: "v{{ .Version }}"
+  prerelease: auto
   footer: |
     **Full Changelog**: https://github.com/tyeongkim/spec-graph/compare/{{ .PreviousTag }}...{{ .Tag }}
 
