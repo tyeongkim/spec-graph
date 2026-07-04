@@ -34,9 +34,12 @@ type ImpactRequest struct {
 func (e *Engine) Impact(ctx context.Context, req ImpactRequest) (*graph.ImpactResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*graph.ImpactResult, error) {
+		return e.impactLocked(req)
+	})
+}
 
+func (e *Engine) impactLocked(req ImpactRequest) (*graph.ImpactResult, error) {
 	if len(req.Sources) == 0 {
 		return nil, newError(CodeInvalidInput, "at least one source is required", nil)
 	}

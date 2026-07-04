@@ -158,9 +158,12 @@ func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (model.Entity, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (model.Entity, error) {
+		return e.createEntityLocked(req)
+	})
+}
 
+func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, error) {
 	if req.Type == "" || req.Title == "" {
 		return model.Entity{}, newError(CodeInvalidInput, "type and title are required", nil)
 	}
@@ -283,9 +286,12 @@ func (e *Engine) nextEntityID(et model.EntityType) (string, error) {
 func (e *Engine) GetEntity(ctx context.Context, id string) (model.Entity, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (model.Entity, error) {
+		return e.getEntityLocked(id)
+	})
+}
 
+func (e *Engine) getEntityLocked(id string) (model.Entity, error) {
 	rec, err := e.idx.GetEntity(id)
 	if err != nil {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
@@ -313,9 +319,16 @@ func (e *Engine) GetEntity(ctx context.Context, id string) (model.Entity, error)
 func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]model.Entity, int, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	entities, err := readLocked(e, func() ([]model.Entity, error) {
+		return e.listEntitiesLocked(req)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return entities, len(entities), nil
+}
 
+func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, error) {
 	var filters index.EntityFilters
 	if req.Type != "" {
 		filters.Type = req.Type
@@ -329,7 +342,7 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 
 	records, err := e.idx.ListEntities(filters)
 	if err != nil {
-		return nil, 0, newError(CodeRuntime, "list entities", err)
+		return nil, newError(CodeRuntime, "list entities", err)
 	}
 
 	entities := make([]model.Entity, 0, len(records))
@@ -337,16 +350,16 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 		et := model.EntityType(rec.Type)
 		ef, err := e.store.ReadEntity(rec.ID, et)
 		if err != nil {
-			return nil, 0, newError(CodeRuntime, fmt.Sprintf("read entity %q", rec.ID), err)
+			return nil, newError(CodeRuntime, fmt.Sprintf("read entity %q", rec.ID), err)
 		}
 		entity, err := ef.ToEntity()
 		if err != nil {
-			return nil, 0, newError(CodeRuntime, fmt.Sprintf("convert entity %q", rec.ID), err)
+			return nil, newError(CodeRuntime, fmt.Sprintf("convert entity %q", rec.ID), err)
 		}
 		entities = append(entities, entity)
 	}
 
-	return entities, len(entities), nil
+	return entities, nil
 }
 
 // UpdateEntity applies a partial update to an existing entity. Pointer fields
@@ -358,9 +371,12 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (UpdateEntityResult, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (UpdateEntityResult, error) {
+		return e.updateEntityLocked(req)
+	})
+}
 
+func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult, error) {
 	rec, err := e.idx.GetEntity(req.ID)
 	if err != nil {
 		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", req.ID), err)
@@ -455,9 +471,12 @@ func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (Upd
 func (e *Engine) DeprecateEntity(ctx context.Context, id string) (model.Entity, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (model.Entity, error) {
+		return e.deprecateEntityLocked(id)
+	})
+}
 
+func (e *Engine) deprecateEntityLocked(id string) (model.Entity, error) {
 	rec, err := e.idx.GetEntity(id)
 	if err != nil {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
@@ -497,9 +516,12 @@ func (e *Engine) DeprecateEntity(ctx context.Context, id string) (model.Entity, 
 func (e *Engine) DeleteEntity(ctx context.Context, id string) error {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLockedErr(e, func() error {
+		return e.deleteEntityLocked(id)
+	})
+}
 
+func (e *Engine) deleteEntityLocked(id string) error {
 	relations, err := e.idx.GetRelationsByEntity(id)
 	if err != nil {
 		return newError(CodeRuntime, fmt.Sprintf("check relations for %q", id), err)

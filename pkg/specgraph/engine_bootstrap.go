@@ -59,9 +59,12 @@ type BootstrapErrorItem struct {
 func (e *Engine) BootstrapImport(ctx context.Context, req BootstrapImportRequest) (BootstrapImportResult, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (BootstrapImportResult, error) {
+		return e.bootstrapImportLocked(req)
+	})
+}
 
+func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImportResult, error) {
 	var result BootstrapImportResult
 
 	for _, c := range req.Entities {

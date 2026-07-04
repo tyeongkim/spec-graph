@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
@@ -123,7 +122,7 @@ func TestEngineOpenClose(t *testing.T) {
 		}()
 	})
 
-	t.Run("lock exclusivity", func(t *testing.T) {
+	t.Run("concurrent opens coexist", func(t *testing.T) {
 		t.Parallel()
 
 		root := newInitializedRoot(t)
@@ -132,55 +131,53 @@ func TestEngineOpenClose(t *testing.T) {
 		if err != nil {
 			t.Fatalf("first Open returned unexpected error: %v", err)
 		}
+		defer first.Close()
 
-		// openResult carries the outcome of the second, contending Open.
-		type openResult struct {
-			eng *specgraph.Engine
-			err error
+		second, err := specgraph.Open(context.Background(), specgraph.Options{Root: root})
+		if err != nil {
+			t.Fatalf("second Open must succeed now that the lock is per-operation, got: %v", err)
 		}
-		done := make(chan openResult, 1)
+		defer second.Close()
 
-		go func() {
-			eng, openErr := specgraph.Open(context.Background(), specgraph.Options{Root: root})
-			done <- openResult{eng: eng, err: openErr}
-		}()
+		if _, _, err := first.ListEntities(context.Background(), specgraph.ListEntitiesRequest{}); err != nil {
+			t.Errorf("first engine operation failed: %v", err)
+		}
+		if _, _, err := second.ListEntities(context.Background(), specgraph.ListEntitiesRequest{}); err != nil {
+			t.Errorf("second engine operation failed: %v", err)
+		}
+	})
 
-		// While the first Engine holds the lock, the second Open must not
-		// complete: the exclusive lock should either block it or keep it from
-		// returning a usable Engine.
-		select {
-		case res := <-done:
-			if res.err == nil {
-				if res.eng != nil {
-					_ = res.eng.Close()
-				}
-				_ = first.Close()
-				t.Fatal("second Open succeeded while the first Engine held the lock")
-			}
-			// A non-nil error here (rather than blocking) is also an acceptable
-			// way to enforce exclusivity, so the test continues.
-		case <-time.After(200 * time.Millisecond):
-			// Expected: the second Open is blocked on the exclusive lock.
+	t.Run("cross-process write is visible to a second engine", func(t *testing.T) {
+		t.Parallel()
+
+		root := newInitializedRoot(t)
+
+		writer, err := specgraph.Open(context.Background(), specgraph.Options{Root: root})
+		if err != nil {
+			t.Fatalf("writer Open: %v", err)
+		}
+		defer writer.Close()
+
+		reader, err := specgraph.Open(context.Background(), specgraph.Options{Root: root})
+		if err != nil {
+			t.Fatalf("reader Open: %v", err)
+		}
+		defer reader.Close()
+
+		created, err := writer.CreateEntity(context.Background(), specgraph.CreateEntityRequest{
+			Type:  "requirement",
+			Title: "Cross-process visible",
+		})
+		if err != nil {
+			t.Fatalf("writer CreateEntity: %v", err)
 		}
 
-		// Releasing the first lock must let the contending Open proceed.
-		if closeErr := first.Close(); closeErr != nil {
-			t.Errorf("Close of first Engine returned unexpected error: %v", closeErr)
+		got, err := reader.GetEntity(context.Background(), created.ID)
+		if err != nil {
+			t.Fatalf("reader GetEntity after cross-engine write: %v", err)
 		}
-
-		select {
-		case res := <-done:
-			if res.err != nil {
-				t.Fatalf("second Open failed after first was closed: %v", res.err)
-			}
-			if res.eng == nil {
-				t.Fatal("second Open returned nil Engine without an error")
-			}
-			if closeErr := res.eng.Close(); closeErr != nil {
-				t.Errorf("Close of second Engine returned unexpected error: %v", closeErr)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("second Open did not complete after the first Engine was closed")
+		if got.ID != created.ID {
+			t.Errorf("reader saw entity %q; want %q", got.ID, created.ID)
 		}
 	})
 }

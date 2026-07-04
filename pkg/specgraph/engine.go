@@ -2,13 +2,15 @@ package specgraph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	stdsync "sync"
+	"time"
 
-	"github.com/tyeongkim/spec-graph/internal/flock"
 	"github.com/tyeongkim/spec-graph/internal/index"
+	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/internal/sync"
 	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
@@ -17,6 +19,9 @@ import (
 type Options struct {
 	// Root is the path to the .spec-graph/ directory of the project.
 	Root string
+	// LockTimeout bounds how long each operation waits for the cross-process
+	// file lock before returning a conflict error. Zero uses a default.
+	LockTimeout time.Duration
 }
 
 // Engine is the single entry point for operating on a spec-graph project. It
@@ -34,7 +39,8 @@ type Engine struct {
 	store  *spectoml.Store
 	idx    *index.Index
 	syncer *sync.Syncer
-	unlock func()
+	lock   *lockManager
+	closed bool
 	// mu guards all operations against concurrent access. Exported methods
 	// acquire it (RLock for reads, Lock for writes); unexported helpers run
 	// under an already-held lock and must not acquire it themselves.
@@ -64,51 +70,97 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 		)
 	}
 
-	unlock, err := flock.Lock(filepath.Join(root, ".lock"))
-	if err != nil {
-		return nil, newError(CodeConflict, fmt.Sprintf("acquire lock at %q", root), err)
-	}
-
 	store := spectoml.NewStore(root)
 
 	idx, err := index.Open(filepath.Join(root, "graph.db"))
 	if err != nil {
-		unlock()
 		return nil, newError(CodeRuntime, fmt.Sprintf("open index at %q", root), err)
 	}
 
 	syncer := sync.NewSyncer(store, idx, root)
 
-	if _, err := syncer.EnsureFresh(); err != nil {
+	lockPath := filepath.Join(root, ".lock")
+	if err := withInitialLock(lockPath, opts.LockTimeout, func() error {
+		_, syncErr := syncer.EnsureFresh()
+		return syncErr
+	}); err != nil {
 		_ = idx.Close()
-		unlock()
+		if isLockTimeout(err) {
+			return nil, newError(CodeConflict, fmt.Sprintf("another spec-graph process holds the lock at %q", root), err)
+		}
 		return nil, newError(CodeRuntime, fmt.Sprintf("sync index at %q", root), err)
 	}
 
-	return &Engine{
+	eng := &Engine{
 		root:   root,
 		store:  store,
 		idx:    idx,
 		syncer: syncer,
-		unlock: unlock,
-	}, nil
+	}
+	eng.lock = newLockManager(lockPath, opts.LockTimeout, eng.onLockAcquired)
+	return eng, nil
 }
 
-// Close releases the resources held by the Engine: it closes the SQLite index
-// and releases the exclusive file lock. It returns any error encountered while
-// closing the index. Close is safe to call multiple times; subsequent calls are
-// no-ops. Close does not accept a context.
+// onLockAcquired runs at the 0->1 lock transition. With the file lock freshly
+// held and no other in-process operation active, it reconciles the index with
+// any changes another process made while this process held no lock: it reopens
+// the database if the file was replaced, then rebuilds if the TOML fingerprint
+// changed.
+func (e *Engine) onLockAcquired() error {
+	if _, err := e.idx.RefreshIfReplaced(); err != nil {
+		return newError(CodeRuntime, "refresh index handle", err)
+	}
+	if _, err := e.syncer.EnsureFresh(); err != nil {
+		return newError(CodeRuntime, "sync index", err)
+	}
+	return nil
+}
+
+// Close releases the resources held by the Engine by closing the SQLite index.
+// The cross-process file lock is no longer held across the Engine lifetime; it
+// is acquired and released per operation, so Close only needs to close the
+// index. Close is safe to call multiple times; subsequent calls are no-ops.
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.unlock == nil {
+	if e.closed {
 		return nil
 	}
-	err := e.idx.Close()
-	e.unlock()
-	e.unlock = nil
-	return err
+	e.closed = true
+	return e.idx.Close()
+}
+
+// writeLocked runs fn as a write operation. It takes the cross-process file
+// lock (refreshing the index if another process changed it), then the
+// in-process write lock, guaranteeing both cross-process and in-process
+// exclusivity for the mutation before invoking fn.
+func writeLocked[T any](e *Engine, fn func() (T, error)) (T, error) {
+	var zero T
+	if err := e.lock.acquire(); err != nil {
+		return zero, conflictFromLock(e.root, err)
+	}
+	defer e.lock.release()
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return fn()
+}
+
+// readLocked runs fn as a read operation. It takes the cross-process file lock
+// (refreshing the index if another process changed it), then the in-process
+// read lock, allowing concurrent in-process readers while excluding other
+// processes, before invoking fn.
+func readLocked[T any](e *Engine, fn func() (T, error)) (T, error) {
+	var zero T
+	if err := e.lock.acquire(); err != nil {
+		return zero, conflictFromLock(e.root, err)
+	}
+	defer e.lock.release()
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return fn()
 }
 
 // Root returns the path to the .spec-graph/ directory.
@@ -116,18 +168,101 @@ func (e *Engine) Root() string {
 	return e.root
 }
 
-// Index returns the underlying SQLite index for low-level read operations.
-// Callers must not close the index directly.
-func (e *Engine) Index() *index.Index {
-	return e.idx
+// Fingerprint returns the content-based fingerprint of the TOML source files.
+// It is a locked read operation used by diagnostics to detect index staleness.
+func (e *Engine) Fingerprint() (string, error) {
+	return readLocked(e, func() (string, error) {
+		v, ferr := e.syncer.ComputeFingerprint()
+		if ferr != nil {
+			return "", newError(CodeRuntime, "compute fingerprint", ferr)
+		}
+		return v, nil
+	})
 }
 
-// Syncer returns the underlying syncer for low-level operations.
-func (e *Engine) Syncer() *sync.Syncer {
-	return e.syncer
+// IndexMeta returns a metadata value stored in the index. It is a locked read
+// operation used by diagnostics.
+func (e *Engine) IndexMeta(key string) (string, error) {
+	return readLocked(e, func() (string, error) {
+		v, merr := e.idx.GetMeta(key)
+		if merr != nil {
+			return "", newError(CodeRuntime, fmt.Sprintf("get index meta %q", key), merr)
+		}
+		return v, nil
+	})
 }
 
-// Store returns the underlying TOML store for low-level operations.
-func (e *Engine) Store() *spectoml.Store {
-	return e.store
+// RelationsByEntity returns all relations referencing the given entity. It is a
+// locked read operation exposed for callers that need relation adjacency
+// without going through a higher-level query.
+func (e *Engine) RelationsByEntity(entityID string) ([]model.Relation, error) {
+	return readLocked(e, func() ([]model.Relation, error) {
+		recs, rerr := e.idx.GetRelationsByEntity(entityID)
+		if rerr != nil {
+			return nil, newError(CodeRuntime, fmt.Sprintf("relations by entity %q", entityID), rerr)
+		}
+		rels := make([]model.Relation, len(recs))
+		for i := range recs {
+			rec := &recs[i]
+			rels[i] = model.Relation{
+				FromID:   rec.FromID,
+				ToID:     rec.ToID,
+				Type:     model.RelationType(rec.Type),
+				Layer:    model.Layer(rec.Layer),
+				Weight:   rec.Weight,
+				Metadata: json.RawMessage(rec.Metadata),
+			}
+		}
+		return rels, nil
+	})
+}
+
+// RawQueryResult holds the column names and row maps of a raw SQL query.
+type RawQueryResult struct {
+	Columns []string
+	Rows    []map[string]any
+}
+
+// RawQuery runs a read-only SQL query against the index under the read lock and
+// returns the column names and rows as maps keyed by column name. Byte-slice
+// column values are normalized to strings for stable JSON encoding. The caller
+// is responsible for ensuring the query is a read-only SELECT.
+func (e *Engine) RawQuery(ctx context.Context, query string) (*RawQueryResult, error) {
+	return readLocked(e, func() (*RawQueryResult, error) {
+		rows, qerr := e.idx.DB().QueryContext(ctx, query)
+		if qerr != nil {
+			return nil, newError(CodeRuntime, "query execution", qerr)
+		}
+		defer rows.Close()
+
+		columns, cerr := rows.Columns()
+		if cerr != nil {
+			return nil, newError(CodeRuntime, "read columns", cerr)
+		}
+
+		result := &RawQueryResult{Columns: columns, Rows: []map[string]any{}}
+		for rows.Next() {
+			vals := make([]any, len(columns))
+			ptrs := make([]any, len(columns))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if serr := rows.Scan(ptrs...); serr != nil {
+				return nil, newError(CodeRuntime, "scan row", serr)
+			}
+			row := make(map[string]any, len(columns))
+			for i, col := range columns {
+				if b, ok := vals[i].([]byte); ok {
+					row[col] = string(b)
+				} else {
+					row[col] = vals[i]
+				}
+			}
+			result.Rows = append(result.Rows, row)
+		}
+		if rerr := rows.Err(); rerr != nil {
+			return nil, newError(CodeRuntime, "iterate rows", rerr)
+		}
+		return result, nil
+	})
 }

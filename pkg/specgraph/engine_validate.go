@@ -31,9 +31,12 @@ type ValidateRequest struct {
 func (e *Engine) Validate(ctx context.Context, req ValidateRequest) (*validate.ValidateResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*validate.ValidateResult, error) {
+		return e.validateLocked(req)
+	})
+}
 
+func (e *Engine) validateLocked(req ValidateRequest) (*validate.ValidateResult, error) {
 	var phase *string
 	if req.Phase != "" {
 		p := req.Phase

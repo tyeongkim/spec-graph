@@ -86,9 +86,12 @@ func (f *engineGraphEntityFetcher) List(filters graph.EntityListFilters) ([]mode
 func (e *Engine) QueryScope(ctx context.Context, req QueryScopeRequest) (*graph.QueryScopeResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*graph.QueryScopeResult, error) {
+		return e.queryScopeLocked(req)
+	})
+}
 
+func (e *Engine) queryScopeLocked(req QueryScopeRequest) (*graph.QueryScopeResult, error) {
 	if req.PhaseID == "" {
 		return nil, newError(CodeInvalidInput, "phase id is required", nil)
 	}
@@ -113,9 +116,12 @@ func (e *Engine) QueryScope(ctx context.Context, req QueryScopeRequest) (*graph.
 func (e *Engine) QueryNeighbors(ctx context.Context, req QueryNeighborsRequest) (*graph.NeighborResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*graph.NeighborResult, error) {
+		return e.queryNeighborsLocked(req)
+	})
+}
 
+func (e *Engine) queryNeighborsLocked(req QueryNeighborsRequest) (*graph.NeighborResult, error) {
 	if req.EntityID == "" {
 		return nil, newError(CodeInvalidInput, "entity id is required", nil)
 	}
@@ -136,9 +142,12 @@ func (e *Engine) QueryNeighbors(ctx context.Context, req QueryNeighborsRequest) 
 func (e *Engine) QueryPath(ctx context.Context, req QueryPathRequest) (*graph.QueryPathResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*graph.QueryPathResult, error) {
+		return e.queryPathLocked(req)
+	})
+}
 
+func (e *Engine) queryPathLocked(req QueryPathRequest) (*graph.QueryPathResult, error) {
 	if req.FromID == "" || req.ToID == "" {
 		return nil, newError(CodeInvalidInput, "from and to ids are required", nil)
 	}
@@ -164,9 +173,12 @@ func (e *Engine) QueryPath(ctx context.Context, req QueryPathRequest) (*graph.Qu
 func (e *Engine) QueryUnresolved(ctx context.Context, req QueryUnresolvedRequest) (*graph.QueryUnresolvedResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*graph.QueryUnresolvedResult, error) {
+		return e.queryUnresolvedLocked(req)
+	})
+}
 
+func (e *Engine) queryUnresolvedLocked(req QueryUnresolvedRequest) (*graph.QueryUnresolvedResult, error) {
 	var typ *model.EntityType
 	if req.Type != "" {
 		t := model.EntityType(req.Type)

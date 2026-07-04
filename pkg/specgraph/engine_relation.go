@@ -62,9 +62,12 @@ func isValidRelationType(rt model.RelationType) bool {
 func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model.Relation, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (model.Relation, error) {
+		return e.addRelationLocked(req)
+	})
+}
 
+func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, error) {
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return model.Relation{}, newError(CodeInvalidInput, "from, to, and type are required", nil)
 	}
@@ -185,9 +188,16 @@ func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model
 func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([]model.Relation, int, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	relations, err := readLocked(e, func() ([]model.Relation, error) {
+		return e.listRelationsLocked(req)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return relations, len(relations), nil
+}
 
+func (e *Engine) listRelationsLocked(req ListRelationsRequest) ([]model.Relation, error) {
 	var filters index.RelationFilters
 	if req.From != "" {
 		filters.FromID = req.From
@@ -204,7 +214,7 @@ func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([
 
 	records, err := e.idx.ListRelations(filters)
 	if err != nil {
-		return nil, 0, newError(CodeRuntime, "list relations", err)
+		return nil, newError(CodeRuntime, "list relations", err)
 	}
 
 	relations := make([]model.Relation, 0, len(records))
@@ -219,7 +229,7 @@ func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([
 		})
 	}
 
-	return relations, len(relations), nil
+	return relations, nil
 }
 
 // DeleteRelation removes a relation between two entities. It validates the
@@ -231,9 +241,12 @@ func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([
 func (e *Engine) DeleteRelation(ctx context.Context, req DeleteRelationRequest) error {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLockedErr(e, func() error {
+		return e.deleteRelationLocked(req)
+	})
+}
 
+func (e *Engine) deleteRelationLocked(req DeleteRelationRequest) error {
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return newError(CodeInvalidInput, "from, to, and type are required", nil)
 	}

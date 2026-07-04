@@ -57,9 +57,12 @@ type enginePhaseInfo struct {
 func (e *Engine) PhaseNext(ctx context.Context, req PhaseNextRequest) (PhaseNextResult, error) {
 	_ = ctx
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return writeLocked(e, func() (PhaseNextResult, error) {
+		return e.phaseNextLocked(req)
+	})
+}
 
+func (e *Engine) phaseNextLocked(req PhaseNextRequest) (PhaseNextResult, error) {
 	activePlanID, err := e.findActivePlan()
 	if err != nil {
 		return PhaseNextResult{}, err

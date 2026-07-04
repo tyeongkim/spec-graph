@@ -42,9 +42,12 @@ type ExportResult struct {
 func (e *Engine) Export(ctx context.Context, req ExportRequest) (*ExportResult, error) {
 	_ = ctx
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	return readLocked(e, func() (*ExportResult, error) {
+		return e.exportLocked(req)
+	})
+}
 
+func (e *Engine) exportLocked(req ExportRequest) (*ExportResult, error) {
 	switch req.Format {
 	case "json", "dot", "mermaid":
 	default:
