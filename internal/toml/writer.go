@@ -139,9 +139,26 @@ func formatValue(v any) string {
 			return "true"
 		}
 		return "false"
+	case nil:
+		// TOML has no null type. Represent JSON null as an empty string so the
+		// key is preserved on round-trip rather than silently dropped.
+		return tomlQuote("")
+	case map[string]any:
+		return formatInlineTable(val)
+	case []any:
+		return formatInlineArray(val)
 	default:
 		return tomlQuote(fmt.Sprint(v))
 	}
+}
+
+// formatInlineArray renders a slice as a TOML inline array, preserving element order.
+func formatInlineArray(a []any) string {
+	parts := make([]string, 0, len(a))
+	for _, item := range a {
+		parts = append(parts, formatValue(item))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 func formatFloat(f float64) string {

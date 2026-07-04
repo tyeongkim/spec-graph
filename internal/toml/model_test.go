@@ -239,6 +239,88 @@ func TestEntityFileFrom_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestEntityFileFrom_NestedMetadataRoundTrip(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata string
+	}{
+		{
+			name:     "array of objects (the PHS-068 corruption case)",
+			metadata: `{"goal":"ship it","order":1,"tasks":[{"id":"T1","agent":"quick","files":["a.ts","b.ts"]},{"id":"T2","agent":"deep","files":["c.ts"]}]}`,
+		},
+		{
+			name:     "array of strings (the exit_criteria case)",
+			metadata: `{"exit_criteria":["engine.go exists","all tests pass","builds cleanly"]}`,
+		},
+		{
+			name:     "deeply nested object",
+			metadata: `{"parallelization":{"groups":[{"name":"g1","task_ids":["T1","T2"]}],"max_concurrent":3}}`,
+		},
+		{
+			name:     "mixed scalar and nested",
+			metadata: `{"count":5,"enabled":true,"ratio":0.75,"labels":["x","y"],"config":{"retries":3}}`,
+		},
+		{
+			name:     "empty array and empty object",
+			metadata: `{"empty_list":[],"empty_obj":{}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entity := model.Entity{
+				ID:       "PHS-999",
+				Type:     model.EntityTypePhase,
+				Title:    "Nested metadata phase",
+				Status:   model.EntityStatusActive,
+				Metadata: json.RawMessage(tt.metadata),
+			}
+
+			ef, err := EntityFileFrom(entity, nil)
+			if err != nil {
+				t.Fatalf("EntityFileFrom: %v", err)
+			}
+
+			output := MarshalEntityFile(ef)
+
+			var parsed EntityFile
+			if _, err := toml.Decode(output, &parsed); err != nil {
+				t.Fatalf("failed to parse canonical output: %v\noutput:\n%s", err, output)
+			}
+
+			gotEntity, err := parsed.ToEntity()
+			if err != nil {
+				t.Fatalf("ToEntity: %v", err)
+			}
+
+			assertJSONEqual(t, tt.metadata, string(gotEntity.Metadata))
+
+			output2 := MarshalEntityFile(parsed)
+			if output2 != output {
+				t.Errorf("write-read-write not idempotent:\nfirst:\n%s\nsecond:\n%s", output, output2)
+			}
+		})
+	}
+}
+
+// assertJSONEqual compares two JSON documents for semantic equality,
+// ignoring key order and whitespace.
+func assertJSONEqual(t *testing.T, want, got string) {
+	t.Helper()
+	var wantVal, gotVal any
+	if err := json.Unmarshal([]byte(want), &wantVal); err != nil {
+		t.Fatalf("unmarshal want %q: %v", want, err)
+	}
+	if err := json.Unmarshal([]byte(got), &gotVal); err != nil {
+		t.Fatalf("unmarshal got %q: %v", got, err)
+	}
+	wantNorm, _ := json.Marshal(wantVal)
+	gotNorm, _ := json.Marshal(gotVal)
+	if string(wantNorm) != string(gotNorm) {
+		t.Errorf("metadata not preserved:\nwant: %s\ngot:  %s", wantNorm, gotNorm)
+	}
+}
+
 func TestMarshalEntityFile_Deterministic(t *testing.T) {
 	ef := EntityFile{
 		Schema: 1,
