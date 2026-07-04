@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
 // exitError carries a process exit code; a nil err means stdout already holds
@@ -96,7 +98,18 @@ func classifyError(err error) (errorClass, bool) {
 		return errorClass{"RELATION_NOT_FOUND", 1}, true
 	case errors.As(err, &changesetNotFound):
 		return errorClass{"CHANGESET_NOT_FOUND", 1}, true
-	default:
-		return errorClass{"INTERNAL_ERROR", 1}, false
 	}
+
+	var sgErr *specgraph.Error
+	if errors.As(err, &sgErr) {
+		return errorClass{specgraphCode(sgErr.Code), sgErr.ExitCode()}, true
+	}
+
+	return errorClass{"INTERNAL_ERROR", 1}, false
+}
+
+// specgraphCode maps a specgraph.ErrorCode to the uppercase JSON error code
+// string used in CLI output.
+func specgraphCode(code specgraph.ErrorCode) string {
+	return strings.ToUpper(string(code))
 }
