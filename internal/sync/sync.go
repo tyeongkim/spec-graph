@@ -39,15 +39,31 @@ func NewSyncer(store *spectoml.Store, idx *index.Index, root string) *Syncer {
 
 // EnsureFresh checks if the index is stale and rebuilds if needed.
 // Returns true if a rebuild was performed.
+//
+// Before reading the index it reopens the underlying database when another
+// process has replaced it (rebuild-by-rename), so a stale handle pointing at an
+// unlinked file cannot yield a wrong fingerprint. If the metadata read still
+// fails on a possibly-stale handle, it reopens once and retries rather than
+// surfacing the transient error.
 func (s *Syncer) EnsureFresh() (bool, error) {
 	fingerprint, err := s.ComputeFingerprint()
 	if err != nil {
 		return false, fmt.Errorf("compute fingerprint: %w", err)
 	}
 
+	if _, err := s.idx.RefreshIfReplaced(); err != nil {
+		return false, fmt.Errorf("refresh index handle: %w", err)
+	}
+
 	stored, err := s.idx.GetMeta(metaKeyFingerprint)
 	if err != nil {
-		return false, fmt.Errorf("get stored fingerprint: %w", err)
+		if reopenErr := s.idx.Reopen(); reopenErr != nil {
+			return false, fmt.Errorf("get stored fingerprint: %w (reopen failed: %v)", err, reopenErr)
+		}
+		stored, err = s.idx.GetMeta(metaKeyFingerprint)
+		if err != nil {
+			return false, fmt.Errorf("get stored fingerprint after reopen: %w", err)
+		}
 	}
 
 	if fingerprint == stored {
