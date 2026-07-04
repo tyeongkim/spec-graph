@@ -68,6 +68,10 @@ type RelationFilters struct {
 type Index struct {
 	db   *sql.DB
 	path string
+	// info is the file identity of the currently open database file, captured
+	// at open time. It lets RefreshIfReplaced detect when another process
+	// swapped the file underneath us via rename. It is nil for :memory:.
+	info os.FileInfo
 }
 
 // Open opens or creates the index database at the given path.
@@ -82,7 +86,9 @@ func Open(path string) (*Index, error) {
 		return nil, fmt.Errorf("index apply schema: %w", err)
 	}
 
-	return &Index{db: db, path: path}, nil
+	idx := &Index{db: db, path: path}
+	idx.info = statOrNil(path)
+	return idx, nil
 }
 
 // Close closes the database connection.
@@ -91,6 +97,70 @@ func (idx *Index) Close() error {
 		return nil
 	}
 	return idx.db.Close()
+}
+
+// Reopen closes the current database handle and opens a fresh one at the same
+// path, refreshing the tracked file identity. It is used to recover after
+// another process replaced the database file (see RefreshIfReplaced).
+func (idx *Index) Reopen() error {
+	if idx.db != nil {
+		if err := idx.db.Close(); err != nil {
+			return fmt.Errorf("index reopen close %q: %w", idx.path, err)
+		}
+		idx.db = nil
+	}
+
+	db, err := openDB(idx.path)
+	if err != nil {
+		return fmt.Errorf("index reopen %q: %w", idx.path, err)
+	}
+	idx.db = db
+	idx.info = statOrNil(idx.path)
+	return nil
+}
+
+// RefreshIfReplaced reopens the database when the file at path is no longer the
+// same file this Index has open — for example after another process rebuilt the
+// index by renaming a new database over it. The open handle would otherwise
+// keep reading a now-unlinked inode. It returns true when a reopen occurred.
+// It is a no-op for an in-memory database.
+func (idx *Index) RefreshIfReplaced() (bool, error) {
+	if idx.path == ":memory:" {
+		return false, nil
+	}
+
+	current, err := os.Stat(idx.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if reopenErr := idx.Reopen(); reopenErr != nil {
+				return false, reopenErr
+			}
+			return true, nil
+		}
+		return false, fmt.Errorf("stat index %q: %w", idx.path, err)
+	}
+
+	if idx.info != nil && os.SameFile(idx.info, current) {
+		return false, nil
+	}
+
+	if err := idx.Reopen(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// statOrNil returns the FileInfo for path, or nil when it cannot be stat'd
+// (including the :memory: pseudo-path). A nil result disables identity checks.
+func statOrNil(path string) os.FileInfo {
+	if path == ":memory:" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return info
 }
 
 // DB returns the underlying *sql.DB for raw read-only queries (e.g. query sql).
@@ -160,6 +230,7 @@ func (idx *Index) Rebuild(entities []EntityRecord, relations []RelationRecord) e
 		return fmt.Errorf("rebuild reopen: %w", err)
 	}
 	idx.db = db
+	idx.info = statOrNil(idx.path)
 
 	return nil
 }

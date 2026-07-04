@@ -336,3 +336,52 @@ func TestRelationWeightDefault(t *testing.T) {
 		t.Errorf("Weight = %f, want 1.0 (default)", got[0].Weight)
 	}
 }
+
+func TestRefreshIfReplacedDetectsSwap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "graph.db")
+
+	first, err := Open(path)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	defer first.Close()
+
+	second, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	defer second.Close()
+
+	if err := second.Rebuild(testEntities(), testRelations()); err != nil {
+		t.Fatalf("second Rebuild (simulating another process): %v", err)
+	}
+
+	replaced, err := first.RefreshIfReplaced()
+	if err != nil {
+		t.Fatalf("RefreshIfReplaced: %v", err)
+	}
+	if !replaced {
+		t.Fatal("expected RefreshIfReplaced to report a swap after another handle rebuilt the file")
+	}
+
+	got, err := first.ListEntities(EntityFilters{})
+	if err != nil {
+		t.Fatalf("ListEntities after refresh: %v", err)
+	}
+	if len(got) != len(testEntities()) {
+		t.Errorf("got %d entities after self-heal, want %d", len(got), len(testEntities()))
+	}
+}
+
+func TestRefreshIfReplacedNoopWhenUnchanged(t *testing.T) {
+	idx := openTestIndex(t)
+
+	replaced, err := idx.RefreshIfReplaced()
+	if err != nil {
+		t.Fatalf("RefreshIfReplaced: %v", err)
+	}
+	if replaced {
+		t.Error("expected no reopen when the file was not replaced")
+	}
+}
