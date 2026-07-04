@@ -52,8 +52,14 @@ var phaseNextCmd = &cobra.Command{
 	},
 }
 
-func phaseEntityScope(phaseID string, rf *indexRelationFetcher) (map[string]bool, error) {
-	rels, err := rf.GetByEntity(phaseID)
+// relationsByEntityFunc returns all relations referencing the given entity. It
+// is satisfied by *specgraph.Engine.RelationsByEntity, which acquires the
+// engine lock, so phase scoping goes through the locked engine API rather than
+// touching the index directly.
+type relationsByEntityFunc func(entityID string) ([]model.Relation, error)
+
+func phaseEntityScope(phaseID string, relationsByEntity relationsByEntityFunc) (map[string]bool, error) {
+	rels, err := relationsByEntity(phaseID)
 	if err != nil {
 		return nil, err
 	}

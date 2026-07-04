@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -116,8 +115,7 @@ var queryUnresolvedCmd = &cobra.Command{
 		}
 
 		if phaseFlag != "" {
-			rf := &indexRelationFetcher{idx: engine.Index()}
-			phaseScope, scopeErr := phaseEntityScope(phaseFlag, rf)
+			phaseScope, scopeErr := phaseEntityScope(phaseFlag, engine.RelationsByEntity)
 			if scopeErr != nil {
 				return handleError(cmd, &model.ErrInvalidInput{
 					Message: fmt.Sprintf("invalid --phase %q: %v", phaseFlag, scopeErr),
@@ -275,50 +273,15 @@ var querySQLCmd = &cobra.Command{
 			return handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
 		}
 
-		rows, err := engine.Index().DB().QueryContext(context.Background(), query)
+		res, err := engine.RawQuery(cmd.Context(), query)
 		if err != nil {
-			return handleError(cmd, fmt.Errorf("query execution: %w", err))
-		}
-		defer rows.Close()
-
-		columns, err := rows.Columns()
-		if err != nil {
-			return handleError(cmd, fmt.Errorf("read columns: %w", err))
-		}
-
-		var result []map[string]interface{}
-		for rows.Next() {
-			vals := make([]interface{}, len(columns))
-			ptrs := make([]interface{}, len(columns))
-			for i := range vals {
-				ptrs[i] = &vals[i]
-			}
-			if err := rows.Scan(ptrs...); err != nil {
-				return handleError(cmd, fmt.Errorf("scan row: %w", err))
-			}
-			row := make(map[string]interface{}, len(columns))
-			for i, col := range columns {
-				switch v := vals[i].(type) {
-				case []byte:
-					row[col] = string(v)
-				default:
-					row[col] = v
-				}
-			}
-			result = append(result, row)
-		}
-		if err := rows.Err(); err != nil {
-			return handleError(cmd, fmt.Errorf("iterate rows: %w", err))
-		}
-
-		if result == nil {
-			result = []map[string]interface{}{}
+			return handleError(cmd, err)
 		}
 
 		return writeJSON(cmd, jsoncontract.QuerySQLResponse{
-			Columns: columns,
-			Rows:    result,
-			Count:   len(result),
+			Columns: res.Columns,
+			Rows:    res.Rows,
+			Count:   len(res.Rows),
 		})
 	},
 }

@@ -10,14 +10,6 @@ import (
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
-type validateRelationAdapter struct {
-	fetcher *indexRelationFetcher
-}
-
-func (a *validateRelationAdapter) GetByEntity(entityID string) ([]model.Relation, error) {
-	return a.fetcher.GetByEntity(entityID)
-}
-
 var validateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate the specification graph",
