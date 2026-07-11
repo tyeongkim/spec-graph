@@ -2,6 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,6 +142,8 @@ func TestValidateEntityID(t *testing.T) {
 		{"criterion", "ACT-009", EntityTypeCriterion},
 		{"risk", "RSK-002", EntityTypeRisk},
 		{"plan", "PLN-001", EntityTypePlan},
+		{"new-form requirement", "REQ-1752239482-k3f", EntityTypeRequirement},
+		{"new-form decision", "DEC-1752239482-0zz", EntityTypeDecision},
 	}
 
 	for _, tc := range validCases {
@@ -160,7 +165,9 @@ func TestValidateEntityID(t *testing.T) {
 		{"wrong prefix for type", "DEC-001", EntityTypeRequirement},
 		{"no dash", "REQ001", EntityTypeRequirement},
 		{"letters after dash", "REQ-ABC", EntityTypeRequirement},
-		{"extra dash segments", "REQ-001-002", EntityTypeRequirement},
+		{"suffix too short", "REQ-001-ab", EntityTypeRequirement},
+		{"suffix too long", "REQ-001-abcd", EntityTypeRequirement},
+		{"suffix uppercase", "REQ-001-AB1", EntityTypeRequirement},
 		{"only prefix", "REQ", EntityTypeRequirement},
 		{"space in id", "REQ -001", EntityTypeRequirement},
 	}
@@ -188,10 +195,14 @@ func TestParseEntityID(t *testing.T) {
 		{"padded high", "REQ-042", true, "REQ", 42, 3},
 		{"wide number", "REQ-1000", true, "REQ", 1000, 4},
 		{"other prefix", "DEC-7", true, "DEC", 7, 1},
+		{"new-form", "REQ-1752239482-k3f", true, "REQ", 1752239482, 10},
+		{"new-form other prefix", "DEC-1752239482-0zz", true, "DEC", 1752239482, 10},
 		{"empty", "", false, "", 0, 0},
 		{"no number", "REQ-", false, "", 0, 0},
 		{"no dash", "REQ001", false, "", 0, 0},
 		{"letters after dash", "REQ-AB", false, "", 0, 0},
+		{"suffix too long", "REQ-1-abcd", false, "", 0, 0},
+		{"suffix uppercase", "REQ-1-AB1", false, "", 0, 0},
 	}
 
 	for _, tt := range tests {
@@ -209,6 +220,89 @@ func TestParseEntityID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateEntityID(t *testing.T) {
+	t.Run("valid for every type", func(t *testing.T) {
+		for et, prefix := range TypePrefixMap {
+			id, err := GenerateEntityID(et)
+			if err != nil {
+				t.Fatalf("GenerateEntityID(%q): %v", et, err)
+			}
+			if err := ValidateEntityID(id, et); err != nil {
+				t.Errorf("generated ID %q for %q failed validation: %v", id, et, err)
+			}
+			gotPrefix, _, _, ok := ParseEntityID(id)
+			if !ok {
+				t.Fatalf("generated ID %q for %q did not parse", id, et)
+			}
+			if gotPrefix != prefix {
+				t.Errorf("generated ID %q has prefix %q; want %q", id, gotPrefix, prefix)
+			}
+		}
+	})
+
+	t.Run("unknown type errors", func(t *testing.T) {
+		if _, err := GenerateEntityID(EntityType("bogus")); err == nil {
+			t.Error("expected error for unknown entity type, got nil")
+		}
+	})
+
+	t.Run("format shape", func(t *testing.T) {
+		id, err := GenerateEntityID(EntityTypeRequirement)
+		if err != nil {
+			t.Fatalf("GenerateEntityID: %v", err)
+		}
+		parts := strings.Split(id, "-")
+		if len(parts) != 3 {
+			t.Fatalf("ID %q has %d dash-segments; want 3", id, len(parts))
+		}
+		if parts[0] != "REQ" {
+			t.Errorf("prefix = %q; want %q", parts[0], "REQ")
+		}
+		secs, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			t.Errorf("middle segment %q is not an integer: %v", parts[1], err)
+		}
+		if secs <= 0 {
+			t.Errorf("unix-seconds segment = %d; want positive", secs)
+		}
+		if len(parts[2]) != 3 {
+			t.Errorf("random suffix %q has length %d; want 3", parts[2], len(parts[2]))
+		}
+		for _, r := range parts[2] {
+			if !strings.ContainsRune(idAlphabet, r) {
+				t.Errorf("random suffix %q contains char %q outside alphabet", parts[2], r)
+			}
+		}
+	})
+
+	t.Run("collisions are rare within a second", func(t *testing.T) {
+		const n = 1000
+		seen := make(map[string]bool, n)
+		dupes := 0
+		for i := 0; i < n; i++ {
+			id, err := GenerateEntityID(EntityTypeRequirement)
+			if err != nil {
+				t.Fatalf("GenerateEntityID: %v", err)
+			}
+			if seen[id] {
+				dupes++
+			}
+			seen[id] = true
+		}
+		if dupes > n/20 {
+			t.Errorf("got %d duplicate IDs out of %d; suffix entropy unexpectedly low", dupes, n)
+		}
+	})
+
+	t.Run("chronological string sort", func(t *testing.T) {
+		earlier := fmt.Sprintf("REQ-%d-aaa", int64(1000000000))
+		later := fmt.Sprintf("REQ-%d-aaa", int64(2000000000))
+		if !(earlier < later) {
+			t.Errorf("expected %q < %q lexicographically", earlier, later)
+		}
+	})
 }
 
 func TestEntityStruct(t *testing.T) {

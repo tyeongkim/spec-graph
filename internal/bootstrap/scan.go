@@ -74,15 +74,16 @@ var relationKeywords = map[string]string{
 }
 
 var (
-	// entityIDRe matches entity IDs like REQ-001, DEC-005, etc.
-	entityIDRe = regexp.MustCompile(`(REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+`)
+	// entityIDRe matches entity IDs like REQ-001, DEC-005, and new-form
+	// IDs like REQ-1752239482-k3f.
+	entityIDRe = regexp.MustCompile(`(REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+(?:-[0-9a-z]{3})?`)
 
 	// headingEntityRe matches entity IDs at the start of a heading line, capturing the title.
 	// Supports optional colon after ID: "## REQ-001: Title" or "## REQ-001 Title".
-	headingEntityRe = regexp.MustCompile(`^#+\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)[:\s]\s*(.*)$`)
+	headingEntityRe = regexp.MustCompile(`^#+\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+(?:-[0-9a-z]{3})?)[:\s]\s*(.*)$`)
 
 	// lineStartEntityRe matches entity IDs at the very start of a line (no heading marker).
-	lineStartEntityRe = regexp.MustCompile(`^((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)\s+(.*)$`)
+	lineStartEntityRe = regexp.MustCompile(`^((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+(?:-[0-9a-z]{3})?)\s+(.*)$`)
 )
 
 // buildRelationRe constructs a compiled regex for a given keyword that captures
@@ -90,7 +91,7 @@ var (
 func buildRelationRe(keyword string) *regexp.Regexp {
 	escaped := regexp.QuoteMeta(keyword)
 	pattern := fmt.Sprintf(
-		`(?i)((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)\s+%s\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+)`,
+		`(?i)((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+(?:-[0-9a-z]{3})?)\s+%s\s+((?:REQ|DEC|PHS|API|STT|TST|XCT|QST|ASM|ACT|RSK)-\d+(?:-[0-9a-z]{3})?)`,
 		escaped,
 	)
 	return regexp.MustCompile(pattern)

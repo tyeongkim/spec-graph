@@ -230,54 +230,21 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 	return entity, nil
 }
 
-// nextEntityID derives the next available ID for et by scanning existing
-// entities of that type in the TOML store (the source of truth). It follows the
-// dominant numbering format: if any existing ID is zero-padded it pads new IDs
-// to the widest observed width, otherwise it emits unpadded IDs. A collision
-// guard increments past any ID already present on disk.
+// nextEntityID generates a decentralized, sortable entity ID for et via
+// model.GenerateEntityID (PREFIX-<unixSeconds>-<rand3>). It retries on the rare
+// event that a freshly generated ID already exists on disk, giving a second
+// layer of collision protection on top of the create-time existence check.
 func (e *Engine) nextEntityID(et model.EntityType) (string, error) {
-	prefix, ok := model.TypePrefixMap[et]
-	if !ok {
-		return "", newError(CodeInvalidInput, fmt.Sprintf("unknown entity type %q", et), nil)
-	}
-
-	files, err := e.store.ListEntities()
-	if err != nil {
-		return "", newError(CodeRuntime, "scan existing entities for ID generation", err)
-	}
-
-	maxNum := 0
-	width := 1
-	padded := false
-	for i := range files {
-		p, num, w, ok := model.ParseEntityID(files[i].ID)
-		if !ok || p != prefix {
-			continue
-		}
-		if num > maxNum {
-			maxNum = num
-		}
-		if w > 1 {
-			padded = true
-			if w > width {
-				width = w
-			}
-		}
-	}
-
-	next := maxNum + 1
-	for {
-		var id string
-		if padded {
-			id = fmt.Sprintf("%s-%0*d", prefix, width, next)
-		} else {
-			id = fmt.Sprintf("%s-%d", prefix, next)
+	for i := 0; i < 8; i++ {
+		id, err := model.GenerateEntityID(et)
+		if err != nil {
+			return "", newError(CodeInvalidInput, err.Error(), err)
 		}
 		if !e.store.EntityExists(id, et) {
 			return id, nil
 		}
-		next++
 	}
+	return "", newError(CodeRuntime, "failed to generate a unique entity ID after 8 attempts", nil)
 }
 
 // GetEntity returns the entity with the given ID. It returns a not-found error

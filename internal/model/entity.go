@@ -1,10 +1,12 @@
 package model
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 type EntityType string
@@ -81,11 +83,20 @@ type Entity struct {
 	UpdatedAt   string          `json:"updated_at"`
 }
 
-var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-(\d+)$`)
+var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-([0-9]+)(?:-([0-9a-z]{3}))?$`)
 
-// ParseEntityID splits a PREFIX-NNN id into its prefix, numeric value, and the
+// idAlphabet is the Crockford Base32 lowercase alphabet with the ambiguous
+// characters i, l, o, and u removed. It is used to build the random suffix of
+// decentralized entity IDs.
+const idAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// ParseEntityID splits an entity id into its prefix, numeric value, and the
 // character width of the numeric segment (width detects zero-padding: "REQ-001"
-// has width 3). ok is false when id does not match the PREFIX-NNN format.
+// has width 3). It accepts both legacy IDs of the form PREFIX-NNN and new-form
+// IDs of the form PREFIX-<unixSeconds>-<rand3>. For new-form IDs, num and width
+// are derived from the unix-seconds segment; those values are only meaningful
+// for legacy sequential numbering and are no longer used to generate IDs. ok is
+// false when id matches neither form.
 func ParseEntityID(id string) (prefix string, num int, width int, ok bool) {
 	matches := entityIDPattern.FindStringSubmatch(id)
 	if matches == nil {
@@ -97,6 +108,38 @@ func ParseEntityID(id string) (prefix string, num int, width int, ok bool) {
 		return "", 0, 0, false
 	}
 	return matches[1], n, len(digits), true
+}
+
+// GenerateEntityID returns a new decentralized, sortable entity ID of the form
+// PREFIX-<unixSeconds>-<rand3>. The unix-seconds prefix makes IDs sort
+// chronologically as strings; the random suffix avoids collisions across
+// concurrent or branch-parallel creation without central coordination.
+func GenerateEntityID(et EntityType) (string, error) {
+	prefix, ok := TypePrefixMap[et]
+	if !ok {
+		return "", fmt.Errorf("unknown entity type %q", et)
+	}
+
+	suffix, err := randomSuffix(3)
+	if err != nil {
+		return "", fmt.Errorf("generate random ID suffix: %w", err)
+	}
+
+	return fmt.Sprintf("%s-%d-%s", prefix, time.Now().Unix(), suffix), nil
+}
+
+// randomSuffix returns a string of n characters drawn uniformly from
+// idAlphabet using crypto/rand as the entropy source.
+func randomSuffix(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	out := make([]byte, n)
+	for i, b := range buf {
+		out[i] = idAlphabet[int(b)%len(idAlphabet)]
+	}
+	return string(out), nil
 }
 
 func ValidateEntityID(id string, entityType EntityType) error {

@@ -35,7 +35,7 @@ type RelationTypeConfig struct {
 	Special string   `toml:"special"`
 }
 
-var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-(\d+)$`)
+var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-([0-9]+)(?:-([0-9a-z]{3}))?$`)
 
 // LoadSchema reads and parses a schema.toml file from the given path.
 func LoadSchema(path string) (*Schema, error) {
