@@ -9,18 +9,20 @@
 > 2. `query scope` is **not** generic — it hardcodes `covers`/`delivers` — see §6.5 + §8.
 > 3. `checkDeliveryCompleteness` is **dead code** (filters on non-existent status `"completed"`) — must be fixed before building on it — see §6.2/§6.3.
 > 4. The agent-facing `skills/*/SKILL.md` catalog and several secondary files were missing from the checklist — see §8.
+>
+> **Revision note (v3):** Verified against the actual repo that `tasks`/`parallelization`/`plan_task_ids` are **not** part of the official phase schema (documented PHS metadata is `goal`/`order`/`exit_criteria` only) and that no project stores task structure in `PHS.metadata`. The "migration" framing was therefore dropped: Level 2 is now positioned as **purely additive, no data conversion** (§7 rewritten; §1/§2.2/§4 reworded from "we currently store" to "nothing prevents storing"; the `internal/bootstrap` importer, `.md`-deletion gate, and Q5 removed).
 
 ---
 
 ## 1. Executive Summary
 
-spec-graph today stores task-level planning data (task lists, task dependencies, parallelization groups, per-task exit criteria) inside the free-form `metadata` field of `phase` (PHS) entities. Even after the Level 1 fix — which makes nested JSON round-trip losslessly — this remains an **architectural anti-pattern**: we are re-implementing a graph (tasks + dependencies) *inside* an opaque blob that sits *inside* a node of the real graph.
+spec-graph has **no first-class notion of a task**. The official phase schema is `goal` / `order` / `exit_criteria` only, and nothing in the model represents an individual unit of work below a `phase`. Because the `metadata` field is entirely unvalidated, task-level planning data (task lists, task dependencies, parallelization groups) *could* be smuggled into it as free-form JSON — and the Level 1 fix now makes such nested JSON round-trip losslessly. But storing a graph (tasks + dependencies) *inside* an opaque blob that sits *inside* a node of the real graph is an **architectural anti-pattern** we want to foreclose, not enable.
 
-The tool already owns a mature, data-driven analysis engine: multi-dimensional impact propagation, 19 validation checks across three layers, policy-driven phase/plan gates, phase-satisfaction closure computation, and three export renderers. None of that machinery can see *inside* a metadata blob. Task dependencies, task→requirement delivery, and task completion state are therefore invisible to impact analysis, validation, and gates.
+The tool already owns a mature, data-driven analysis engine: multi-dimensional impact propagation, 19 validation checks across three layers, policy-driven phase/plan gates, phase-satisfaction closure computation, and three export renderers. None of that machinery can see *inside* a metadata blob. So any task dependencies, task→requirement delivery, or task completion state expressed there would be invisible to impact analysis, validation, and gates.
 
-**Proposal:** introduce `task` (prefix `TSK`) as a first-class entity type in the `exec` layer, connect it with a small set of new/extended relations, and register it in the schema and edge matrix. Because the entire analysis engine is table-driven, most of the work is *data* (map entries), not new algorithms. This turns tasks into fully analyzable graph citizens and lets `metadata` return to holding only flat scalars.
+**Proposal:** introduce `task` (prefix `TSK`) as a first-class entity type in the `exec` layer, connect it with a small set of new/extended relations, and register it in the schema and edge matrix. Because the entire analysis engine is table-driven, most of the work is *data* (map entries), not new algorithms. This turns tasks into fully analyzable graph citizens and gives task structure a proper home instead of `metadata`.
 
-This is **Level 2**. It is independent of, and strictly additive to, the Level 1 fix. Level 1 made the current design *safe*; Level 2 makes it *correct*.
+This is **Level 2**. It is independent of, and strictly additive to, the Level 1 fix. No data migration is required (§7) — there is no installed base storing tasks in metadata to convert. Level 1 made nested-metadata storage *safe*; Level 2 makes the task model *correct* from the start.
 
 ---
 
@@ -32,7 +34,7 @@ This is **Level 2**. It is independent of, and strictly additive to, the Level 1
 
 ### 2.2 Why Level 1 is not enough
 
-Lossless *storage* of nested task data is not the same as *modeling* it. With tasks living inside `PHS.metadata`:
+Lossless *storage* of nested task data is not the same as *modeling* it. The Level 1 fix only removes a reason not to abuse `metadata`; it does nothing to make tasks analyzable. Were tasks to live inside `PHS.metadata`:
 
 - **Impact analysis is blind.** `spec-graph impact PHS-007` cannot report "3 tasks affected" because tasks are not nodes. (Note: the *reverse* direction, `impact REQ-001` → tasks, additionally requires a propagation-direction change — see §6.1 `[rev]`.)
 - **Validation is blind.** No check can detect "requirement covered by a phase but no task delivers it" or "task depends on an incomplete task."
@@ -40,7 +42,7 @@ Lossless *storage* of nested task data is not the same as *modeling* it. With ta
 - **Dependencies are un-navigable.** `parallelization` / `depends_on` between tasks is expressed as ID strings inside a blob; there is no `query path`, no cycle detection, no topological reasoning.
 - **Schema cannot validate it.** `internal/toml/schema.go` performs *zero* validation of metadata contents (it only checks ID prefix + status). Task structure can drift or typo silently.
 
-We are, in effect, maintaining a second graph model in JSON that the graph tool refuses to look at.
+That would amount to a second graph model in JSON that the graph tool refuses to look at. Level 2 gives tasks a real home before that shortcut ever becomes established practice.
 
 ---
 
@@ -103,7 +105,7 @@ Every analytical capability dispatches off tables and type maps, not hardcoded l
 
 ## 4. The Anti-Pattern, Stated Precisely
 
-A `phase` metadata blob currently encodes:
+The official phase schema is only `goal` / `order` / `exit_criteria` (`skills/spec-graph/references/data-model.md`), and there is no `task` concept anywhere in the model. Because `metadata` is entirely unvalidated (§3.5), nothing *prevents* a caller from smuggling a task list into it. If a workflow did, the blob would look like:
 
 ```json
 {
@@ -123,7 +125,7 @@ Three of these keys are **graph-shaped data forced into a scalar container**:
 2. `tasks[].depends_on` / `parallelization.groups[].task_ids` → edges between nodes
 3. `plan_task_ids` → membership edges
 
-Encoding nodes-and-edges as nested JSON inside a node means the graph engine can never traverse them. `exit_criteria`, by contrast, is legitimately flat per-phase metadata and can stay (or become criterion entities — out of scope here).
+Encoding nodes-and-edges as nested JSON inside a node means the graph engine can never traverse them. `exit_criteria`, by contrast, is legitimately flat per-phase metadata and can stay (or become criterion entities — out of scope here). The point of Level 2 is to give tasks a first-class home *so this smuggling never becomes the path of least resistance* — not to clean up an existing installed base (there is none; see §7).
 
 ---
 
@@ -241,22 +243,15 @@ Add entity-type style entries in `internal/graph/export.go` (a shape for DOT, a 
 
 ## 7. Migration Path
 
-This is the sensitive part; ordering matters because the pre–Level-1 corruption (`fmt.Sprint`) was one-way and the only intact source of task detail is the `.md` plan files.
+**No data migration is required.** `tasks` / `parallelization` / `plan_task_ids` were never part of the official phase metadata schema — the documented PHS schema is only `goal` / `order` / `exit_criteria` (`skills/spec-graph/references/data-model.md`). No project stores task structure in `PHS.metadata` today; the free-form-metadata "second graph" described in §4 is a hypothetical anti-pattern the schema's lack of validation *allows*, not an installed-base reality to convert.
 
-1. **Land Level 1** (writer fix) — DONE.
-2. **Land Level 2 schema/model/matrix additions** (this report) behind tests. No data touched yet. A binary upgrade is sufficient — the engine validates against `DefaultSchema()` inline (`engine_entity.go:193,404`) and never loads a project's `schema.toml` at runtime (`LoadSchema` has zero callers), so existing projects need no schema regeneration.
-3. **`[rev]` Commit `.spec-graph/` to version control** before any import run. The TOML files are the real rollback mechanism; a clean commit is the safety net if the importer misbehaves.
-4. **Write a one-shot importer in `internal/bootstrap`** (NOT `internal/cli/migrate.go`). `[rev]` `migrate.go` is the *legacy SQLite→TOML migrator* wired to `internal/db`, whose CHECK constraints reject `task`/`change` — wrong tool. `internal/bootstrap` already is a pattern-based `.md`→entities importer (`scan.go`, `engine_bootstrap.go:140`); extend it. For each phase, read task detail from the **intact `.md` plan** (not from corrupted `PHS.metadata`), and:
-   - create `TSK-*` entities (flat metadata only),
-   - create `has_task` edges phase→task,
-   - create `task_depends_on` edges from the old `depends_on`/`parallelization` data,
-   - create `covers`/`delivers` edges task→arch where the plan specifies them,
-   - strip the now-migrated structural keys (`tasks`, `parallelization`, `plan_task_ids`) from `PHS.metadata`, leaving flat scalars.
-   **`[rev]` Make it idempotent / re-runnable per phase.** A crash between task-creation and metadata-stripping must not leave partial state that a re-run duplicates — key on phase ID and skip phases already migrated (detect existing `has_task` edges).
-5. **Validate** with `spec-graph doctor` + `spec-graph validate` (new `task_cycles`, `orphan_tasks`).
-6. **Only then** delete the `.md` plan files. Before this step, `.md` remains the sole source of truncation-free task detail; deleting earlier is irreversible data loss.
+Level 2 is therefore **purely additive**:
 
-Corrupted `PHS-068`-style entities cannot be auto-recovered from the graph — their structure survives only in `.md`. The importer must source from `.md`, never from the mangled metadata string.
+1. **Land Level 1** (writer fix) — DONE. It remains relevant only insofar as it keeps flat `TSK.metadata` scalars round-tripping losslessly; there is no corrupted blob to recover.
+2. **Land Level 2 schema/model/matrix additions** (this report) behind tests. No existing data is touched. A binary upgrade is sufficient — the engine validates against `DefaultSchema()` inline (`engine_entity.go:193,404`) and never loads a project's `schema.toml` at runtime (`LoadSchema` has zero callers), so existing projects need no schema regeneration.
+3. **Create tasks going forward** through the normal `entity add` / `relation add` path (or the planner/executor skills): `TSK-*` entities with flat metadata, `has_task` edges phase→task, `task_depends_on` edges, and `covers`/`delivers` edges task→arch.
+
+No `.md` re-import step, no metadata-stripping pass, and no one-shot importer are needed. There is no irreversible-deletion gate to sequence.
 
 ---
 
@@ -278,21 +273,19 @@ Corrupted `PHS-068`-style entities cannot be auto-recovered from the graph — t
 | `internal/validate/satisfaction.go` | expand closure via `has_task`; add `satisfactionTargetStatusAllowlist[task] = {resolved}` `[rev]` |
 | `internal/gate/policy.go` | phase→resolved: require tasks resolved; optional task→resolved policy — **register gate's task check as mapping-layer** (see §6.3 `[rev]`) |
 | `internal/validate/types.go` | register new check names |
-| `internal/bootstrap/*` | `[rev]` one-shot `.md` → task-entity importer (NOT `cli/migrate.go` — that's the legacy SQLite migrator) |
 | `skills/spec-graph/SKILL.md` + `skills/spec-{planner,executor,verifier}/` | `[rev]` agent-facing catalog — enumerate `task`/`TSK` + new relations; this is the tool's public API for agents (README: agent-operated) |
 | `internal/mcp/server.go` | `[rev]` review tool descriptions that enumerate entity types (e.g. L66 filter description) |
 | tests | table-driven tests mirroring existing `*_test.go` per package; **add a drift-guard test** asserting `model.TypePrefixMap` keys == `DefaultSchema().EntityTypes` keys |
 
 **`[rev]` No live SQL migration needed.** The live query index (`internal/index/schema.sql`) has no CHECK constraints on `type`/`layer`, so index rebuilds accept `task` freely. `internal/db`'s CHECK-constrained migrations are legacy (only the `migrate` command touches them) — do not add a migration there.
 
-Estimated shape: predominantly additive map/table entries + a handful of DFS/switch checks copied from existing analogues + one bootstrap importer + two prerequisite bug fixes (`delivery_completeness` status, gate layer). No changes to the impact algorithm or export renderers themselves; `QueryScope` needs a one-line predicate extension.
+Estimated shape: predominantly additive map/table entries + a handful of DFS/switch checks copied from existing analogues + two prerequisite bug fixes (`delivery_completeness` status, gate layer). No data migration, no importer. No changes to the impact algorithm or export renderers themselves; `QueryScope` needs a one-line predicate extension.
 
 ---
 
 ## 9. Risks & Tradeoffs
 
 - **Entity-count inflation.** A plan with many tasks multiplies node count. Mitigation: tasks are `exec`-layer and layer-filterable (`--layer exec`); exports/queries already support layer filtering.
-- **Migration is one-way-sensitive.** See §7 — the `.md` deletion gate must be strictly last.
 - **ID management.** `TSK-*` IDs must be allocated without collision; the existing `PREFIX-NNN` scheme and `entity add` ID handling apply unchanged.
 - **Schema/model drift.** The `change` precedent shows model constants and `DefaultSchema()` can diverge. Mitigation: add both in the same change, and consider a test asserting `model.TypePrefixMap` keys == `DefaultSchema().EntityTypes` keys to prevent recurrence.
 - **Scope creep into arch.** Tempting to also model per-task tests/criteria as arch entities. Out of scope; keep Level 2 to task nodes + the four relations.
@@ -317,7 +310,7 @@ Estimated shape: predominantly additive map/table entries + a handful of DFS/swi
 2. Should `task → resolved` be gated on `delivers` evidence, or is `has_task`-completeness at the phase gate sufficient?
 3. Do per-task guardrails (`must` / `must_not`) stay as flat metadata strings, or become `criterion` (ACT) entities linked via `has_criterion`? (Recommend: strings now; entities later if we want them verifiable.)
 4. ~~Fix the `change` schema drift in this same change set?~~ **Resolved: mandatory** — the schema fails to load otherwise once `covers.From` references new types (§5.3 `[rev]`).
-5. ~~Migration command home?~~ **Resolved: `internal/bootstrap`** — `migrate.go` is the legacy SQLite migrator (§7 `[rev]`).
+5. ~~Migration command home?~~ **Resolved: no migration needed** — `tasks`/`parallelization`/`plan_task_ids` were never part of the official phase schema, so there is no installed-base data to convert (§7).
 6. **`[rev]` New:** Do we accept the pre-existing limitation that `impact <arch-id>` never reaches exec (§6.1)? Delivering "`impact REQ-001` → affected tasks" requires flipping `covers`/`delivers` to `ForwardReverseWeak` — a behavior change to *all* existing arch-source impact output. In scope for Level 2, or a separate follow-up?
 
 ---
@@ -336,7 +329,6 @@ Estimated shape: predominantly additive map/table entries + a handful of DFS/swi
 - Gates: `internal/gate/{gate.go L24, L46 hardcoded LayerMapping, policy.go L20–32, report.go}`
 - Export: `internal/graph/export.go` L69 (DOT), L138 (Mermaid), L197 (JSON)
 - Runtime schema use (DefaultSchema inline, LoadSchema unused): `pkg/specgraph/engine_entity.go` L193, L404; relation layer stamping: `engine_relation.go` L179
-- Bootstrap importer precedent: `internal/bootstrap/{scan.go, engine_bootstrap.go L140}`
 - Live index (no CHECK constraints): `internal/index/schema.sql`; legacy CHECK migrations: `internal/db/migrations/{003_layers.sql, 004_rename_relations.sql}`
 - Agent-facing catalog: `skills/spec-graph/SKILL.md` (+ `spec-planner`/`spec-executor`/`spec-verifier`)
 - Level 1 fix + tests: `internal/toml/writer.go` `formatValue`/`formatInlineArray`; `internal/toml/model_test.go` `TestEntityFileFrom_NestedMetadataRoundTrip`
