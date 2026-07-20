@@ -8,7 +8,7 @@ import (
 )
 
 // QueryScope returns all entities and relations belonging to the given phase.
-// It finds covers/delivers relations from the phase to arch entities.
+// It returns the phase's effective covers/delivers relations to arch entities.
 func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*QueryScopeResult, error) {
 	// Verify phase entity exists and is of type "phase".
 	phase, err := ef.Get(opts.PhaseID)
@@ -21,26 +21,28 @@ func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*
 		}
 	}
 
-	// Get all relations where the phase is involved.
-	rels, err := rf.GetByEntity(opts.PhaseID)
+	scope, err := EffectivePhaseScope(opts.PhaseID, rf)
 	if err != nil {
-		return nil, fmt.Errorf("fetching relations for phase %s: %w", opts.PhaseID, err)
+		return nil, fmt.Errorf("deriving scope for phase %s: %w", opts.PhaseID, err)
 	}
 
-	// Filter to covers / delivers (phase→arch).
-	var matchedRels []model.Relation
-	entityIDs := make(map[string]bool)
-
-	for _, rel := range rels {
-		if rel.FromID == opts.PhaseID &&
-			(rel.Type == model.RelationCovers || rel.Type == model.RelationDelivers) {
-			matchedRels = append(matchedRels, rel)
-			entityIDs[rel.ToID] = true
+	entityIDs := make([]string, 0, len(scope.Covered)+len(scope.Delivered))
+	seenEntityIDs := make(map[string]bool)
+	for _, id := range scope.Covered {
+		if !seenEntityIDs[id] {
+			seenEntityIDs[id] = true
+			entityIDs = append(entityIDs, id)
+		}
+	}
+	for _, id := range scope.Delivered {
+		if !seenEntityIDs[id] {
+			seenEntityIDs[id] = true
+			entityIDs = append(entityIDs, id)
 		}
 	}
 
 	entities := make([]model.Entity, 0, len(entityIDs))
-	for id := range entityIDs {
+	for _, id := range entityIDs {
 		ent, err := ef.Get(id)
 		if err != nil {
 			return nil, fmt.Errorf("fetching entity %s: %w", id, err)
@@ -51,14 +53,14 @@ func QueryScope(opts QueryScopeOptions, rf RelationFetcher, ef EntityFetcher) (*
 		entities = append(entities, ent)
 	}
 
-	if matchedRels == nil {
-		matchedRels = []model.Relation{}
+	if scope.Relations == nil {
+		scope.Relations = []model.Relation{}
 	}
 
 	return &QueryScopeResult{
 		PhaseID:   opts.PhaseID,
 		Entities:  entities,
-		Relations: matchedRels,
+		Relations: scope.Relations,
 	}, nil
 }
 

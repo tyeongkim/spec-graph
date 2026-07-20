@@ -3,6 +3,7 @@ package validate
 import (
 	"fmt"
 
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
@@ -33,6 +34,8 @@ func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher)
 			issues = checkInvalidMappingEdges(rf, ef)
 		case "gates":
 			issues = checkGates(opts, rf, ef)
+		case "task_scope":
+			issues = checkTaskScope(rf, ef)
 		case "phase_satisfaction":
 			satIssues, satReports := checkPhaseSatisfaction(opts, rf, ef)
 			issues = satIssues
@@ -85,22 +88,20 @@ func checkPlanCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 		return nil
 	}
 
-	var issues []ValidationIssue
-	for _, req := range reqs {
-		rels, err := rf.GetByEntity(req.ID)
-		if err != nil {
+	coveredRequirements := make(map[string]bool)
+	for phaseID := range planPhaseIDs {
+		scope, scopeErr := graph.EffectivePhaseScope(phaseID, rf)
+		if scopeErr != nil {
 			continue
 		}
-
-		covered := false
-		for _, r := range rels {
-			if r.Type == model.RelationCovers && r.ToID == req.ID && planPhaseIDs[r.FromID] {
-				covered = true
-				break
-			}
+		for _, coveredID := range scope.Covered {
+			coveredRequirements[coveredID] = true
 		}
+	}
 
-		if !covered {
+	var issues []ValidationIssue
+	for _, req := range reqs {
+		if !coveredRequirements[req.ID] {
 			issues = append(issues, ValidationIssue{
 				Check:    "plan_coverage",
 				Severity: SeverityHigh,
@@ -126,23 +127,19 @@ func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []Validatio
 	var issues []ValidationIssue
 
 	for _, phase := range phases {
-		rels, err := rf.GetByEntity(phase.ID)
+		scope, err := graph.EffectivePhaseScope(phase.ID, rf)
 		if err != nil {
 			continue
 		}
 
 		coveredEntities := make(map[string]bool)
-		for _, r := range rels {
-			if r.Type == model.RelationCovers && r.FromID == phase.ID {
-				coveredEntities[r.ToID] = true
-			}
+		for _, id := range scope.Covered {
+			coveredEntities[id] = true
 		}
 
 		deliveredEntities := make(map[string]bool)
-		for _, r := range rels {
-			if r.Type == model.RelationDelivers && r.FromID == phase.ID {
-				deliveredEntities[r.ToID] = true
-			}
+		for _, id := range scope.Delivered {
+			deliveredEntities[id] = true
 		}
 
 		for entityID := range coveredEntities {
@@ -166,6 +163,76 @@ func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []Validatio
 		}
 	}
 
+	return issues
+}
+
+func checkTaskScope(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	taskType := model.EntityTypeTask
+	execLayer := model.LayerExec
+	tasks, err := ef.List(EntityListFilters{Type: &taskType, Layer: &execLayer})
+	if err != nil {
+		return nil
+	}
+
+	var issues []ValidationIssue
+	for _, task := range tasks {
+		relations, fetchErr := rf.GetByEntity(task.ID)
+		if fetchErr != nil {
+			continue
+		}
+		covered := make(map[string]bool)
+		for _, relation := range relations {
+			if relation.FromID != task.ID {
+				continue
+			}
+			switch relation.Type {
+			case model.RelationCovers:
+				covered[relation.ToID] = true
+			}
+		}
+		if task.Status != model.EntityStatusDeprecated && len(covered) == 0 {
+			issues = append(issues, ValidationIssue{Check: "task_scope", Severity: SeverityHigh, Entity: task.ID, Message: "non-deprecated task must cover at least one architecture entity", Layer: model.LayerMapping})
+		}
+		for _, relation := range relations {
+			if relation.FromID != task.ID || relation.Type != model.RelationDelivers {
+				continue
+			}
+			target, targetErr := ef.Get(relation.ToID)
+			if targetErr != nil {
+				continue
+			}
+			mappingLayer := model.LayerMapping
+			if model.IsEdgeAllowed(model.RelationDelivers, model.EntityTypeTask, target.Type, &mappingLayer) && !covered[relation.ToID] {
+				issues = append(issues, ValidationIssue{Check: "task_scope", Severity: SeverityHigh, Entity: task.ID, Message: fmt.Sprintf("task delivers %s without covering it", relation.ToID), Layer: model.LayerMapping})
+			}
+		}
+	}
+
+	phaseType := model.EntityTypePhase
+	phases, err := ef.List(EntityListFilters{Type: &phaseType, Layer: &execLayer})
+	if err != nil {
+		return issues
+	}
+	for _, phase := range phases {
+		scope, scopeErr := graph.EffectivePhaseScope(phase.ID, rf)
+		if scopeErr != nil || !scope.TaskManaged {
+			continue
+		}
+		phaseRelations, fetchErr := rf.GetByEntity(phase.ID)
+		if fetchErr != nil {
+			continue
+		}
+		hasDirectMappings := false
+		for _, relation := range phaseRelations {
+			if relation.FromID == phase.ID && (relation.Type == model.RelationCovers || relation.Type == model.RelationDelivers) {
+				hasDirectMappings = true
+				break
+			}
+		}
+		if hasDirectMappings && len(scope.Relations) > 0 {
+			issues = append(issues, ValidationIssue{Check: "task_scope", Severity: SeverityHigh, Entity: phase.ID, Message: "phase has mixed direct phase and child-task mappings", Layer: model.LayerMapping})
+		}
+	}
 	return issues
 }
 

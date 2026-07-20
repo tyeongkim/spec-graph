@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
 	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
@@ -105,6 +106,26 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 			fmt.Sprintf("relation %q not allowed from %q (%s) to %q (%s)", rt, req.From, fromType, req.To, toType),
 			&model.ErrInvalidEdge{FromType: fromType, ToType: toType, RelationType: rt},
 		)
+	}
+	if fromType == model.EntityTypePhase && (rt == model.RelationCovers || rt == model.RelationDelivers) {
+		scope, scopeErr := graph.EffectivePhaseScope(req.From, &engineRelationFetcher{idx: e.idx})
+		if scopeErr != nil {
+			return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("derive phase scope for %q", req.From), scopeErr)
+		}
+		if scope.TaskManaged {
+			return model.Relation{}, newError(CodeInvalidInput, fmt.Sprintf("phase %q is task-managed; add mappings to its tasks", req.From), nil)
+		}
+	}
+	if fromType == model.EntityTypeTask && toType == model.EntityTypePhase && rt == model.RelationBelongsTo {
+		phaseRelations, phaseErr := e.idx.GetRelationsByEntity(req.To)
+		if phaseErr != nil {
+			return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("lookup phase mappings for %q", req.To), phaseErr)
+		}
+		for _, relation := range phaseRelations {
+			if relation.FromID == req.To && (relation.Type == string(model.RelationCovers) || relation.Type == string(model.RelationDelivers)) {
+				return model.Relation{}, newError(CodeInvalidInput, fmt.Sprintf("phase %q has direct mappings; remove them before adding tasks", req.To), nil)
+			}
+		}
 	}
 
 	var relMeta map[string]any

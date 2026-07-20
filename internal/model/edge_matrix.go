@@ -82,7 +82,7 @@ var mappingEdgeMatrix = map[RelationType]edgeRule{
 		To:   []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk, EntityTypeCriterion, EntityTypeAssumption},
 	},
 	RelationDelivers: {
-		From: []EntityType{EntityTypePhase},
+		From: []EntityType{EntityTypePhase, EntityTypeTask},
 		To:   []EntityType{EntityTypeRequirement, EntityTypeInterface, EntityTypeState, EntityTypeTest, EntityTypeDecision, EntityTypeCriterion},
 	},
 }

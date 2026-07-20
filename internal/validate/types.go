@@ -99,6 +99,7 @@ var MappingChecks = []string{
 	"mapping_consistency",
 	"invalid_mapping_edges",
 	"gates",
+	"task_scope",
 }
 
 // optInMappingChecks lists mapping-layer checks that are valid but not run

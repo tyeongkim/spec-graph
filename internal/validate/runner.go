@@ -3,6 +3,7 @@ package validate
 import (
 	"fmt"
 
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
@@ -79,16 +80,17 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 }
 
 func phaseEntityScope(phaseID string, rf RelationFetcher) (map[string]bool, error) {
-	rels, err := rf.GetByEntity(phaseID)
+	effective, err := graph.EffectivePhaseScope(phaseID, rf)
 	if err != nil {
 		return nil, err
 	}
 
 	scope := make(map[string]bool)
-	for _, r := range rels {
-		if r.FromID == phaseID && (r.Type == model.RelationCovers || r.Type == model.RelationDelivers) {
-			scope[r.ToID] = true
-		}
+	for _, id := range effective.Covered {
+		scope[id] = true
+	}
+	for _, id := range effective.Delivered {
+		scope[id] = true
 	}
 	return scope, nil
 }

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
@@ -89,7 +90,10 @@ func (e *Engine) phaseNextLocked(req PhaseNextRequest) (PhaseNextResult, error) 
 		)
 	}
 
-	scope := e.computePhaseScope(nextID)
+	scope, err := e.computePhaseScope(nextID)
+	if err != nil {
+		return PhaseNextResult{}, err
+	}
 
 	activated := false
 	finalStatus := string(nextPhase.status)
@@ -246,32 +250,28 @@ func selectNextEnginePhase(phases map[string]*enginePhaseInfo, predecessors map[
 	return candidates[0].id, phases[candidates[0].id]
 }
 
-func (e *Engine) computePhaseScope(phaseID string) PhaseNextScope {
-	rels, _ := e.idx.GetRelationsByEntity(phaseID)
-
-	var coveredIDs []string
-	deliveredSet := make(map[string]bool)
-	for _, rel := range rels {
-		if rel.FromID == phaseID && rel.Type == string(model.RelationCovers) {
-			coveredIDs = append(coveredIDs, rel.ToID)
-		}
-		if rel.FromID == phaseID && rel.Type == string(model.RelationDelivers) {
-			deliveredSet[rel.ToID] = true
-		}
+func (e *Engine) computePhaseScope(phaseID string) (PhaseNextScope, error) {
+	scope, err := graph.EffectivePhaseScope(phaseID, &engineRelationFetcher{idx: e.idx})
+	if err != nil {
+		return PhaseNextScope{}, newError(CodeRuntime, "derive phase scope", err)
+	}
+	deliveredSet := make(map[string]bool, len(scope.Delivered))
+	for _, id := range scope.Delivered {
+		deliveredSet[id] = true
 	}
 
 	var remaining []string
-	for _, id := range coveredIDs {
+	for _, id := range scope.Covered {
 		if !deliveredSet[id] {
 			remaining = append(remaining, id)
 		}
 	}
 
 	return PhaseNextScope{
-		Total:     len(coveredIDs),
+		Total:     len(scope.Covered),
 		Delivered: len(deliveredSet),
 		Remaining: remaining,
-	}
+	}, nil
 }
 
 func (e *Engine) activatePhase(phaseID string) error {

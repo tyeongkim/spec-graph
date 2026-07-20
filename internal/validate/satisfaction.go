@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
@@ -86,19 +87,12 @@ type PhaseSatisfaction struct {
 //   - 1-depth references outbound neighbors (covered --references--> R)
 //   - excluded if already mandatory (mandatory wins invariant)
 func computePhaseClosure(phaseID string, includeReferences bool, rf RelationFetcher) ([]closureMember, error) {
-	phaseRels, err := rf.GetByEntity(phaseID)
+	effective, err := graph.EffectivePhaseScope(phaseID, rf)
 	if err != nil {
-		return nil, fmt.Errorf("fetch phase relations: %w", err)
+		return nil, fmt.Errorf("derive phase scope: %w", err)
 	}
 
-	directlyCovered := make([]string, 0)
-	covered := make(map[string]bool)
-	for _, r := range phaseRels {
-		if r.Type == model.RelationCovers && r.FromID == phaseID && !covered[r.ToID] {
-			directlyCovered = append(directlyCovered, r.ToID)
-			covered[r.ToID] = true
-		}
-	}
+	directlyCovered := effective.Covered
 
 	mandatory := make(map[string]closureMember)
 	for _, id := range directlyCovered {

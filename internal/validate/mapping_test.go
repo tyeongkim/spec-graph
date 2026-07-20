@@ -103,6 +103,28 @@ func TestDeliveryCompletenessRejectsUndeliveredRequirement(t *testing.T) {
 	}
 }
 
+func TestTaskScopeDetectsManuallyMixedMappings(t *testing.T) {
+	ef := newMockEntityFetcher(
+		execEntity("PHS-001", model.EntityTypePhase, model.EntityStatusActive, nil),
+		execEntity("TSK-001", model.EntityTypeTask, model.EntityStatusActive, nil),
+		archEntity("REQ-001", model.EntityTypeRequirement, model.EntityStatusActive),
+		archEntity("API-001", model.EntityTypeInterface, model.EntityStatusActive),
+	)
+	rf := newMockRelationFetcher(
+		rel(1, "TSK-001", "PHS-001", model.RelationBelongsTo),
+		rel(2, "TSK-001", "REQ-001", model.RelationCovers),
+		rel(3, "PHS-001", "API-001", model.RelationCovers),
+	)
+
+	issues := checkTaskScope(rf, ef)
+	if len(issues) != 1 {
+		t.Fatalf("issues=%+v; want one mixed-mapping issue", issues)
+	}
+	if issues[0].Check != "task_scope" || issues[0].Severity != SeverityHigh || issues[0].Entity != "PHS-001" {
+		t.Errorf("issue=%+v; want high task_scope issue for PHS-001", issues[0])
+	}
+}
+
 func TestCheckPlanCoverage(t *testing.T) {
 	tests := []struct {
 		name       string

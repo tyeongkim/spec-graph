@@ -105,7 +105,7 @@ func DefaultSchema() *Schema {
 			"blocks":          {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
 			"task_depends_on": {Layer: "exec", From: []string{"task"}, To: []string{"task"}},
 			"covers":          {Layer: "mapping", From: []string{"phase", "change", "task"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
-			"delivers":        {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
+			"delivers":        {Layer: "mapping", From: []string{"phase", "task"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
 		},
 	}
 }
