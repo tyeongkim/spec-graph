@@ -3,7 +3,7 @@ name: spec-planner
 description: >
   Transforms specifications, requirements documents, or natural language project descriptions
   into a fully registered spec-graph plan. Creates arch entities (REQ, DEC, ACT, RSK),
-  execution entities (PLN, PHS), and mapping relations (covers). Validates the graph across
+  execution entities (PLN, PHS, TSK), and mapping relations (covers). Validates the graph across
   all three layers before finalizing. Use when user asks to "plan this project", "create a
   spec-graph plan", "register requirements", "break this into phases", "turn this spec into
   a plan", or provides a requirements document and wants it converted into a spec-graph
@@ -47,6 +47,8 @@ To load it, invoke the `skill` tool with `name="spec-graph"` before continuing.
 6. **Phase test integrity**: Every phase, when completed, MUST have all tests passing. No test failures are allowed. Tests may only be skipped with explicit user confirmation — the skip reason must be recorded in exit_criteria metadata.
 6. **Query before create**: Always check existing graph state before creating entities or relations.
 7. **Compute first**: Run `validate` after every batch of mutations.
+8. **Graph-native output**: New plans create `TSK` entities and no Markdown plan files. Never
+   auto-import, delete, or reinterpret existing Markdown.
 
 ---
 
@@ -160,7 +162,7 @@ spec-graph relation add --from REQ-001 --to DEC-001 --type constrained_by
 spec-graph relation add --from REQ-002 --to REQ-001 --type depends_on
 ```
 
-### Step 4: Create PLN + PHS Entities
+### Step 4: Create PLN + PHS + TSK Entities
 
 Determine phase count based on project scale:
 
@@ -184,7 +186,23 @@ spec-graph entity add --type phase --id PHS-001 \
 spec-graph entity add --type phase --id PHS-002 \
   --title "Phase 2 - ..." \
   --metadata '{"goal":"...","order":2,"exit_criteria":["criterion 1","criterion 2"]}'
+
+# Create graph-native tasks (all start as draft)
+spec-graph entity add --type task --id TSK-001 \
+  --title "Implement phase foundation" \
+  --description "Implement the first independently verifiable unit of phase work." \
+  --metadata '{"order":1,"instructions":["Implement the scoped unit."],"acceptance":["The scoped behavior passes verification."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
+
+spec-graph entity add --type task --id TSK-002 \
+  --title "Integrate phase behavior" \
+  --description "Integrate the phase behavior after the foundation is complete." \
+  --metadata '{"order":2,"instructions":["Integrate the scoped behavior."],"acceptance":["Integration verification passes."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
 ```
+
+Task metadata is a closed six-field contract. `order` must be positive; `instructions`,
+`acceptance`, and `qa` must be non-empty; `must_not` and `references` are required and may be
+empty. Each QA item requires `command`, `expected`, and `evidence`; evidence stays empty until
+resolution, when it must identify a repository-relative regular file. Unknown keys are rejected.
 
 **PHS ID = execution order**: The numeric suffix of PHS IDs determines execution sequence. PHS-001 is always first, PHS-002 always second. Do NOT assign IDs out of order (e.g., PHS-003 before PHS-001). If you reorder phases, renumber the IDs to match.
 
@@ -209,18 +227,24 @@ spec-graph relation add --from PHS-002 --to PLN-001 --type belongs_to
 
 # Set ordering
 spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
+
+# Assign tasks to their phase and encode dependent→prerequisite ordering
+spec-graph relation add --from TSK-001 --to PHS-001 --type belongs_to
+spec-graph relation add --from TSK-002 --to PHS-001 --type belongs_to
+spec-graph relation add --from TSK-002 --to TSK-001 --type task_depends_on
 ```
 
 Parallel-eligible phases: if two phases have no dependency, do NOT add `precedes` between them.
 
-### Step 6: mapping (covers)
+### Step 6: Canonical Task Mapping (covers)
 
-Map every arch entity to at least one phase:
+Map every arch entity to at least one task. Once a phase has any task, the union of child task
+mappings is the phase scope; direct phase mappings are forbidden.
 
 ```bash
-spec-graph relation add --from PHS-001 --to REQ-001 --type covers
-spec-graph relation add --from PHS-001 --to REQ-002 --type covers
-spec-graph relation add --from PHS-002 --to REQ-003 --type covers
+spec-graph relation add --from TSK-001 --to REQ-001 --type covers
+spec-graph relation add --from TSK-001 --to REQ-002 --type covers
+spec-graph relation add --from TSK-002 --to REQ-003 --type covers
 ```
 
 **Coverage rule**: Every active arch entity (REQ, DEC, ACT, RSK, and any registered API/STT/TST)
@@ -234,6 +258,9 @@ Run full 3-layer validation:
 spec-graph validate --layer arch
 spec-graph validate --layer exec
 spec-graph validate --layer mapping
+spec-graph validate --layer exec --check task_graph
+spec-graph validate --layer mapping --check task_scope
+spec-graph phase context PHS-001
 ```
 
 If any check fails:
@@ -243,6 +270,16 @@ If any check fails:
 4. Re-validate
 
 Do not proceed until all three layers pass.
+
+`phase context` must return the plan, phase, ordered task contracts, prerequisites, task mappings,
+effective scope/delivery, blockers, and ready/blocked task IDs. This is the executor/verifier handoff.
+Do not generate a Markdown plan alongside it.
+
+### Legacy Isolation
+
+The direct phase `covers` path is only for pre-existing taskless phases or explicitly supplied
+existing Markdown. Preserve those files and direct mappings byte-for-byte. Do not create tasks by
+reinterpreting Markdown, and do not mix direct phase mappings with task mappings.
 
 ### Step 8: Persistent Instructions
 
@@ -260,7 +297,7 @@ ls AGENTS.md CLAUDE.md .cursorrules .github/copilot-instructions.md 2>/dev/null
 This project uses spec-graph for requirements and phase management.
 
 - `.spec-graph/` directory is the source of truth
-- Before implementation: `spec-graph query scope <PHS-ID>` to check phase scope
+- Before implementation: `spec-graph phase context <PHS-ID>` to check tasks and effective scope
 - After implementation: `spec-graph validate` to verify
 - Before changes: `spec-graph impact <ID>` for impact analysis
 - Phase lifecycle: draft → active → resolved
@@ -296,3 +333,5 @@ Act on user response.
 3. **Over-registration**: Don't register API/STT/TST unless explicitly stated in input.
 4. **Ignoring existing graph**: Always query before creating. Duplicates corrupt the graph.
 5. **Vague exit_criteria**: "Works correctly" is not testable. Be specific.
+6. **Markdown output**: Never generate Markdown for a new plan or convert legacy Markdown implicitly.
+7. **Mixed mapping**: Never add direct phase mappings after tasks belong to the phase.

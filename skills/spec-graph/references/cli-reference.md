@@ -10,7 +10,8 @@
 7. [validate](#validate)
 8. [query](#query)
 9. [export](#export)
-10. [bootstrap](#bootstrap)
+10. [phase context](#phase-context)
+11. [bootstrap](#bootstrap)
 
 ---
 
@@ -93,7 +94,7 @@ spec-graph entity add \
   [--metadata '{"key":"value"}']
 ```
 
-- `--type`: requirement, decision, plan, phase, interface, state, test, crosscut, question, assumption, criterion, risk
+- `--type`: requirement, decision, plan, phase, task, change, interface, state, test, crosscut, question, assumption, criterion, risk
 - `--id`: optional. Type prefix + number (e.g. REQ-001, DEC-003). When omitted, auto-generated from `--type` using `MAX(existing number)+1`. Generated ID is returned in `.entity.id` of the JSON response. Format: unpadded (`REQ-1`, `REQ-2`) for fresh graphs; follows existing zero-padding if padded IDs already exist (e.g. after `REQ-001`, next auto is `REQ-002`). Counters are per-type and independent. Manual `--id` is still validated (prefix must match type) and auto-gen respects manually-set numbers.
 - `--status`: defaults to `draft`
 - `--metadata`: type-specific required fields — see `references/data-model.md`
@@ -202,11 +203,15 @@ spec-graph relation add --from TST-012 --to REQ-001 --type verifies
 
 # Exec relations
 spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
+spec-graph relation add --from TSK-001 --to PHS-001 --type belongs_to
+spec-graph relation add --from TSK-002 --to TSK-001 --type task_depends_on
 spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
 
 # Mapping relations (v1 — use these)
 spec-graph relation add --from PHS-001 --to REQ-001 --type covers
 spec-graph relation add --from PHS-001 --to API-005 --type delivers
+spec-graph relation add --from TSK-001 --to REQ-001 --type covers
+spec-graph relation add --from TSK-001 --to API-005 --type delivers
 ```
 
 ### relation list
@@ -318,12 +323,14 @@ spec-graph validate --layer arch --check coverage          # combinable
 - `orphan_phases`: phases not belonging to any plan
 - `exec_cycles`: circular precedes/blocks chains
 - `invalid_exec_edges`: exec edge matrix violations
+- `task_graph`: exact task parents, same-phase dependencies, and dependency cycles
 
 **Mapping layer** (`--layer mapping`):
 - `plan_coverage`: all active requirements are covered by some phase
 - `delivery_completeness`: covered arch entities have delivery evidence
 - `mapping_consistency`: covers/delivers targets exist and are arch entities
 - `invalid_mapping_edges`: mapping edge matrix violations
+- `task_scope`: task coverage, delivery subset, and no mixed phase/task mappings
 
 ### Response Shape
 ```json
@@ -370,7 +377,8 @@ Returns the shortest path between two entities. Empty result if no path exists.
 ```bash
 spec-graph query scope <PHS-ID>
 ```
-Returns all arch entities linked to the phase via `covers` or `delivers`.
+Returns effective arch scope. Task-managed phases return the union of child task mappings;
+taskless phases preserve direct mappings and their insertion order.
 
 ### query unresolved
 ```bash
@@ -384,6 +392,28 @@ spec-graph query sql "SELECT id, type, layer, title FROM entities WHERE status =
 ```
 Executes raw SQL. Only SELECT statements are allowed. The `layer` column is available on
 both `entities` and `relations` tables.
+
+---
+
+## phase context
+
+```bash
+spec-graph phase context <PHS-ID>
+```
+
+Returns the non-persisted execution contract:
+
+```json
+{
+  "plan": {}, "phase": {},
+  "tasks": [{"entity":{},"contract":{},"prerequisite_ids":[],"covers":[],"delivers":[]}],
+  "scope": [], "delivery": [], "blockers": {},
+  "ready_task_ids": [], "blocked_task_ids": []
+}
+```
+
+RPC method `phase.context` and MCP tool `phase_context` return the same shape. Task contracts use
+the six closed fields `order`, `instructions`, `acceptance`, `must_not`, `references`, and `qa`.
 
 ---
 

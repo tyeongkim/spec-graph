@@ -73,6 +73,8 @@ PHS:  draft → active → resolved (gated: delivery_completeness + gates)
 4. **No regression**: A fix must not break previously passing checks.
 5. **Only verifier resolves**: Phase status → `resolved` is exclusively this skill's authority.
 6. **Delegate fixes, own verification**: Code corrections can be delegated; judgment stays here.
+7. **Context first**: For task-managed phases, `phase context` is the verification contract. Use
+   direct scope only for an isolated pre-existing taskless phase or explicitly supplied Markdown.
 
 ---
 
@@ -122,18 +124,21 @@ If multiple phases are in `active` status:
 3. **Never verify a phase whose dependencies aren't resolved** — it will fail the gate anyway.
 4. **Reject `draft` phases** — instruct user to activate via spec-executor first.
 
-### Step 1: Phase Scope
+### Step 1: Phase Context
 
-Query the phase's coverage:
+Query the phase execution context:
 
 ```bash
-spec-graph query scope PHS-XXX
+spec-graph phase context PHS-XXX
 ```
 
-Parse to get:
-- All arch entities this phase `covers`
-- Which have `delivers` relations (claimed complete by spec-executor)
-- Which lack `delivers` (potentially incomplete)
+When `tasks` is non-empty, verify the returned task contracts, prerequisites, covers/delivers,
+effective scope/delivery, blockers, and ready/blocked IDs. Task-managed scope is the union of child
+task mappings. Every task must resolve with QA evidence and required delivery before phase sign-off.
+
+When `tasks` is empty, use `spec-graph query scope PHS-XXX` as an isolated legacy path only for a
+pre-existing taskless phase or explicitly supplied existing Markdown. Preserve Markdown byte-for-byte;
+never auto-import, delete, or reinterpret it.
 
 ### Step 2: Graph-Level Verification
 
@@ -142,6 +147,8 @@ Run spec-graph validation checks:
 ```bash
 # Mapping layer — phase-specific
 spec-graph validate --layer mapping --phase PHS-XXX
+spec-graph validate --layer exec --check task_graph
+spec-graph validate --layer mapping --phase PHS-XXX --check task_scope
 
 # Arch layer — coverage and unresolved
 spec-graph validate --layer arch --check coverage,unresolved
@@ -404,12 +411,14 @@ Determine the correct command by checking project config files (Makefile, packag
 For entities where implementation is verified:
 
 ```bash
-# Check if delivers already exists
-spec-graph relation list --from PHS-XXX --type delivers
+# Check task delivery in PhaseContext
+spec-graph phase context PHS-XXX
 
 # Add delivers for verified entities (if not already present)
-spec-graph relation add --from PHS-XXX --to REQ-001 --type delivers
+spec-graph relation add --from TSK-XXX --to REQ-001 --type delivers
 ```
+
+Use direct phase `delivers` only on the isolated taskless legacy path.
 
 **Rules**:
 - Only add `delivers` when YOU have verified the implementation
@@ -504,6 +513,8 @@ If the gate blocks (exit 2):
 # Check what's blocking
 spec-graph validate --layer mapping --phase PHS-XXX --check delivery_completeness
 spec-graph validate --layer mapping --phase PHS-XXX --check gates
+spec-graph validate --layer exec --check task_graph
+spec-graph validate --layer mapping --phase PHS-XXX --check task_scope
 
 # Fix blocking issues, then retry
 spec-graph entity update PHS-XXX --status resolved
@@ -562,3 +573,5 @@ git add .spec-graph/ && git commit -m "spec-graph: PHS-XXX resolved - verificati
 5. **Infinite retry**: Stop at 3 attempts. Report PARTIAL and ask for help.
 6. **Scope creep in fixes**: Auto-fix only the specific failure. Don't refactor surrounding code.
 7. **Delegating judgment**: Never let a delegated agent decide if verification passes.
+8. **Legacy reinterpretation**: Never derive tasks from or delete existing Markdown.
+9. **Mixed mappings**: Never combine direct phase mappings with child-task mappings.

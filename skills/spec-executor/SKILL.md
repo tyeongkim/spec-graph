@@ -75,6 +75,8 @@ PHS:  draft → active → resolved (gated: delivery_completeness + gates)
 3. **Scope discipline**: Write only to the current PHS. Other phases are read-only.
 4. **Query before create**: Check existing entities before registering new ones.
 5. **Delegate when possible**: If `task()` is available, delegate code work and keep graph updates to yourself.
+6. **Context first**: Use `spec-graph phase context` whenever a phase has tasks. The legacy
+   `query scope` path is isolated to pre-existing taskless phases or explicitly supplied Markdown.
 
 ---
 
@@ -142,18 +144,27 @@ spec-graph entity get PHS-XXX
 
 If using `phase next --activate`, verify the response contains `"activated": true`.
 
-### Step 1: Scope Review
+### Step 1: PhaseContext Review
 
-Query what this phase covers:
+Query the graph-native execution contract:
+
+```bash
+spec-graph phase context PHS-XXX
+```
+
+If `tasks` is non-empty, use only this `PhaseContext`: ordered
+`tasks[{entity,contract,prerequisite_ids,covers,delivers}]`, effective `scope`, `delivery`,
+`blockers`, `ready_task_ids`, and `blocked_task_ids`. Work only on ready tasks. The phase scope is
+the union of child task mappings; tasks remain outside the architecture closure.
+
+If `tasks` is empty, use the isolated legacy path:
 
 ```bash
 spec-graph query scope PHS-XXX
 ```
 
-Parse the output to identify:
-- Arch entities covered by this phase (via `covers` relations)
-- Which of those already have `delivers` relations (already done)
-- Remaining work = covered entities without `delivers`
+This path is valid only for a pre-existing taskless phase or explicitly supplied existing Markdown.
+Preserve Markdown unchanged; never auto-import, delete, or reinterpret it.
 
 Present the work summary:
 
@@ -253,23 +264,31 @@ spec-graph validate --layer arch
 
 ### Step 4: Post-Implementation (delivers)
 
-When an arch entity's implementation is confirmed complete, add `delivers`:
+When a task-managed phase's implementation is confirmed complete, add `delivers` from the task:
 
 ```bash
-spec-graph relation add --from PHS-XXX --to REQ-001 --type delivers
-spec-graph relation add --from PHS-XXX --to API-001 --type delivers
+spec-graph relation add --from TSK-XXX --to REQ-001 --type delivers
+spec-graph relation add --from TSK-XXX --to API-001 --type delivers
 ```
+
+For the isolated taskless legacy path only, retain direct `PHS-XXX --delivers--> arch` behavior.
 
 **Rules for delivers**:
 - Only add when implementation is actually done (not planned, not in-progress)
 - Use the minimal proxy set — not every related entity, only those necessary and sufficient
-- Only add delivers for the current PHS (scope discipline)
+- Only add task delivers within the current phase (scope discipline)
+- Before resolving a task, update every QA item with a repository-relative regular-file evidence path
+- Task activation requires an active parent phase and resolved prerequisites; resolution requires
+  resolved prerequisites, delivery, and evidence
 - The CLI auto-transitions target entities from `draft` to `active` on delivers — do NOT manually set status to active after adding delivers
 
 Validate after adding delivers:
 
 ```bash
 spec-graph validate --layer mapping --phase PHS-XXX
+spec-graph validate --layer exec --check task_graph
+spec-graph validate --layer mapping --phase PHS-XXX --check task_scope
+spec-graph phase context PHS-XXX
 ```
 
 ### Step 5: Progress Report
@@ -334,3 +353,5 @@ When `task()` is available (orchestration environment):
 4. **Bulk delivers**: Adding delivers for every related entity instead of the minimal set.
 5. **Delegating graph ops**: Letting delegated agents run spec-graph commands directly.
 6. **Phantom entities**: Registering entities for code that doesn't exist yet.
+7. **Legacy reinterpretation**: Converting or deleting old Markdown instead of leaving it isolated.
+8. **Mixed mappings**: Adding direct phase mappings to a task-managed phase.

@@ -206,6 +206,14 @@ spec-graph validate --layer exec --check invalid_exec_edges
 |-----------|----------|
 | Exec relation violates the exec edge matrix | high |
 
+### task_graph
+Checks each non-deprecated task has exactly one phase parent, each `task_depends_on` edge stays
+within that phase and is stored dependent→prerequisite, and the dependency graph is acyclic.
+
+```bash
+spec-graph validate --layer exec --check task_graph
+```
+
 ---
 
 ## Mapping Layer Checks
@@ -268,6 +276,24 @@ spec-graph validate --layer mapping --check invalid_mapping_edges
 | Condition | Severity |
 |-----------|----------|
 | Mapping relation violates the mapping edge matrix | high |
+
+### task_scope
+Checks each non-deprecated task covers at least one arch entity, task `delivers` is a subset of its
+`covers`, and phases never mix direct mappings with child-task mappings.
+
+```bash
+spec-graph validate --layer mapping --check task_scope
+spec-graph validate --layer mapping --phase PHS-002 --check task_scope
+```
+
+Task-managed phase scope is the union of child task mappings. Taskless phase scope remains direct
+and unchanged. Tasks are exec entities and do not enter the architecture closure.
+
+### Task Completion Gates
+The four task-managed checks/gates are `task_graph`, `task_scope`, task delivery/evidence
+completion, and phase child-resolution plus existing `delivery_completeness`/`gates`. Task
+activation requires an active parent and resolved prerequisites. Resolution requires QA evidence,
+delivery, and resolved prerequisites; a phase cannot resolve until all non-deprecated children resolve.
 
 ### gates
 Detects phase readiness blockers by checking arch entities in the phase scope for
@@ -393,12 +419,15 @@ phases. Any source meeting Layer 3 satisfies regardless of phase membership.
 spec-graph validate --layer exec --check single_active_plan
 spec-graph validate --layer exec --check phase_order
 spec-graph validate --layer exec --check orphan_phases
+spec-graph validate --layer exec --check task_graph
 
 # Arch: confirm no blocking open items
 spec-graph validate --layer arch --check unresolved
 
 # Mapping: confirm all requirements are assigned
 spec-graph validate --layer mapping --check plan_coverage
+spec-graph validate --layer mapping --check task_scope
+spec-graph phase context PHS-XXX
 ```
 
 Purpose: confirm that all prerequisites for items assigned to this phase are met.

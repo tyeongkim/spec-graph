@@ -18,7 +18,7 @@ from the entity type prefix or relation type — there is no ambiguity.
 | Layer | Contains | Purpose |
 |-------|----------|---------|
 | `arch` | REQ, DEC, API, STT, TST, XCT, ACT, ASM, RSK, QST | Semantic meaning: what and why |
-| `exec` | PLN, PHS, CHG | Delivery structure: when and how |
+| `exec` | PLN, PHS, TSK, CHG | Delivery structure: when and how |
 | `mapping` | covers, delivers | Cross-layer links: intent and completion |
 
 ### Layer Classification Rules
@@ -27,7 +27,7 @@ Entity layer is derived from type prefix:
 
 ```
 REQ, DEC, API, STT, TST, XCT, ACT, ASM, RSK, QST  →  arch
-PLN, PHS, CHG                                        →  exec
+PLN, PHS, TSK, CHG                                   →  exec
 ```
 
 Relation layer is fixed per relation type:
@@ -37,7 +37,7 @@ implements, verifies, depends_on, constrained_by, triggers,
 answers, assumes, has_criterion, mitigates, supersedes,
 conflicts_with, references                           →  arch
 
-belongs_to, precedes, blocks                         →  exec
+belongs_to, task_depends_on, precedes, blocks        →  exec
 
 covers, delivers                                     →  mapping
 ```
@@ -142,6 +142,24 @@ enforces this constraint.
 }
 ```
 
+#### task (TSK)
+Task metadata is a closed contract; unknown keys are rejected:
+```json
+{
+  "order": 1,
+  "instructions": ["non-empty instruction"],
+  "acceptance": ["non-empty acceptance condition"],
+  "must_not": [],
+  "references": [],
+  "qa": [{"command":"go test ./...","expected":"exit 0","evidence":""}]
+}
+```
+
+`order` is positive. `instructions`, `acceptance`, and `qa` are non-empty arrays.
+`must_not` and `references` are required arrays that may be empty. QA `command` and `expected`
+are non-empty; `evidence` is empty before resolution and must name a repository-relative regular
+file at resolution.
+
 #### change (CHG)
 ```json
 {
@@ -174,6 +192,11 @@ draft → active → resolved   (question, risk, assumption only)
 - `resolved`: question answered, assumption verified, or risk mitigated
 - `deleted`: permanently removed
 
+Tasks use the stricter lifecycle `draft → active → resolved` or `draft|active → deprecated`.
+`resolved` and `deprecated` are terminal; deprecation requires a reason. Activation requires one
+active parent phase and resolved prerequisites. Resolution requires resolved prerequisites, QA
+evidence, and delivery for every deliverable covered target.
+
 ---
 
 ## Relation Types
@@ -195,11 +218,12 @@ draft → active → resolved   (question, risk, assumption only)
 | `conflicts_with` | two entities are semantically conflicting | bidirectional |
 | `references` | weak reference link (cross-layer allowed) | bidirectional weak |
 
-### Execution Layer Relations (3)
+### Execution Layer Relations (4)
 
 | Relation | Meaning | Directionality |
 |----------|---------|----------------|
-| `belongs_to` | phase belongs to a plan | phase→plan |
+| `belongs_to` | membership, exactly task→phase or phase→plan | child→parent |
+| `task_depends_on` | task depends on a prerequisite in the same phase | dependent→prerequisite |
 | `precedes` | phase must complete before another starts | phase→phase |
 | `blocks` | phase blocks another from starting | phase→phase |
 
@@ -207,8 +231,8 @@ draft → active → resolved   (question, risk, assumption only)
 
 | Relation | Meaning | Directionality |
 |----------|---------|----------------|
-| `covers` | phase/change covers an arch entity (intent) | phase/change→arch |
-| `delivers` | phase delivers an arch entity (completion) | phase→arch |
+| `covers` | phase/change/task covers an arch entity (intent) | exec→arch |
+| `delivers` | phase/task delivers an arch entity (completion) | phase/task→arch |
 
 `covers` replaced the removed `planned_in`. Direction is inverted: `phase --covers--> arch_entity`.
 `delivers` replaced the removed `delivered_in`. Direction is inverted: `phase --delivers--> arch_entity`.
@@ -243,7 +267,8 @@ Three separate matrices exist, one per layer.
 
 | Relation | From (allowed source types) | To (allowed target types) |
 |----------|----------------------------|--------------------------|
-| `belongs_to` | phase | plan |
+| `belongs_to` | task or phase | task→phase, phase→plan only |
+| `task_depends_on` | task | task in the same phase |
 | `precedes` | phase | phase |
 | `blocks` | phase | phase |
 
@@ -251,8 +276,12 @@ Three separate matrices exist, one per layer.
 
 | Relation | From (allowed source types) | To (allowed target types) |
 |----------|----------------------------|--------------------------|
-| `covers` | phase, change | requirement, decision, interface, test, question, risk, criterion, assumption |
-| `delivers` | phase | requirement, interface, state, test, decision, criterion |
+| `covers` | phase, change, task | requirement, decision, interface, test, question, risk, criterion, assumption |
+| `delivers` | phase, task | requirement, interface, state, test, decision, criterion |
+
+For a task-managed phase, effective scope and delivery are the union of child task mappings and
+direct phase mappings are forbidden. A taskless phase retains direct mappings unchanged. Tasks are
+exec entities and never enter architecture satisfaction closure.
 
 ### Common Mistakes
 - `implements`: source must be `interface`. A requirement cannot implement another requirement.
@@ -261,7 +290,7 @@ Three separate matrices exist, one per layer.
   completion evidence (what was actually built). Use both distinctly.
 - `covers`/`delivers` direction: source is `phase`, target is the arch entity. This is the
   opposite of the removed `planned_in`/`delivered_in` (which were arch→phase).
-- `belongs_to`: source is `phase`, target is `plan`. A plan does not belong to a phase.
+- `belongs_to`: only task→phase and phase→plan are legal.
 - `supersedes`: both sides must be the same type. REQ cannot supersede DEC.
 - `planned_in`/`delivered_in`: removed in v1. Use `covers`/`delivers` instead.
 - `covers` from CHG: CHG can cover arch entities, but CHG CANNOT use `delivers`. Only phases deliver.
@@ -289,6 +318,7 @@ Each relation type has different propagation weights across three dimensions dur
 | `conflicts_with` | bidirectional | 0.8 | 0.9 | 0.5 |
 | `references` | bidirectional weak | 0.1 | 0.1 | 0.1 |
 | `belongs_to` | from→to | 0.1 | 0.1 | 0.7 |
+| `task_depends_on` | forward, reverse weak | 0.2 | 0.2 | 0.8 |
 | `precedes` | from→to | 0.1 | 0.1 | 0.9 |
 | `blocks` | from→to | 0.1 | 0.1 | 0.9 |
 

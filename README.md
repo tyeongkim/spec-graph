@@ -4,6 +4,16 @@ CLI tool for managing software specifications as a typed graph. Track entities (
 
 > This tool is designed to be operated by AI agents, not humans. All commands output structured JSON for machine consumption. Human-friendly formatting is not a goal.
 
+## Graph-Native Plans
+
+New plans are stored entirely in `.spec-graph/` as plan (`PLN`), phase (`PHS`), and task (`TSK`)
+entities. Tasks belong to phases, carry a closed execution contract, map to architecture entities
+with `covers`/`delivers`, and are consumed through `spec-graph phase context <PHS-ID>`. New-plan
+workflows do not create Markdown plan files.
+
+Pre-existing taskless phases keep their direct phase mappings and existing Markdown files exactly
+as they are. spec-graph does not auto-import, delete, or reinterpret legacy Markdown.
+
 ## Install
 
 ```bash

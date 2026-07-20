@@ -1,5 +1,20 @@
 # Design Report — Level 2: Promoting Tasks to First-Class Graph Entities
 
+> [!IMPORTANT]
+> **Superseded by the implemented graph-native planning contract.** This report is retained as
+> design history, but its stale proposals at the original lines 134, 148, 200, and 229 are not
+> operator guidance. Specifically: tasks use `belongs_to` from task to phase, never `has_task`;
+> task entities remain in the exec layer and never enter the architecture satisfaction closure;
+> `task_depends_on` is stored dependent-to-prerequisite and uses weak reverse impact propagation,
+> not forward-only propagation; and every QA item requires repository-relative regular-file
+> evidence when a task resolves, rather than optional task evidence. New plans are graph-native
+> (`PLN` + `PHS` + `TSK`) and create no Markdown plan files. Existing taskless phases and explicitly
+> supplied existing Markdown remain isolated legacy inputs and are not imported, deleted, or
+> reinterpreted.
+>
+> The current contract is documented in `skills/spec-graph/` and the planner, executor, and verifier
+> skills. Where this historical report conflicts with those references, the skill contract wins.
+>
 > Status: Proposal (discussion / decision-pending) — **revised after Oracle design review**
 > Scope: spec-graph entity model, relation model, edge matrix, schema, analysis engine
 > Prerequisite: Level 1 (nested-metadata serialization fix in `internal/toml/writer.go`) — **DONE**

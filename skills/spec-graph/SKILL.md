@@ -41,20 +41,23 @@ Relation types: `implements`, `verifies`, `depends_on`, `constrained_by`, `trigg
 `answers`, `assumes`, `has_criterion`, `mitigates`, `supersedes`, `conflicts_with`, `references`
 
 ### exec (execution layer)
-Contains the "when" and "how" of delivery: plans, phases, and changes. A plan groups phases into
+Contains the "when" and "how" of delivery: plans, phases, tasks, and changes. A plan groups phases into
 a single active delivery sequence. Only one plan may be active at a time. A change is a lightweight
 independent work unit (PR, bugfix, patch) that covers arch entities without belonging to any plan or phase.
 
-Entity types: `plan`, `phase`, `change`
+Entity types: `plan`, `phase`, `task`, `change`
 
-Relation types: `belongs_to` (phase→plan), `precedes` (phase→phase), `blocks` (phase→phase)
+Relation types: `belongs_to` exactly for phase→plan and task→phase, `task_depends_on`
+(dependent task→prerequisite task in the same phase), `precedes` (phase→phase), and
+`blocks` (phase→phase).
 
 Note: `change` entities do NOT participate in exec relations (belongs_to, precedes, blocks). They are independent units.
 
 ### mapping (cross-layer)
 Connects arch entities to exec entities. This is where intent meets delivery.
 
-Relation types: `covers` (phase/change→arch entity), `delivers` (phase→arch entity)
+Relation types: `covers` (phase/change/task→arch entity), `delivers` (phase/task→arch entity).
+When a phase has any child task, task mappings are canonical and direct phase mappings are forbidden.
 
 ### Layer Classification
 
@@ -74,6 +77,7 @@ Layer is determined by entity type prefix. It is always deterministic:
 | QST | question | arch |
 | PLN | plan | exec |
 | PHS | phase | exec |
+| TSK | task | exec |
 | CHG | change | exec |
 
 ---
@@ -87,6 +91,40 @@ Layer is determined by entity type prefix. It is always deterministic:
 4. **Phase gates**: always run `validate --layer mapping --phase` before starting or completing a phase.
 5. **Git as audit log**: each commit is a logical changeset. The project's git history is the sole audit trail for spec-graph changes.
 6. **covers/delivers**: use the v1 mapping relations. `covers` expresses planning intent, `delivers` expresses completion.
+7. **Graph-native plans**: new plans create `TSK` entities and no Markdown plan files. Never auto-import,
+   delete, or reinterpret old Markdown.
+
+## Task Contract and Scope
+
+Every task has a non-empty title and description plus a closed six-field metadata contract. Unknown
+keys are rejected:
+
+```json
+{
+  "order": 1,
+  "instructions": ["Implement the scoped behavior."],
+  "acceptance": ["The behavior is verified."],
+  "must_not": [],
+  "references": [],
+  "qa": [{"command":"go test ./...","expected":"exit 0","evidence":""}]
+}
+```
+
+- `order` is a positive integer.
+- `instructions`, `acceptance`, and `qa` are non-empty arrays.
+- `must_not` and `references` are required arrays and may be empty.
+- Every QA item has non-empty `command` and `expected`. `evidence` is empty before resolution and
+  must identify a repository-relative regular file when the task resolves.
+
+Canonical scope is selected per phase: a task-managed phase (any task `belongs_to` it) derives
+scope and delivery from the union of child task `covers`/`delivers`; a taskless phase keeps its
+direct phase mappings unchanged. Never mix direct phase mappings with child-task mappings. Tasks
+remain exec entities and are never members of the architecture satisfaction closure.
+
+Task lifecycle is `draft → active → resolved` or `draft|active → deprecated`; `resolved` and
+`deprecated` are terminal, and deprecation requires a reason. Activation requires an active parent
+phase and resolved prerequisites. Resolution requires resolved prerequisites, QA evidence, and
+`delivers` for every deliverable target the task covers.
 
 ---
 
@@ -217,6 +255,7 @@ spec-graph query sql "SELECT ..."
 ### Phase Lifecycle
 ```bash
 spec-graph phase next [--activate]
+spec-graph phase context <PHS-ID>
 ```
 
 ### Export
@@ -247,7 +286,7 @@ spec-graph doctor [--check <name>] [--fix]
 
 See `references/data-model.md` for full type catalog, metadata schemas, and edge matrices.
 
-### Entity Types (13)
+### Entity Types (14)
 
 | Prefix | Type | Layer | Purpose |
 |--------|------|-------|---------|
@@ -263,6 +302,7 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 | RSK | risk | arch | explicit risk item |
 | PLN | plan | exec | delivery plan grouping phases |
 | PHS | phase | exec | development phase or milestone |
+| TSK | task | exec | graph-native unit of implementation work |
 | CHG | change | exec | lightweight work unit (PR, bugfix, patch) |
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
@@ -313,14 +353,14 @@ PHS:  draft → active → resolved (gated: delivery_completeness + gates)
 5. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
 6. **deprecated is terminal**: no transitions out of `deprecated`.
 
-### Relation Types (17)
+### Relation Types (18)
 
 **Architecture layer (12):**
 `implements`, `verifies`, `depends_on`, `constrained_by`, `triggers`, `answers`,
 `assumes`, `has_criterion`, `mitigates`, `supersedes`, `conflicts_with`, `references`
 
-**Execution layer (3):**
-`belongs_to`, `precedes`, `blocks`
+**Execution layer (4):**
+`belongs_to`, `task_depends_on`, `precedes`, `blocks`
 
 **Mapping layer (2):**
 `covers`, `delivers`
@@ -333,7 +373,8 @@ This section is the heart of this skill. Agents follow these patterns.
 
 ### Pattern 1: Plan and Phase Setup
 
-Create a plan, add phases to it, and wire up the mapping:
+Create a graph-native plan, add phases and tasks, then wire task scope. This path creates no
+Markdown. Direct phase mappings shown in older projects are a legacy taskless path only.
 
 > **Note**: This pattern uses explicit `--id` because it's a batch/cross-referencing flow where IDs are referenced before all entities exist. For single interactive creates, you can omit `--id` and capture the auto-generated ID from `.entity.id` (via `jq -r '.entity.id'`).
 
@@ -343,30 +384,38 @@ spec-graph entity add --type plan --id PLN-001 \
   --title "v1 Delivery Plan" \
   --metadata '{"status":"active"}'
 
-# 2. Create phases
+# 2. Create a phase
 spec-graph entity add --type phase --id PHS-001 \
   --title "Phase 1 - Auth" \
   --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete","E2E tests pass"]}'
 
-spec-graph entity add --type phase --id PHS-002 \
-  --title "Phase 2 - Payment" \
-  --metadata '{"goal":"Build payment system","order":2,"exit_criteria":["Payment API complete","E2E tests pass"]}'
-
-# 3. Assign phases to plan
+# 3. Assign the phase to the plan
 spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
-spec-graph relation add --from PHS-002 --to PLN-001 --type belongs_to
 
-# 4. Set phase ordering
-spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
+# 4. Create tasks with the closed TaskContract
+spec-graph entity add --type task --id TSK-001 --title "Implement auth API" \
+  --description "Implement the authentication API and tests." \
+  --metadata '{"order":1,"instructions":["Implement the auth API."],"acceptance":["Auth tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
+spec-graph entity add --type task --id TSK-002 --title "Integrate auth flow" \
+  --description "Integrate the completed authentication API." \
+  --metadata '{"order":2,"instructions":["Integrate the auth flow."],"acceptance":["Integration tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
 
-# 5. Map arch entities to phases using covers
-spec-graph relation add --from PHS-001 --to REQ-001 --type covers
-spec-graph relation add --from PHS-001 --to REQ-002 --type covers
+# 5. Wire membership, dependency, and canonical task scope
+spec-graph relation add --from TSK-001 --to PHS-001 --type belongs_to
+spec-graph relation add --from TSK-002 --to PHS-001 --type belongs_to
+spec-graph relation add --from TSK-002 --to TSK-001 --type task_depends_on
+spec-graph relation add --from TSK-001 --to REQ-001 --type covers
+spec-graph relation add --from TSK-002 --to REQ-002 --type covers
 
-# 6. Gate check before starting
-spec-graph validate --layer exec --check single_active_plan
-spec-graph validate --layer exec --check phase_order
+# 6. Validate and obtain the executor/verifier contract
+spec-graph validate --layer exec --check task_graph
+spec-graph validate --layer mapping --phase PHS-001 --check task_scope
+spec-graph phase context PHS-001
 ```
+
+`phase context` returns `{plan,phase,tasks,scope,delivery,blockers,ready_task_ids,blocked_task_ids}`.
+Each task entry is `{entity,contract,prerequisite_ids,covers,delivers}`. The same result is available
+as RPC `phase.context` and MCP `phase_context`.
 
 ### Pattern 2: Change Handling
 
@@ -402,15 +451,15 @@ transition is blocked with exit code 2.
 spec-graph entity update PHS-002 --status resolved
 
 # If blocked, resolve issues first:
-# 1. Review phase scope
-spec-graph query scope PHS-002
+# 1. Review graph-native phase context
+spec-graph phase context PHS-002
 
 # 2. Check what's missing
 spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
 spec-graph validate --layer mapping --phase PHS-002 --check gates
 
 # 3. Fix issues (add delivers, answer questions, mitigate risks)
-spec-graph relation add --from PHS-002 --to REQ-001 --type delivers
+spec-graph relation add --from TSK-005 --to REQ-001 --type delivers
 
 # 4. Retry
 spec-graph entity update PHS-002 --status resolved
@@ -563,6 +612,7 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | `exec_cycles` | circular precedes/blocks chains | after adding exec relations |
 | `invalid_exec_edges` | exec edge matrix violations | after adding exec relations |
 | `orphan_changes` | changes with no relations to other entities | after adding changes |
+| `task_graph` | task parents, same-phase dependencies, and cycles | after changing tasks or dependencies |
 
 ### Mapping Layer Checks (`--layer mapping`)
 
@@ -573,6 +623,11 @@ When to use each check. See `references/validation-rules.md` for detailed rules.
 | `mapping_consistency` | covers/delivers targets exist and are arch entities | after adding mapping relations |
 | `invalid_mapping_edges` | mapping edge matrix violations | after adding mapping relations |
 | `gates` | unresolved questions, unmitigated risks, draft decisions | auto-enforced on phase → resolved |
+| `task_scope` | task coverage, delivery subset, and no mixed mappings | after changing task mappings |
+
+For task-managed completion, four checks/gates matter: structural `task_graph`, mapping
+`task_scope`, task completion delivery/evidence gates, and phase child-resolution plus existing
+`delivery_completeness`/`gates` checks.
 
 ### Common Combinations
 
