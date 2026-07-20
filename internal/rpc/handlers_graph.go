@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
@@ -176,6 +177,29 @@ func (d *Dispatcher) phaseNext(ctx context.Context, params json.RawMessage) (any
 		return nil, rerr
 	}
 	result, err := d.engine.PhaseNext(ctx, specgraph.PhaseNextRequest{Activate: p.Activate})
+	if err != nil {
+		return nil, engineError(err)
+	}
+	return result, nil
+}
+
+type phaseContextParams struct {
+	ID string `json:"id"`
+}
+
+func (d *Dispatcher) phaseContext(_ context.Context, params json.RawMessage) (any, *rpcError) {
+	var p phaseContextParams
+	if rerr := decodeParams(params, &p); rerr != nil {
+		return nil, rerr
+	}
+	if err := model.ValidateEntityID(p.ID, model.EntityTypePhase); err != nil {
+		return nil, &rpcError{
+			Code:    codeInvalidParams,
+			Message: err.Error(),
+			Data:    errorData{Code: string(specgraph.CodeInvalidInput), ExitCode: 3},
+		}
+	}
+	result, err := d.engine.PhaseContext(p.ID)
 	if err != nil {
 		return nil, engineError(err)
 	}

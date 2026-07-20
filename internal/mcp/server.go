@@ -23,6 +23,7 @@ func NewSpecGraphServer(engine *specgraph.Engine) *server.MCPServer {
 	s.AddTool(impactTool(), handleImpact(engine))
 	s.AddTool(validateTool(), handleValidate(engine))
 	s.AddTool(exportTool(), handleExport(engine))
+	s.AddTool(phaseContextTool(), handlePhaseContext(engine))
 
 	return s
 }
@@ -116,6 +117,16 @@ func exportTool() mcp.Tool {
 	)
 }
 
+func phaseContextTool() mcp.Tool {
+	return mcp.NewTool("phase_context",
+		mcp.WithDescription("Return the complete execution context for a phase"),
+		mcp.WithString("id",
+			mcp.Required(),
+			mcp.Description("Phase entity ID"),
+		),
+	)
+}
+
 // --- Handlers ---
 
 func handleQueryScope(engine *specgraph.Engine) server.ToolHandlerFunc {
@@ -134,6 +145,25 @@ func handleQueryScope(engine *specgraph.Engine) server.ToolHandlerFunc {
 			PhaseID: phaseID,
 			Layer:   layerToString(layer),
 		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		return marshalResult(result)
+	}
+}
+
+func handlePhaseContext(engine *specgraph.Engine) server.ToolHandlerFunc {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		phaseID, err := req.RequireString("id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if err := model.ValidateEntityID(phaseID, model.EntityTypePhase); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		result, err := engine.PhaseContext(phaseID)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

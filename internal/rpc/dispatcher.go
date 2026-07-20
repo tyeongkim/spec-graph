@@ -44,6 +44,7 @@ func NewDispatcher(engine *specgraph.Engine) *Dispatcher {
 		"validate":         d.validate,
 		"export":           d.export,
 		"phase.next":       d.phaseNext,
+		"phase.context":    d.phaseContext,
 		"bootstrap.import": d.bootstrapImport,
 	}
 	return d
@@ -131,7 +132,8 @@ func engineError(err error) *rpcError {
 		specgraph.CodeConflict,
 		specgraph.CodeValidationFailed,
 		specgraph.CodeGateBlocked,
-		specgraph.CodeNotFound:
+		specgraph.CodeNotFound,
+		specgraph.CodeInvalidState:
 		code = codeInvalidParams
 	case specgraph.CodeRuntime:
 		code = codeInternalError

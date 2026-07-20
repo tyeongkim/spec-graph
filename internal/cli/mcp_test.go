@@ -131,8 +131,8 @@ func TestMCPToolsList(t *testing.T) {
 		t.Fatalf("unmarshal tools/list result: %v\nraw: %s", err, resp.Result)
 	}
 
-	if len(result.Tools) != 6 {
-		t.Errorf("len(tools) = %d; want 6", len(result.Tools))
+	if len(result.Tools) != 7 {
+		t.Errorf("len(tools) = %d; want 7", len(result.Tools))
 		for _, tool := range result.Tools {
 			t.Logf("  tool: %s", tool.Name)
 		}
@@ -145,6 +145,7 @@ func TestMCPToolsList(t *testing.T) {
 		"impact":           false,
 		"validate":         false,
 		"export":           false,
+		"phase_context":    false,
 	}
 	for _, tool := range result.Tools {
 		if _, ok := expectedTools[tool.Name]; ok {

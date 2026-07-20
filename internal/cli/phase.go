@@ -52,6 +52,25 @@ var phaseNextCmd = &cobra.Command{
 	},
 }
 
+var phaseContextCmd = &cobra.Command{
+	Use:   "context <PHS-ID>",
+	Short: "Return the complete execution context for a phase",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		phaseID := args[0]
+		if err := model.ValidateEntityID(phaseID, model.EntityTypePhase); err != nil {
+			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+		}
+
+		result, err := engine.PhaseContext(phaseID)
+		if err != nil {
+			return handleEngineError(cmd, err, phaseID)
+		}
+
+		return writeJSON(cmd, result)
+	},
+}
+
 // relationsByEntityFunc returns all relations referencing the given entity. It
 // is satisfied by *specgraph.Engine.RelationsByEntity, which acquires the
 // engine lock, so phase scoping goes through the locked engine API rather than
@@ -76,4 +95,5 @@ func phaseEntityScope(phaseID string, relationsByEntity relationsByEntityFunc) (
 func init() {
 	phaseNextCmd.Flags().Bool("activate", false, "automatically transition the phase from draft to active")
 	phaseCmd.AddCommand(phaseNextCmd)
+	phaseCmd.AddCommand(phaseContextCmd)
 }
