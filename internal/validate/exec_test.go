@@ -2,10 +2,106 @@ package validate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
+
+func TestTaskGraphRejectsCrossPhaseAndCycles(t *testing.T) {
+	tasks := []model.Entity{
+		execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+		execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusActive, nil),
+		execEntity("TSK-1", model.EntityTypeTask, model.EntityStatusActive, nil),
+		execEntity("TSK-2", model.EntityTypeTask, model.EntityStatusActive, nil),
+		execEntity("TSK-3", model.EntityTypeTask, model.EntityStatusDeprecated, nil),
+		execEntity("TSK-4", model.EntityTypeTask, model.EntityStatusActive, nil),
+	}
+	tests := []struct {
+		name      string
+		relations []model.Relation
+		wantIDs   []string
+		wantText  string
+	}{
+		{
+			name: "zero parent",
+			relations: []model.Relation{
+				rel(1, "TSK-2", "PHS-1", model.RelationBelongsTo),
+				rel(2, "TSK-3", "PHS-1", model.RelationBelongsTo),
+				rel(3, "TSK-4", "PHS-1", model.RelationBelongsTo),
+			},
+			wantIDs: []string{"TSK-1"}, wantText: "zero parent",
+		},
+		{
+			name: "multiple parents",
+			relations: []model.Relation{
+				rel(1, "TSK-1", "PHS-1", model.RelationBelongsTo), rel(2, "TSK-1", "PHS-2", model.RelationBelongsTo),
+				rel(3, "TSK-2", "PHS-1", model.RelationBelongsTo), rel(4, "TSK-3", "PHS-1", model.RelationBelongsTo), rel(5, "TSK-4", "PHS-1", model.RelationBelongsTo),
+			},
+			wantIDs: []string{"TSK-1", "PHS-1", "PHS-2"}, wantText: "multiple parent",
+		},
+		{
+			name: "cross phase",
+			relations: []model.Relation{
+				rel(1, "TSK-1", "PHS-1", model.RelationBelongsTo), rel(2, "TSK-2", "PHS-2", model.RelationBelongsTo),
+				rel(3, "TSK-3", "PHS-1", model.RelationBelongsTo), rel(4, "TSK-4", "PHS-1", model.RelationBelongsTo),
+				rel(5, "TSK-1", "TSK-2", model.RelationTaskDependsOn),
+			},
+			wantIDs: []string{"TSK-1", "TSK-2", "PHS-1", "PHS-2"}, wantText: "cross-phase",
+		},
+		{
+			name: "self dependency",
+			relations: []model.Relation{
+				rel(1, "TSK-1", "PHS-1", model.RelationBelongsTo), rel(2, "TSK-2", "PHS-1", model.RelationBelongsTo),
+				rel(3, "TSK-3", "PHS-1", model.RelationBelongsTo), rel(4, "TSK-4", "PHS-1", model.RelationBelongsTo),
+				rel(5, "TSK-1", "TSK-1", model.RelationTaskDependsOn),
+			},
+			wantIDs: []string{"TSK-1"}, wantText: "self-dependency",
+		},
+		{
+			name: "deprecated prerequisite",
+			relations: []model.Relation{
+				rel(1, "TSK-1", "PHS-1", model.RelationBelongsTo), rel(2, "TSK-2", "PHS-1", model.RelationBelongsTo),
+				rel(3, "TSK-3", "PHS-1", model.RelationBelongsTo), rel(4, "TSK-4", "PHS-1", model.RelationBelongsTo),
+				rel(5, "TSK-1", "TSK-3", model.RelationTaskDependsOn),
+			},
+			wantIDs: []string{"TSK-1", "TSK-3"}, wantText: "deprecated task",
+		},
+		{
+			name: "cycle",
+			relations: []model.Relation{
+				rel(1, "TSK-1", "PHS-1", model.RelationBelongsTo), rel(2, "TSK-2", "PHS-1", model.RelationBelongsTo),
+				rel(3, "TSK-3", "PHS-1", model.RelationBelongsTo), rel(4, "TSK-4", "PHS-1", model.RelationBelongsTo),
+				rel(5, "TSK-1", "TSK-2", model.RelationTaskDependsOn), rel(6, "TSK-2", "TSK-4", model.RelationTaskDependsOn),
+				rel(7, "TSK-4", "TSK-1", model.RelationTaskDependsOn),
+			},
+			wantIDs: []string{"TSK-1", "TSK-2", "TSK-4"}, wantText: "cycle members",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			issues := checkTaskGraph(newMockRelationFetcher(test.relations...), newMockEntityFetcher(tasks...))
+			var matching strings.Builder
+			for _, issue := range issues {
+				if strings.Contains(issue.Message, test.wantText) {
+					matching.WriteString(issue.Entity)
+					matching.WriteString(" ")
+					matching.WriteString(issue.Message)
+				}
+			}
+			text := matching.String()
+			if text == "" {
+				t.Fatalf("no task_graph issue containing %q: %+v", test.wantText, issues)
+			}
+			for _, id := range test.wantIDs {
+				if !strings.Contains(text, id) {
+					t.Errorf("issue %q does not name offending member %s", text, id)
+				}
+			}
+		})
+	}
+}
 
 func TestCheckPhaseOrder(t *testing.T) {
 	tests := []struct {

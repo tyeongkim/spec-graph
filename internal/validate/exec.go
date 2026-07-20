@@ -3,6 +3,9 @@ package validate
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
@@ -35,12 +38,117 @@ func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []
 			issues = checkInvalidExecEdges(rf, ef)
 		case "orphan_changes":
 			issues = checkOrphanChanges(rf, ef)
+		case "task_graph":
+			issues = checkTaskGraph(rf, ef)
 		}
 
 		allIssues = append(allIssues, issues...)
 	}
 
 	return allIssues
+}
+
+func checkTaskGraph(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	taskType := model.EntityTypeTask
+	layer := model.LayerExec
+	tasks, err := ef.List(EntityListFilters{Type: &taskType, Layer: &layer})
+	if err != nil {
+		return nil
+	}
+
+	taskByID := make(map[string]model.Entity, len(tasks))
+	parents := make(map[string][]string, len(tasks))
+	dependencies := make(map[string][]string, len(tasks))
+	for _, task := range tasks {
+		taskByID[task.ID] = task
+		relations, getErr := rf.GetByEntity(task.ID)
+		if getErr != nil {
+			continue
+		}
+		for _, relation := range relations {
+			if relation.FromID != task.ID {
+				continue
+			}
+			switch relation.Type {
+			case model.RelationBelongsTo:
+				parents[task.ID] = append(parents[task.ID], relation.ToID)
+			case model.RelationTaskDependsOn:
+				dependencies[task.ID] = append(dependencies[task.ID], relation.ToID)
+			}
+		}
+	}
+
+	var issues []ValidationIssue
+	addIssue := func(entity, message string) {
+		issues = append(issues, ValidationIssue{Check: "task_graph", Severity: SeverityHigh, Entity: entity, Message: message, Layer: model.LayerExec})
+	}
+	for _, task := range tasks {
+		taskParents := parents[task.ID]
+		sort.Strings(taskParents)
+		switch len(taskParents) {
+		case 0:
+			addIssue(task.ID, fmt.Sprintf("task %s has zero parent phases", task.ID))
+		case 1:
+		default:
+			addIssue(task.ID, fmt.Sprintf("task %s has multiple parent phases: %s", task.ID, strings.Join(taskParents, ", ")))
+		}
+
+		for _, prerequisiteID := range dependencies[task.ID] {
+			if prerequisiteID == task.ID {
+				addIssue(task.ID, fmt.Sprintf("task %s has self-dependency %s -> %s", task.ID, task.ID, prerequisiteID))
+				continue
+			}
+			prerequisite, ok := taskByID[prerequisiteID]
+			if !ok {
+				continue
+			}
+			if prerequisite.Status == model.EntityStatusDeprecated {
+				addIssue(task.ID, fmt.Sprintf("task %s depends on deprecated task %s", task.ID, prerequisiteID))
+			}
+			if len(taskParents) == 1 && len(parents[prerequisiteID]) == 1 && taskParents[0] != parents[prerequisiteID][0] {
+				addIssue(task.ID, fmt.Sprintf("cross-phase task dependency %s (%s) -> %s (%s)", task.ID, taskParents[0], prerequisiteID, parents[prerequisiteID][0]))
+			}
+		}
+	}
+
+	visited := make(map[string]bool, len(tasks))
+	inStack := make(map[string]bool, len(tasks))
+	var stack []string
+	var visit func(string)
+	visit = func(taskID string) {
+		visited[taskID] = true
+		inStack[taskID] = true
+		stack = append(stack, taskID)
+		for _, prerequisiteID := range dependencies[taskID] {
+			if prerequisiteID == taskID {
+				continue
+			}
+			if _, ok := taskByID[prerequisiteID]; !ok {
+				continue
+			}
+			if !visited[prerequisiteID] {
+				visit(prerequisiteID)
+				continue
+			}
+			if inStack[prerequisiteID] {
+				start := slices.Index(stack, prerequisiteID)
+				members := append([]string(nil), stack[start:]...)
+				description := strings.Join(append(append([]string(nil), members...), prerequisiteID), " -> ")
+				for _, member := range members {
+					addIssue(member, fmt.Sprintf("task dependency cycle members [%s]: %s", strings.Join(members, ", "), description))
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		inStack[taskID] = false
+	}
+	for _, task := range tasks {
+		if !visited[task.ID] {
+			visit(task.ID)
+		}
+	}
+
+	return issues
 }
 
 func execEntities(ef EntityFetcher) ([]model.Entity, error) {

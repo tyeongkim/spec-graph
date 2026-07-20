@@ -102,7 +102,7 @@ var PropagationTable = map[model.RelationType]PropagationRule{
 		Note:      "bidirectional weak",
 	},
 	model.RelationCovers: {
-		Direction: Forward,
+		Direction: ForwardReverseWeak,
 		Scores:    DimensionScores{Structural: 0.1, Behavioral: 0.2, Planning: 0.8},
 	},
 	model.RelationDelivers: {
@@ -120,6 +120,11 @@ var PropagationTable = map[model.RelationType]PropagationRule{
 	model.RelationBlocks: {
 		Direction: Forward,
 		Scores:    DimensionScores{Structural: 0.2, Behavioral: 0.2, Planning: 0.8},
+	},
+	model.RelationTaskDependsOn: {
+		Direction: ForwardReverseWeak,
+		Scores:    DimensionScores{Structural: 0.2, Behavioral: 0.2, Planning: 0.8},
+		Note:      "weak bidirectional task coordination",
 	},
 }
 
@@ -143,6 +148,7 @@ var ReasonTemplates = map[model.RelationType]string{
 	model.RelationBelongsTo:     "phase membership",
 	model.RelationPrecedes:      "phase ordering",
 	model.RelationBlocks:        "blocking dependency",
+	model.RelationTaskDependsOn: "task dependency",
 }
 
 // ScoreToSeverity converts a numeric propagation score to a Severity level.

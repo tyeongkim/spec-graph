@@ -3,10 +3,64 @@ package specgraph_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
+
+func TestBelongsToRejectsCartesianPairs(t *testing.T) {
+	tests := []struct {
+		name     string
+		fromType string
+		fromID   string
+		toType   string
+		toID     string
+	}{
+		{name: "phase to phase", fromType: "phase", fromID: "PHS-001", toType: "phase", toID: "PHS-002"},
+		{name: "task to plan", fromType: "task", fromID: "TSK-001", toType: "plan", toID: "PLN-001"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			eng := openTestEngine(t)
+			ctx := context.Background()
+			if test.fromType == "task" {
+				createTask(t, eng, test.fromID)
+			} else if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: test.fromType, ID: test.fromID, Title: test.fromID}); err != nil {
+				t.Fatalf("create source: %v", err)
+			}
+			if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: test.toType, ID: test.toID, Title: test.toID}); err != nil {
+				t.Fatalf("create target: %v", err)
+			}
+			_, err := eng.AddRelation(ctx, specgraph.AddRelationRequest{From: test.fromID, To: test.toID, Type: "belongs_to"})
+			assertErrorCode(t, err, specgraph.CodeInvalidInput)
+			if !strings.Contains(err.Error(), test.fromID) || !strings.Contains(err.Error(), test.toID) {
+				t.Errorf("error %q does not name illegal pair %s -> %s", err, test.fromID, test.toID)
+			}
+		})
+	}
+}
+
+func TestTaskRejectsSecondParent(t *testing.T) {
+	eng := openTestEngine(t)
+	ctx := context.Background()
+	createTask(t, eng, "TSK-001")
+	for _, phaseID := range []string{"PHS-001", "PHS-002"} {
+		if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "phase", ID: phaseID, Title: phaseID}); err != nil {
+			t.Fatalf("create %s: %v", phaseID, err)
+		}
+	}
+	if _, err := eng.AddRelation(ctx, specgraph.AddRelationRequest{From: "TSK-001", To: "PHS-001", Type: "belongs_to"}); err != nil {
+		t.Fatalf("first parent: %v", err)
+	}
+	_, err := eng.AddRelation(ctx, specgraph.AddRelationRequest{From: "TSK-001", To: "PHS-002", Type: "belongs_to"})
+	assertErrorCode(t, err, specgraph.CodeInvalidInput)
+	for _, id := range []string{"PHS-001", "PHS-002"} {
+		if !strings.Contains(err.Error(), id) {
+			t.Errorf("error %q does not name parent %s", err, id)
+		}
+	}
+}
 
 // setupRelationTestEntities creates two entities for relation testing:
 // REQ-001 (requirement) and API-001 (interface). An interface→requirement

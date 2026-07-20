@@ -390,6 +390,21 @@ func TestIsRelationAllowed_MatchesEdgeMatrix(t *testing.T) {
 	}
 }
 
+func TestDefaultSchemaExhaustivelyMatchesEdgeMatrix(t *testing.T) {
+	schema := DefaultSchema()
+	for _, relation := range model.ValidRelationTypes {
+		for _, from := range model.ValidEntityTypes {
+			for _, to := range model.ValidEntityTypes {
+				modelAllowed := model.IsEdgeAllowed(relation, from, to, nil)
+				schemaAllowed := schema.IsRelationAllowed(string(from), string(to), string(relation))
+				if modelAllowed != schemaAllowed {
+					t.Errorf("relation %q pair %q -> %q: model=%v schema=%v", relation, from, to, modelAllowed, schemaAllowed)
+				}
+			}
+		}
+	}
+}
+
 func TestLoadedSchema_MatchesDefault(t *testing.T) {
 	loaded, err := LoadSchema(filepath.Join("testdata", "schema.toml"))
 	if err != nil {

@@ -541,3 +541,73 @@ func TestImpact_EntityNotFound(t *testing.T) {
 		t.Fatal("expected error for missing entity, got nil")
 	}
 }
+
+func TestTaskDependencyImpactBothDirections(t *testing.T) {
+	dependency := rel("TSK-002", "TSK-001", model.RelationTaskDependsOn, 1.0)
+	rf := &mockRF{relations: map[string][]model.Relation{
+		"TSK-001": {dependency},
+		"TSK-002": {dependency},
+	}}
+	ef := &mockEF{entities: map[string]model.Entity{
+		"TSK-001": entity("TSK-001", model.EntityTypeTask),
+		"TSK-002": entity("TSK-002", model.EntityTypeTask),
+	}}
+
+	tests := []struct {
+		name   string
+		source string
+		want   string
+		score  float64
+	}{
+		{name: "dependent reaches prerequisite", source: "TSK-002", want: "TSK-001", score: 0.8},
+		{name: "prerequisite reaches dependent weakly", source: "TSK-001", want: "TSK-002", score: 0.8 * ReverseWeakFactor},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Impact([]string{test.source}, ImpactOptions{}, rf, ef)
+			if err != nil {
+				t.Fatalf("Impact: %v", err)
+			}
+			affected := findAffected(result, test.want)
+			if affected == nil {
+				t.Fatalf("impact from %s did not contain coordinated task %s", test.source, test.want)
+			}
+			if !approx(affected.Impact.Planning, test.score) {
+				t.Errorf("planning score = %v; want %v", affected.Impact.Planning, test.score)
+			}
+		})
+	}
+}
+
+func TestCoversReverseImpact(t *testing.T) {
+	coverage := rel("PHS-001", "REQ-001", model.RelationCovers, 1.0)
+	rf := &mockRF{relations: map[string][]model.Relation{
+		"PHS-001": {coverage},
+		"REQ-001": {coverage},
+	}}
+	ef := &mockEF{entities: map[string]model.Entity{
+		"PHS-001": entity("PHS-001", model.EntityTypePhase),
+		"REQ-001": entity("REQ-001", model.EntityTypeRequirement),
+	}}
+
+	forward, err := Impact([]string{"PHS-001"}, ImpactOptions{}, rf, ef)
+	if err != nil {
+		t.Fatalf("forward Impact: %v", err)
+	}
+	requirement := findAffected(forward, "REQ-001")
+	if requirement == nil || !approx(requirement.Impact.Planning, 0.8) {
+		t.Fatalf("forward coverage planning impact = %+v; want 0.8", requirement)
+	}
+
+	reverse, err := Impact([]string{"REQ-001"}, ImpactOptions{}, rf, ef)
+	if err != nil {
+		t.Fatalf("reverse Impact: %v", err)
+	}
+	phase := findAffected(reverse, "PHS-001")
+	if phase == nil {
+		t.Fatal("requirement impact did not reach covering phase")
+	}
+	if !approx(phase.Impact.Planning, 0.8*ReverseWeakFactor) {
+		t.Errorf("reverse coverage planning impact = %v; want %v", phase.Impact.Planning, 0.8*ReverseWeakFactor)
+	}
+}

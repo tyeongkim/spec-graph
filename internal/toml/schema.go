@@ -29,10 +29,16 @@ type EntityTypeConfig struct {
 
 // RelationTypeConfig defines a single relation type in the schema.
 type RelationTypeConfig struct {
-	Layer   string   `toml:"layer"`
-	From    []string `toml:"from"`
-	To      []string `toml:"to"`
-	Special string   `toml:"special"`
+	Layer   string               `toml:"layer"`
+	From    []string             `toml:"from"`
+	To      []string             `toml:"to"`
+	Pairs   []RelationPairConfig `toml:"pairs"`
+	Special string               `toml:"special"`
+}
+
+type RelationPairConfig struct {
+	From string `toml:"from"`
+	To   string `toml:"to"`
 }
 
 var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-([0-9]+)(?:-([0-9a-z]{3}))?$`)
@@ -82,23 +88,24 @@ func DefaultSchema() *Schema {
 			"task":        {Prefix: "TSK", Layer: "exec", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 		},
 		RelationTypes: map[string]RelationTypeConfig{
-			"implements":     {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},
-			"verifies":       {Layer: "arch", From: []string{"test"}, To: []string{"requirement", "criterion", "decision", "interface", "state"}},
-			"depends_on":     {Layer: "arch", From: []string{"requirement", "decision", "interface", "test", "state"}, To: []string{"requirement", "decision", "interface", "state", "crosscut", "assumption"}},
-			"constrained_by": {Layer: "arch", From: []string{"requirement", "decision", "interface", "state"}, To: []string{"crosscut", "decision", "assumption"}},
-			"triggers":       {Layer: "arch", From: []string{"interface", "decision"}, To: []string{"state"}},
-			"answers":        {Layer: "arch", From: []string{"decision"}, To: []string{"question"}},
-			"assumes":        {Layer: "arch", From: []string{"requirement", "decision", "interface"}, To: []string{"assumption"}},
-			"has_criterion":  {Layer: "arch", From: []string{"requirement"}, To: []string{"criterion"}},
-			"mitigates":      {Layer: "arch", From: []string{"decision", "test", "crosscut"}, To: []string{"risk"}},
-			"supersedes":     {Layer: "arch", Special: "same_type"},
-			"conflicts_with": {Layer: "arch", Special: "any_to_any"},
-			"references":     {Layer: "arch", Special: "any_to_any"},
-			"belongs_to":     {Layer: "exec", From: []string{"phase"}, To: []string{"plan"}},
-			"precedes":       {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
-			"blocks":         {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
-			"covers":         {Layer: "mapping", From: []string{"phase", "change"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
-			"delivers":       {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
+			"implements":      {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},
+			"verifies":        {Layer: "arch", From: []string{"test"}, To: []string{"requirement", "criterion", "decision", "interface", "state"}},
+			"depends_on":      {Layer: "arch", From: []string{"requirement", "decision", "interface", "test", "state"}, To: []string{"requirement", "decision", "interface", "state", "crosscut", "assumption"}},
+			"constrained_by":  {Layer: "arch", From: []string{"requirement", "decision", "interface", "state"}, To: []string{"crosscut", "decision", "assumption"}},
+			"triggers":        {Layer: "arch", From: []string{"interface", "decision"}, To: []string{"state"}},
+			"answers":         {Layer: "arch", From: []string{"decision"}, To: []string{"question"}},
+			"assumes":         {Layer: "arch", From: []string{"requirement", "decision", "interface"}, To: []string{"assumption"}},
+			"has_criterion":   {Layer: "arch", From: []string{"requirement"}, To: []string{"criterion"}},
+			"mitigates":       {Layer: "arch", From: []string{"decision", "test", "crosscut"}, To: []string{"risk"}},
+			"supersedes":      {Layer: "arch", Special: "same_type"},
+			"conflicts_with":  {Layer: "arch", Special: "any_to_any"},
+			"references":      {Layer: "arch", Special: "any_to_any"},
+			"belongs_to":      {Layer: "exec", Pairs: []RelationPairConfig{{From: "phase", To: "plan"}, {From: "task", To: "phase"}}},
+			"precedes":        {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
+			"blocks":          {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
+			"task_depends_on": {Layer: "exec", From: []string{"task"}, To: []string{"task"}},
+			"covers":          {Layer: "mapping", From: []string{"phase", "change", "task"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
+			"delivers":        {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
 		},
 	}
 }
@@ -146,6 +153,14 @@ func (s *Schema) ValidateRelation(fromType, toType, relationType string) error {
 		return nil
 	case "any_to_any":
 		return nil
+	}
+	if len(cfg.Pairs) > 0 {
+		if slices.ContainsFunc(cfg.Pairs, func(pair RelationPairConfig) bool {
+			return pair.From == fromType && pair.To == toType
+		}) {
+			return nil
+		}
+		return fmt.Errorf("relation %q does not allow exact pair %q → %q", relationType, fromType, toType)
 	}
 
 	if !slices.Contains(cfg.From, fromType) {
@@ -209,6 +224,18 @@ func (s *Schema) validate() error {
 			validSpecials := []string{"same_type", "any_to_any"}
 			if !slices.Contains(validSpecials, cfg.Special) {
 				return fmt.Errorf("relation type %q: invalid special value %q", name, cfg.Special)
+			}
+			continue
+		}
+
+		if len(cfg.Pairs) > 0 {
+			for _, pair := range cfg.Pairs {
+				if _, ok := s.EntityTypes[pair.From]; !ok {
+					return fmt.Errorf("relation type %q: pair references unknown source entity type %q", name, pair.From)
+				}
+				if _, ok := s.EntityTypes[pair.To]; !ok {
+					return fmt.Errorf("relation type %q: pair references unknown target entity type %q", name, pair.To)
+				}
 			}
 			continue
 		}

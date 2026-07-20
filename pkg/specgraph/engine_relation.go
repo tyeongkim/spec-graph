@@ -102,7 +102,7 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 	if !model.IsEdgeAllowed(rt, fromType, toType, nil) {
 		return model.Relation{}, newError(
 			CodeInvalidInput,
-			"relation type not allowed between these entity types",
+			fmt.Sprintf("relation %q not allowed from %q (%s) to %q (%s)", rt, req.From, fromType, req.To, toType),
 			&model.ErrInvalidEdge{FromType: fromType, ToType: toType, RelationType: rt},
 		)
 	}
@@ -132,6 +132,13 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 	}
 
 	for _, existing := range ef.Relations {
+		if fromType == model.EntityTypeTask && rt == model.RelationBelongsTo && existing.Type == model.RelationBelongsTo && existing.To != targetID {
+			return model.Relation{}, newError(
+				CodeInvalidInput,
+				fmt.Sprintf("task %q already belongs to phase %q; cannot also belong to phase %q", req.From, existing.To, req.To),
+				nil,
+			)
+		}
 		if existing.To == targetID && existing.Type == rt {
 			return model.Relation{}, newError(
 				CodeConflict,

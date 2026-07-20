@@ -52,9 +52,10 @@ var relationLayerMap = map[RelationType]Layer{
 	RelationConflictsWith: LayerArch,
 	RelationReferences:    LayerArch,
 
-	RelationBelongsTo: LayerExec,
-	RelationPrecedes:  LayerExec,
-	RelationBlocks:    LayerExec,
+	RelationBelongsTo:     LayerExec,
+	RelationPrecedes:      LayerExec,
+	RelationBlocks:        LayerExec,
+	RelationTaskDependsOn: LayerExec,
 
 	RelationCovers:   LayerMapping,
 	RelationDelivers: LayerMapping,

@@ -4,8 +4,14 @@ import "slices"
 
 // edgeRule defines the allowed source and target entity types for a relation.
 type edgeRule struct {
-	From []EntityType
-	To   []EntityType
+	From  []EntityType
+	To    []EntityType
+	Pairs []edgePair
+}
+
+type edgePair struct {
+	From EntityType
+	To   EntityType
 }
 
 var archEdgeMatrix = map[RelationType]edgeRule{
@@ -50,8 +56,10 @@ var archEdgeMatrix = map[RelationType]edgeRule{
 // execEdgeMatrix defines edge rules for the execution layer.
 var execEdgeMatrix = map[RelationType]edgeRule{
 	RelationBelongsTo: {
-		From: []EntityType{EntityTypePhase},
-		To:   []EntityType{EntityTypePlan},
+		Pairs: []edgePair{
+			{From: EntityTypePhase, To: EntityTypePlan},
+			{From: EntityTypeTask, To: EntityTypePhase},
+		},
 	},
 	RelationPrecedes: {
 		From: []EntityType{EntityTypePhase},
@@ -61,12 +69,16 @@ var execEdgeMatrix = map[RelationType]edgeRule{
 		From: []EntityType{EntityTypePhase},
 		To:   []EntityType{EntityTypePhase},
 	},
+	RelationTaskDependsOn: {
+		From: []EntityType{EntityTypeTask},
+		To:   []EntityType{EntityTypeTask},
+	},
 }
 
 // mappingEdgeMatrix defines edge rules for the mapping (cross-layer) layer.
 var mappingEdgeMatrix = map[RelationType]edgeRule{
 	RelationCovers: {
-		From: []EntityType{EntityTypePhase, EntityTypeChange},
+		From: []EntityType{EntityTypePhase, EntityTypeChange, EntityTypeTask},
 		To:   []EntityType{EntityTypeRequirement, EntityTypeDecision, EntityTypeInterface, EntityTypeTest, EntityTypeQuestion, EntityTypeRisk, EntityTypeCriterion, EntityTypeAssumption},
 	},
 	RelationDelivers: {
@@ -116,6 +128,11 @@ func checkMatrix(matrix map[RelationType]edgeRule, relType RelationType, from, t
 	rule, ok := matrix[relType]
 	if !ok {
 		return false
+	}
+	if len(rule.Pairs) > 0 {
+		return slices.ContainsFunc(rule.Pairs, func(pair edgePair) bool {
+			return pair.From == from && pair.To == to
+		})
 	}
 	return contains(rule.From, from) && contains(rule.To, to)
 }

@@ -39,6 +39,31 @@ func TestExecEdgeMatrix(t *testing.T) {
 	}
 }
 
+func TestTaskRelationsAllowedPairs(t *testing.T) {
+	tests := []struct {
+		name     string
+		relation RelationType
+		from     EntityType
+		to       EntityType
+		allowed  bool
+	}{
+		{name: "phase belongs to plan", relation: RelationBelongsTo, from: EntityTypePhase, to: EntityTypePlan, allowed: true},
+		{name: "task belongs to phase", relation: RelationBelongsTo, from: EntityTypeTask, to: EntityTypePhase, allowed: true},
+		{name: "phase cannot belong to phase", relation: RelationBelongsTo, from: EntityTypePhase, to: EntityTypePhase, allowed: false},
+		{name: "task cannot belong to plan", relation: RelationBelongsTo, from: EntityTypeTask, to: EntityTypePlan, allowed: false},
+		{name: "task depends on task", relation: RelationTaskDependsOn, from: EntityTypeTask, to: EntityTypeTask, allowed: true},
+		{name: "task covers requirement", relation: RelationCovers, from: EntityTypeTask, to: EntityTypeRequirement, allowed: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsEdgeAllowed(test.relation, test.from, test.to, nil); got != test.allowed {
+				t.Errorf("IsEdgeAllowed(%q, %q, %q) = %v; want %v", test.relation, test.from, test.to, got, test.allowed)
+			}
+		})
+	}
+}
+
 func TestMappingEdgeMatrix(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -19,12 +19,13 @@ func TestRelationTypeConstants(t *testing.T) {
 		RelationBelongsTo:     "belongs_to",
 		RelationPrecedes:      "precedes",
 		RelationBlocks:        "blocks",
+		RelationTaskDependsOn: "task_depends_on",
 		RelationCovers:        "covers",
 		RelationDelivers:      "delivers",
 	}
 
-	if len(expected) != 17 {
-		t.Fatalf("expected 17 relation types, got %d", len(expected))
+	if len(expected) != 18 {
+		t.Fatalf("expected 18 relation types, got %d", len(expected))
 	}
 
 	for rt, want := range expected {

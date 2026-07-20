@@ -19,9 +19,10 @@ const (
 	RelationReferences    RelationType = "references"
 
 	// Execution layer relations
-	RelationBelongsTo RelationType = "belongs_to"
-	RelationPrecedes  RelationType = "precedes"
-	RelationBlocks    RelationType = "blocks"
+	RelationBelongsTo     RelationType = "belongs_to"
+	RelationPrecedes      RelationType = "precedes"
+	RelationBlocks        RelationType = "blocks"
+	RelationTaskDependsOn RelationType = "task_depends_on"
 
 	// Mapping layer relations
 	RelationCovers   RelationType = "covers"
@@ -44,6 +45,7 @@ var ValidRelationTypes = []RelationType{
 	RelationBelongsTo,
 	RelationPrecedes,
 	RelationBlocks,
+	RelationTaskDependsOn,
 	RelationCovers,
 	RelationDelivers,
 }
