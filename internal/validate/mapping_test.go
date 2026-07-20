@@ -1,10 +1,107 @@
 package validate
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
+
+func TestDeliveryCompletenessResolved(t *testing.T) {
+	tests := []struct {
+		name       string
+		relations  []model.Relation
+		wantIssues int
+	}{
+		{
+			name: "resolved phase delivered its covered requirement",
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+				rel(2, "PHS-1", "REQ-1", model.RelationDelivers),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "resolved phase did not deliver its covered requirement",
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+			},
+			wantIssues: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			)
+			rf := newMockRelationFetcher(tt.relations...)
+
+			issues := checkDeliveryCompleteness(rf, ef)
+
+			if len(issues) != tt.wantIssues {
+				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
+			}
+		})
+	}
+}
+
+func TestDeliveryCompletenessMitigatedRisk(t *testing.T) {
+	tests := []struct {
+		name       string
+		riskStatus model.EntityStatus
+	}{
+		{name: "active risk with mitigation", riskStatus: model.EntityStatusActive},
+		{name: "resolved risk", riskStatus: model.EntityStatusResolved},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("RSK-1", model.EntityTypeRisk, tt.riskStatus),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusResolved),
+			)
+			rf := newMockRelationFetcher(
+				rel(1, "PHS-1", "RSK-1", model.RelationCovers),
+				rel(2, "DEC-1", "RSK-1", model.RelationMitigates),
+			)
+
+			issues := checkDeliveryCompleteness(rf, ef)
+
+			if len(issues) != 0 {
+				t.Errorf("mitigated risk must not require an illegal delivers edge; issues=%+v", issues)
+			}
+		})
+	}
+}
+
+func TestDeliveryCompletenessRejectsUndeliveredRequirement(t *testing.T) {
+	ef := newMockEntityFetcher(
+		execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
+		archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+	)
+	rf := newMockRelationFetcher(
+		rel(1, "PHS-1", "REQ-1", model.RelationCovers),
+	)
+
+	issues := checkDeliveryCompleteness(rf, ef)
+
+	if len(issues) != 1 {
+		t.Fatalf("got %d issues; want exactly 1; issues=%+v", len(issues), issues)
+	}
+	issue := issues[0]
+	if issue.Check != "delivery_completeness" {
+		t.Errorf("got check %q; want delivery_completeness", issue.Check)
+	}
+	if issue.Severity != SeverityHigh {
+		t.Errorf("got severity %q; want %q", issue.Severity, SeverityHigh)
+	}
+	if !strings.Contains(issue.Message, "PHS-1") || !strings.Contains(issue.Message, "REQ-1") {
+		t.Errorf("issue message must name phase PHS-1 and requirement REQ-1; got %q", issue.Message)
+	}
+}
 
 func TestCheckPlanCoverage(t *testing.T) {
 	tests := []struct {
@@ -77,9 +174,9 @@ func TestCheckDeliveryCompleteness(t *testing.T) {
 		wantIssues int
 	}{
 		{
-			name: "completed phase with all covered entities delivered — no issue",
+			name: "resolved phase with all covered entities delivered — no issue",
 			entities: []model.Entity{
-				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
 				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
 			},
 			relations: []model.Relation{
@@ -89,9 +186,9 @@ func TestCheckDeliveryCompleteness(t *testing.T) {
 			wantIssues: 0,
 		},
 		{
-			name: "completed phase covers entity but does not deliver",
+			name: "resolved phase covers entity but does not deliver",
 			entities: []model.Entity{
-				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
 				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
 			},
 			relations: []model.Relation{
@@ -113,7 +210,7 @@ func TestCheckDeliveryCompleteness(t *testing.T) {
 		{
 			name: "delivered via delivers — no issue",
 			entities: []model.Entity{
-				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
 				archEntity("API-1", model.EntityTypeInterface, model.EntityStatusActive),
 			},
 			relations: []model.Relation{

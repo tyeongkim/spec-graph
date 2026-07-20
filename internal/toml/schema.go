@@ -78,6 +78,7 @@ func DefaultSchema() *Schema {
 			"assumption":  {Prefix: "ASM", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 			"criterion":   {Prefix: "ACT", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 			"risk":        {Prefix: "RSK", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
+			"change":      {Prefix: "CHG", Layer: "exec", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 		},
 		RelationTypes: map[string]RelationTypeConfig{
 			"implements":     {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},
@@ -95,7 +96,7 @@ func DefaultSchema() *Schema {
 			"belongs_to":     {Layer: "exec", From: []string{"phase"}, To: []string{"plan"}},
 			"precedes":       {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
 			"blocks":         {Layer: "exec", From: []string{"phase"}, To: []string{"phase"}},
-			"covers":         {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
+			"covers":         {Layer: "mapping", From: []string{"phase", "change"}, To: []string{"requirement", "decision", "interface", "test", "question", "risk", "criterion", "assumption"}},
 			"delivers":       {Layer: "mapping", From: []string{"phase"}, To: []string{"requirement", "interface", "state", "test", "decision", "criterion"}},
 		},
 	}

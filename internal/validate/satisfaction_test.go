@@ -8,6 +8,49 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
+func TestSatisfactionResolvedStatuses(t *testing.T) {
+	tests := []struct {
+		name       string
+		entity     model.Entity
+		wantStatus SatisfactionItemStatus
+	}{
+		{
+			name:       "resolved assumption",
+			entity:     archEntity("ASM-1", model.EntityTypeAssumption, model.EntityStatusResolved),
+			wantStatus: SatisfactionSatisfied,
+		},
+		{
+			name:       "resolved test",
+			entity:     archEntity("TST-1", model.EntityTypeTest, model.EntityStatusResolved),
+			wantStatus: SatisfactionSatisfied,
+		},
+		{
+			name:       "resolved decision",
+			entity:     archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusResolved),
+			wantStatus: SatisfactionSatisfied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ef := newMockEntityFetcher(tt.entity)
+			rf := newMockRelationFetcher()
+			member := closureMember{
+				entityID: tt.entity.ID,
+				class:    closureMandatory,
+				origin:   model.RelationCovers,
+				from:     "PHS-1",
+			}
+
+			item := evaluateMember(member, member.from, ef, rf)
+
+			if item.Status != tt.wantStatus {
+				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
+			}
+		})
+	}
+}
+
 func TestComputePhaseClosure(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -265,9 +308,9 @@ func TestEvaluateMember_RequirementWithDelivers(t *testing.T) {
 			wantStatus: SatisfactionUnsatisfied,
 		},
 		{
-			name: "phase delivers requirement, phase completed — satisfied",
+			name: "phase delivers requirement, phase resolved — satisfied",
 			entities: []model.Entity{
-				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatus("completed"), nil),
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
 				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
 			},
 			relations: []model.Relation{
@@ -360,10 +403,10 @@ func TestEvaluateMember_StatusOnlyRules(t *testing.T) {
 		wantStatus SatisfactionItemStatus
 	}{
 		{
-			name:     "verified assumption — satisfied",
+			name:     "resolved assumption — satisfied",
 			memberID: "ASM-1",
 			entities: []model.Entity{
-				archEntity("ASM-1", model.EntityTypeAssumption, model.EntityStatus("verified")),
+				archEntity("ASM-1", model.EntityTypeAssumption, model.EntityStatusResolved),
 			},
 			wantStatus: SatisfactionSatisfied,
 		},

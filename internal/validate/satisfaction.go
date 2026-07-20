@@ -15,17 +15,17 @@ var satisfactionEvidenceRelation = map[model.EntityType]model.RelationType{
 }
 
 var satisfactionStatusOnly = map[model.EntityType][]model.EntityStatus{
-	model.EntityTypeAssumption: {model.EntityStatus("verified")},
+	model.EntityTypeAssumption: {model.EntityStatusResolved},
 	model.EntityTypeDecision:   {model.EntityStatusActive, model.EntityStatusResolved},
 }
 
 var satisfactionTargetStatusAllowlist = map[model.EntityType][]model.EntityStatus{
 	model.EntityTypeDecision:    {model.EntityStatusActive, model.EntityStatusResolved},
 	model.EntityTypeInterface:   {model.EntityStatusActive, model.EntityStatusResolved},
-	model.EntityTypeTest:        {model.EntityStatus("verified"), model.EntityStatus("passed")},
-	model.EntityTypeRequirement: {model.EntityStatusResolved, model.EntityStatus("verified")},
-	model.EntityTypeRisk:        {model.EntityStatus("mitigated"), model.EntityStatusResolved},
-	model.EntityTypePhase:       {model.EntityStatusActive, model.EntityStatus("completed"), model.EntityStatusResolved},
+	model.EntityTypeTest:        {model.EntityStatusResolved},
+	model.EntityTypeRequirement: {model.EntityStatusResolved},
+	model.EntityTypeRisk:        {model.EntityStatusResolved},
+	model.EntityTypePhase:       {model.EntityStatusActive, model.EntityStatusResolved},
 }
 
 var fallbackTargetStatusAllowlist = []model.EntityStatus{

@@ -116,9 +116,9 @@ func checkPlanCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 
 func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	phaseType := model.EntityTypePhase
-	completedStatus := model.EntityStatus("completed")
+	resolvedStatus := model.EntityStatusResolved
 	execLayer := model.LayerExec
-	phases, err := ef.List(EntityListFilters{Type: &phaseType, Status: &completedStatus, Layer: &execLayer})
+	phases, err := ef.List(EntityListFilters{Type: &phaseType, Status: &resolvedStatus, Layer: &execLayer})
 	if err != nil {
 		return nil
 	}
@@ -146,12 +146,20 @@ func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []Validatio
 		}
 
 		for entityID := range coveredEntities {
+			entity, err := ef.Get(entityID)
+			if err != nil {
+				continue
+			}
+			mappingLayer := model.LayerMapping
+			if !model.IsEdgeAllowed(model.RelationDelivers, model.EntityTypePhase, entity.Type, &mappingLayer) {
+				continue
+			}
 			if !deliveredEntities[entityID] {
 				issues = append(issues, ValidationIssue{
 					Check:    "delivery_completeness",
 					Severity: SeverityHigh,
 					Entity:   entityID,
-					Message:  fmt.Sprintf("entity covered by completed phase %s but not delivered", phase.ID),
+					Message:  fmt.Sprintf("entity %s covered by resolved phase %s but not delivered", entityID, phase.ID),
 					Layer:    model.LayerMapping,
 				})
 			}

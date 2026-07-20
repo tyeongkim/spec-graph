@@ -3,7 +3,44 @@ package spectoml
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/tyeongkim/spec-graph/internal/model"
 )
+
+func TestDefaultSchemaIncludesChange(t *testing.T) {
+	schema := DefaultSchema()
+	change, ok := schema.EntityTypes[string(model.EntityTypeChange)]
+	if !ok {
+		t.Fatal("DefaultSchema() does not include the change entity type")
+	}
+	if change.Prefix != "CHG" {
+		t.Errorf("change prefix = %q; want CHG", change.Prefix)
+	}
+	if change.Layer != string(model.LayerExec) {
+		t.Errorf("change layer = %q; want %q", change.Layer, model.LayerExec)
+	}
+
+	targets := []model.EntityType{
+		model.EntityTypeRequirement,
+		model.EntityTypeDecision,
+		model.EntityTypeInterface,
+		model.EntityTypeTest,
+		model.EntityTypeQuestion,
+		model.EntityTypeRisk,
+		model.EntityTypeCriterion,
+		model.EntityTypeAssumption,
+	}
+	mappingLayer := model.LayerMapping
+	for _, target := range targets {
+		t.Run("covers/"+string(target), func(t *testing.T) {
+			modelAllowed := model.IsEdgeAllowed(model.RelationCovers, model.EntityTypeChange, target, &mappingLayer)
+			schemaAllowed := schema.IsRelationAllowed(string(model.EntityTypeChange), string(target), string(model.RelationCovers))
+			if schemaAllowed != modelAllowed {
+				t.Errorf("DefaultSchema covers change→%s = %v; model edge matrix = %v", target, schemaAllowed, modelAllowed)
+			}
+		})
+	}
+}
 
 func TestLoadSchema(t *testing.T) {
 	path := filepath.Join("testdata", "schema.toml")
@@ -346,10 +383,10 @@ func TestLoadedSchema_MatchesDefault(t *testing.T) {
 		t.Errorf("Version mismatch: loaded=%d, default=%d", loaded.Version, def.Version)
 	}
 
-	for name, defCfg := range def.EntityTypes {
-		loadedCfg, ok := loaded.EntityTypes[name]
+	for name, loadedCfg := range loaded.EntityTypes {
+		defCfg, ok := def.EntityTypes[name]
 		if !ok {
-			t.Errorf("entity type %q missing from loaded schema", name)
+			t.Errorf("entity type %q missing from default schema", name)
 			continue
 		}
 		if loadedCfg.Prefix != defCfg.Prefix {
@@ -360,10 +397,10 @@ func TestLoadedSchema_MatchesDefault(t *testing.T) {
 		}
 	}
 
-	for name, defCfg := range def.RelationTypes {
-		loadedCfg, ok := loaded.RelationTypes[name]
+	for name, loadedCfg := range loaded.RelationTypes {
+		defCfg, ok := def.RelationTypes[name]
 		if !ok {
-			t.Errorf("relation type %q missing from loaded schema", name)
+			t.Errorf("relation type %q missing from default schema", name)
 			continue
 		}
 		if loadedCfg.Layer != defCfg.Layer {
