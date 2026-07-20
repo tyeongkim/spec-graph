@@ -33,6 +33,7 @@ var typeLayerMap = map[EntityType]Layer{
 	EntityTypePhase:  LayerExec,
 	EntityTypePlan:   LayerExec,
 	EntityTypeChange: LayerExec,
+	EntityTypeTask:   LayerExec,
 }
 
 // relationLayerMap classifies each relation type into a layer.

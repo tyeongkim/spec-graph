@@ -2,6 +2,7 @@ package spectoml
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
@@ -39,6 +40,24 @@ func TestDefaultSchemaIncludesChange(t *testing.T) {
 				t.Errorf("DefaultSchema covers change→%s = %v; model edge matrix = %v", target, schemaAllowed, modelAllowed)
 			}
 		})
+	}
+}
+
+func TestDefaultSchemaIncludesTask(t *testing.T) {
+	schema := DefaultSchema()
+	task, ok := schema.EntityTypes[string(model.EntityTypeTask)]
+	if !ok {
+		t.Fatal("DefaultSchema() does not include the task entity type")
+	}
+	if task.Prefix != "TSK" {
+		t.Errorf("task prefix = %q; want TSK", task.Prefix)
+	}
+	if task.Layer != string(model.LayerExec) {
+		t.Errorf("task layer = %q; want %q", task.Layer, model.LayerExec)
+	}
+	wantStatuses := []string{"draft", "active", "deprecated", "resolved", "deleted"}
+	if !slices.Equal(task.AllowedStatus, wantStatuses) {
+		t.Errorf("task statuses = %v; want %v", task.AllowedStatus, wantStatuses)
 	}
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -398,6 +399,21 @@ func checkSchemaValidation(files []rawEntityFile) []jsoncontract.DoctorIssue {
 				File:    f.relPath,
 				Message: err.Error(),
 			})
+		}
+		if f.parsed.Type == model.EntityTypeTask {
+			metadata, err := json.Marshal(f.parsed.Metadata)
+			if err == nil {
+				_, err = model.DecodeTaskContract(metadata, f.parsed.Status)
+			}
+			if err != nil {
+				issues = append(issues, jsoncontract.DoctorIssue{File: f.relPath, Message: err.Error()})
+			}
+			if strings.TrimSpace(f.parsed.Title) == "" {
+				issues = append(issues, jsoncontract.DoctorIssue{File: f.relPath, Message: "task title must be non-empty"})
+			}
+			if strings.TrimSpace(f.parsed.Description) == "" {
+				issues = append(issues, jsoncontract.DoctorIssue{File: f.relPath, Message: "task description must be non-empty"})
+			}
 		}
 
 		for _, rel := range f.parsed.Relations {

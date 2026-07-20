@@ -79,6 +79,7 @@ func DefaultSchema() *Schema {
 			"criterion":   {Prefix: "ACT", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 			"risk":        {Prefix: "RSK", Layer: "arch", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 			"change":      {Prefix: "CHG", Layer: "exec", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
+			"task":        {Prefix: "TSK", Layer: "exec", AllowedStatus: []string{"draft", "active", "deprecated", "resolved", "deleted"}},
 		},
 		RelationTypes: map[string]RelationTypeConfig{
 			"implements":     {Layer: "arch", From: []string{"interface"}, To: []string{"requirement", "criterion"}},

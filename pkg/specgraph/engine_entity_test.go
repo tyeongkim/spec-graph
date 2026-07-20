@@ -586,7 +586,7 @@ func TestDeprecateEntity(t *testing.T) {
 			t.Fatalf("CreateEntity: %v", err)
 		}
 
-		got, err := eng.DeprecateEntity(ctx, "REQ-001")
+		got, err := eng.DeprecateEntity(ctx, "REQ-001", "superseded")
 		if err != nil {
 			t.Fatalf("DeprecateEntity: %v", err)
 		}
@@ -600,7 +600,7 @@ func TestDeprecateEntity(t *testing.T) {
 		eng := openTestEngine(t)
 		ctx := context.Background()
 
-		_, err := eng.DeprecateEntity(ctx, "REQ-999")
+		_, err := eng.DeprecateEntity(ctx, "REQ-999", "obsolete")
 		assertNotFound(t, err)
 	})
 }

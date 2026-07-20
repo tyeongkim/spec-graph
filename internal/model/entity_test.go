@@ -24,10 +24,11 @@ func TestEntityTypeConstants(t *testing.T) {
 		EntityTypeRisk:        "risk",
 		EntityTypePlan:        "plan",
 		EntityTypeChange:      "change",
+		EntityTypeTask:        "task",
 	}
 
-	if len(expected) != 13 {
-		t.Fatalf("expected 13 entity types, got %d", len(expected))
+	if len(expected) != 14 {
+		t.Fatalf("expected 14 entity types, got %d", len(expected))
 	}
 
 	for et, want := range expected {
@@ -52,6 +53,7 @@ func TestTypePrefixMap(t *testing.T) {
 		EntityTypeRisk:        "RSK",
 		EntityTypePlan:        "PLN",
 		EntityTypeChange:      "CHG",
+		EntityTypeTask:        "TSK",
 	}
 
 	for et, wantPrefix := range expected {
@@ -65,8 +67,8 @@ func TestTypePrefixMap(t *testing.T) {
 		}
 	}
 
-	if len(TypePrefixMap) != 13 {
-		t.Errorf("TypePrefixMap has %d entries; want 13", len(TypePrefixMap))
+	if len(TypePrefixMap) != 14 {
+		t.Errorf("TypePrefixMap has %d entries; want 14", len(TypePrefixMap))
 	}
 }
 
@@ -108,8 +110,8 @@ func TestPrefixTypeMap(t *testing.T) {
 }
 
 func TestValidEntityTypes(t *testing.T) {
-	if len(ValidEntityTypes) != 13 {
-		t.Fatalf("ValidEntityTypes has %d entries; want 13", len(ValidEntityTypes))
+	if len(ValidEntityTypes) != 14 {
+		t.Fatalf("ValidEntityTypes has %d entries; want 14", len(ValidEntityTypes))
 	}
 
 	seen := make(map[EntityType]bool)
@@ -142,6 +144,7 @@ func TestValidateEntityID(t *testing.T) {
 		{"criterion", "ACT-009", EntityTypeCriterion},
 		{"risk", "RSK-002", EntityTypeRisk},
 		{"plan", "PLN-001", EntityTypePlan},
+		{"task", "TSK-001", EntityTypeTask},
 		{"new-form requirement", "REQ-1752239482-k3f", EntityTypeRequirement},
 		{"new-form decision", "DEC-1752239482-0zz", EntityTypeDecision},
 	}

@@ -222,8 +222,9 @@ var entityDeprecateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
+		reason, _ := cmd.Flags().GetString("reason")
 
-		entity, err := engine.DeprecateEntity(cmd.Context(), id)
+		entity, err := engine.DeprecateEntity(cmd.Context(), id, reason)
 		if err != nil {
 			return handleEngineError(cmd, err, id)
 		}
@@ -341,6 +342,7 @@ func init() {
 	entityUpdateCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks")
 	entityUpdateCmd.Flags().String("reason", "", "audit note for the change")
+	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
 
 	entityImportCmd.Flags().String("input", "", "path to JSON file containing entity array (required)")
 

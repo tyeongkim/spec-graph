@@ -20,6 +20,8 @@ func TestLayerForEntityType(t *testing.T) {
 		{"question", EntityTypeQuestion, LayerArch},
 		{"phase", EntityTypePhase, LayerExec},
 		{"plan", EntityType("plan"), LayerExec},
+		{"change", EntityTypeChange, LayerExec},
+		{"task", EntityTypeTask, LayerExec},
 		{"unknown", EntityType("nonexistent"), ""},
 	}
 

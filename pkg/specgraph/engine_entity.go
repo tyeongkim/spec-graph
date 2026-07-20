@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/tyeongkim/spec-graph/internal/gate"
@@ -194,11 +195,19 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 	if err := schema.ValidateEntity(id, string(et), string(status)); err != nil {
 		return model.Entity{}, newError(CodeInvalidInput, err.Error(), err)
 	}
+	if et == model.EntityTypeTask && status != model.EntityStatusDraft {
+		return model.Entity{}, newError(CodeInvalidInput, "tasks must be created in draft status", nil)
+	}
 
 	var meta map[string]any
 	if len(req.Metadata) > 0 {
 		if err := json.Unmarshal(req.Metadata, &meta); err != nil {
 			return model.Entity{}, newError(CodeInvalidInput, "metadata must be valid JSON", err)
+		}
+	}
+	if et == model.EntityTypeTask {
+		if err := validateTaskEntity(req.Title, req.Description, req.Metadata, status); err != nil {
+			return model.Entity{}, newError(CodeInvalidInput, err.Error(), err)
 		}
 	}
 
@@ -374,6 +383,14 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 		}
 		ef.Status = model.EntityStatus(*req.Status)
 		statusChanged = ef.Status != oldStatus
+		if ef.Type == model.EntityTypeTask && statusChanged {
+			if err := model.ValidateTaskTransition(oldStatus, ef.Status); err != nil {
+				return UpdateEntityResult{}, newError(CodeInvalidInput, err.Error(), err)
+			}
+			if ef.Status == model.EntityStatusDeprecated && strings.TrimSpace(req.Reason) == "" {
+				return UpdateEntityResult{}, newError(CodeInvalidInput, "task deprecation requires a reason", nil)
+			}
+		}
 	}
 
 	if req.Metadata != nil {
@@ -385,6 +402,15 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 			return UpdateEntityResult{}, newError(CodeInvalidInput, "metadata must be a JSON object", err)
 		}
 		ef.Metadata = meta
+	}
+	if ef.Type == model.EntityTypeTask {
+		metadata, err := json.Marshal(ef.Metadata)
+		if err != nil {
+			return UpdateEntityResult{}, newError(CodeRuntime, "encode task metadata", err)
+		}
+		if err := validateTaskEntity(ef.Title, ef.Description, metadata, ef.Status); err != nil {
+			return UpdateEntityResult{}, newError(CodeInvalidInput, err.Error(), err)
+		}
 	}
 
 	if statusChanged {
@@ -435,15 +461,15 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 // DeprecateEntity sets an entity's status to deprecated, updates its timestamp,
 // writes the change, and refreshes the index. The provided context is accepted
 // for forward compatibility and is not yet observed.
-func (e *Engine) DeprecateEntity(ctx context.Context, id string) (model.Entity, error) {
+func (e *Engine) DeprecateEntity(ctx context.Context, id, reason string) (model.Entity, error) {
 	_ = ctx
 
 	return writeLocked(e, func() (model.Entity, error) {
-		return e.deprecateEntityLocked(id)
+		return e.deprecateEntityLocked(id, reason)
 	})
 }
 
-func (e *Engine) deprecateEntityLocked(id string) (model.Entity, error) {
+func (e *Engine) deprecateEntityLocked(id, reason string) (model.Entity, error) {
 	rec, err := e.idx.GetEntity(id)
 	if err != nil {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
@@ -456,6 +482,14 @@ func (e *Engine) deprecateEntityLocked(id string) (model.Entity, error) {
 	ef, err := e.store.ReadEntity(id, et)
 	if err != nil {
 		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), err)
+	}
+	if ef.Type == model.EntityTypeTask {
+		status := string(model.EntityStatusDeprecated)
+		result, updateErr := e.updateEntityLocked(UpdateEntityRequest{ID: id, Status: &status, Reason: reason})
+		if updateErr != nil {
+			return model.Entity{}, updateErr
+		}
+		return result.Entity, nil
 	}
 
 	ef.Status = model.EntityStatusDeprecated
@@ -474,6 +508,19 @@ func (e *Engine) deprecateEntityLocked(id string) (model.Entity, error) {
 		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", id), err)
 	}
 	return entity, nil
+}
+
+func validateTaskEntity(title, description string, metadata json.RawMessage, status model.EntityStatus) error {
+	if strings.TrimSpace(title) == "" {
+		return fmt.Errorf("task title must be non-empty")
+	}
+	if strings.TrimSpace(description) == "" {
+		return fmt.Errorf("task description must be non-empty")
+	}
+	if _, err := model.DecodeTaskContract(metadata, status); err != nil {
+		return err
+	}
+	return nil
 }
 
 // DeleteEntity removes an entity from the graph. It refuses to delete an entity
