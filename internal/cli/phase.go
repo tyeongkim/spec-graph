@@ -71,27 +71,6 @@ var phaseContextCmd = &cobra.Command{
 	},
 }
 
-// relationsByEntityFunc returns all relations referencing the given entity. It
-// is satisfied by *specgraph.Engine.RelationsByEntity, which acquires the
-// engine lock, so phase scoping goes through the locked engine API rather than
-// touching the index directly.
-type relationsByEntityFunc func(entityID string) ([]model.Relation, error)
-
-func phaseEntityScope(phaseID string, relationsByEntity relationsByEntityFunc) (map[string]bool, error) {
-	rels, err := relationsByEntity(phaseID)
-	if err != nil {
-		return nil, err
-	}
-	scope := make(map[string]bool)
-	for _, r := range rels {
-		if r.FromID == phaseID && (r.Type == model.RelationCovers || r.Type == model.RelationDelivers) {
-			scope[r.ToID] = true
-		}
-	}
-
-	return scope, nil
-}
-
 func init() {
 	phaseNextCmd.Flags().Bool("activate", false, "automatically transition the phase from draft to active")
 	phaseCmd.AddCommand(phaseNextCmd)

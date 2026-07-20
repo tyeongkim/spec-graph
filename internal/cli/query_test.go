@@ -173,6 +173,38 @@ func TestQueryUnresolvedMixed(t *testing.T) {
 	}
 }
 
+func TestQueryUnresolvedPhaseUsesEffectiveScope(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	commands := [][]string{
+		{"entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Task-managed phase"},
+		{"entity", "add", "--type", "task", "--id", "TSK-001", "--title", "Resolve question", "--description", "Resolve the covered question.", "--metadata", taskContractJSON(1, "Resolve the covered question.")},
+		{"entity", "add", "--type", "question", "--id", "QST-001", "--title", "Task-covered question"},
+		{"entity", "add", "--type", "question", "--id", "QST-002", "--title", "Outside question"},
+		{"relation", "add", "--from", "TSK-001", "--to", "PHS-001", "--type", "belongs_to"},
+		{"relation", "add", "--from", "TSK-001", "--to", "QST-001", "--type", "covers"},
+	}
+	for _, command := range commands {
+		args := append([]string{"--db", dbFile}, command...)
+		result := runCLI(t, dir, args...)
+		if result.exitCode != 0 {
+			t.Fatalf("command %v: exit=%d stderr=%s", command, result.exitCode, result.stderr)
+		}
+	}
+
+	result := runCLI(t, dir, "--db", dbFile, "query", "unresolved", "--phase", "PHS-001")
+	if result.exitCode != 0 {
+		t.Fatalf("query unresolved: exit=%d stderr=%s", result.exitCode, result.stderr)
+	}
+	var response jsoncontract.QueryUnresolvedResponse
+	if err := json.Unmarshal([]byte(result.stdout), &response); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, result.stdout)
+	}
+	if len(response.Entities) != 1 || response.Entities[0].ID != "QST-001" {
+		t.Fatalf("entities=%+v; want only child-task-covered QST-001", response.Entities)
+	}
+}
+
 func TestQueryUnresolvedTypeFilter(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()

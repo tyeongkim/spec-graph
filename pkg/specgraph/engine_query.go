@@ -48,6 +48,19 @@ type engineGraphEntityFetcher struct {
 	idx *index.Index
 }
 
+// EffectivePhaseScope returns the canonical derived scope for a phase under the engine read lock.
+func (e *Engine) EffectivePhaseScope(ctx context.Context, phaseID string) (graph.EffectivePhaseScopeResult, error) {
+	_ = ctx
+
+	return readLocked(e, func() (graph.EffectivePhaseScopeResult, error) {
+		scope, err := graph.EffectivePhaseScope(phaseID, &engineRelationFetcher{idx: e.idx})
+		if err != nil {
+			return graph.EffectivePhaseScopeResult{}, newError(CodeRuntime, "derive phase scope", err)
+		}
+		return scope, nil
+	})
+}
+
 // Get returns the entity with the given ID, or a not-found error.
 func (f *engineGraphEntityFetcher) Get(id string) (model.Entity, error) {
 	rec, err := f.idx.GetEntity(id)

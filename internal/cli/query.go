@@ -115,15 +115,19 @@ var queryUnresolvedCmd = &cobra.Command{
 		}
 
 		if phaseFlag != "" {
-			phaseScope, scopeErr := phaseEntityScope(phaseFlag, engine.RelationsByEntity)
+			phaseScope, scopeErr := engine.EffectivePhaseScope(cmd.Context(), phaseFlag)
 			if scopeErr != nil {
 				return handleError(cmd, &model.ErrInvalidInput{
 					Message: fmt.Sprintf("invalid --phase %q: %v", phaseFlag, scopeErr),
 				})
 			}
+			covered := make(map[string]bool, len(phaseScope.Covered))
+			for _, entityID := range phaseScope.Covered {
+				covered[entityID] = true
+			}
 			filtered := make([]model.Entity, 0, len(result.Entities))
 			for _, e := range result.Entities {
-				if phaseScope[e.ID] {
+				if covered[e.ID] {
 					filtered = append(filtered, e)
 				}
 			}
