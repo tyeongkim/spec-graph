@@ -42,7 +42,7 @@ func TestSatisfactionResolvedStatuses(t *testing.T) {
 				from:     "PHS-1",
 			}
 
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
@@ -330,7 +330,7 @@ func TestEvaluateMember_RequirementWithDelivers(t *testing.T) {
 				origin:   model.RelationCovers,
 				from:     "PHS-1",
 			}
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
 			}
@@ -387,7 +387,7 @@ func TestEvaluateMember_QuestionWithAnswers(t *testing.T) {
 				origin:   model.RelationCovers,
 				from:     "PHS-1",
 			}
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
 			}
@@ -454,7 +454,7 @@ func TestEvaluateMember_StatusOnlyRules(t *testing.T) {
 				origin:   model.RelationCovers,
 				from:     "PHS-1",
 			}
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
 			}
@@ -492,7 +492,7 @@ func TestEvaluateMember_AdvisoryNeverBlocks(t *testing.T) {
 				origin:   model.RelationReferences,
 				from:     "REQ-1",
 			}
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 			if item.Status != SatisfactionAdvisory {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, SatisfactionAdvisory, item.Reason)
 			}
@@ -545,7 +545,7 @@ func TestEvaluateMember_MultipleEvidenceSourcesExistential(t *testing.T) {
 				origin:   model.RelationCovers,
 				from:     "PHS-1",
 			}
-			item := evaluateMember(member, member.from, ef, rf)
+			item := evaluateMember(member, member.from, map[string]bool{member.from: true}, ef, rf)
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
 			}
@@ -612,7 +612,7 @@ func TestEvaluateMember_DeliversScopedToCurrentPhase(t *testing.T) {
 				origin:   model.RelationCovers,
 				from:     tt.phaseID,
 			}
-			item := evaluateMember(member, tt.phaseID, ef, rf)
+			item := evaluateMember(member, tt.phaseID, map[string]bool{tt.phaseID: true}, ef, rf)
 			if item.Status != tt.wantStatus {
 				t.Errorf("got status %q; want %q (reason: %s)", item.Status, tt.wantStatus, item.Reason)
 			}
@@ -676,7 +676,7 @@ func TestEvaluateMember_CrossPhaseRejectionDiagnostic(t *testing.T) {
 		from:     "PHS-1",
 	}
 
-	item := evaluateMember(member, "PHS-1", ef, rf)
+	item := evaluateMember(member, "PHS-1", map[string]bool{"PHS-1": true}, ef, rf)
 	if item.Status != SatisfactionUnsatisfied {
 		t.Fatalf("got status %q; want %q", item.Status, SatisfactionUnsatisfied)
 	}

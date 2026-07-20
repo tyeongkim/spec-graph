@@ -10,6 +10,8 @@ import (
 type Report struct {
 	// Blocked indicates whether the transition is denied.
 	Blocked bool `json:"blocked"`
+	// StructuralBlocked indicates findings that Force must never bypass.
+	StructuralBlocked bool `json:"structural_blocked,omitempty"`
 	// BlockingIssues lists validation issues that prevent the transition.
 	BlockingIssues []validate.ValidationIssue `json:"blocking_issues,omitempty"`
 	// Warnings lists low-severity issues that do not block the transition.

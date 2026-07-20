@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,8 +67,8 @@ type UpdateEntityRequest struct {
 type UpdateEntityResult struct {
 	// Entity is the updated entity (or the unchanged entity when blocked).
 	Entity model.Entity
-	// GateReport is non-nil only when the gate blocked the transition and
-	// Force was false.
+	// GateReport is non-nil when a gate blocked the transition or Force bypassed
+	// completion findings.
 	GateReport *gate.Report
 }
 
@@ -413,12 +414,19 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 		}
 	}
 
+	var gateReport *gate.Report
 	if statusChanged {
+		candidate, convErr := ef.ToEntity()
+		if convErr != nil {
+			return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert candidate entity %q", req.ID), convErr)
+		}
 		target := gate.Target{
 			EntityID:   req.ID,
 			EntityType: ef.Type,
 			FromStatus: oldStatus,
 			ToStatus:   ef.Status,
+			Candidate:  candidate,
+			RepoRoot:   filepath.Dir(e.root),
 		}
 		if policy := gate.LookupPolicy(target); policy != nil {
 			efAdapter := &engineEntityFetcher{idx: e.idx}
@@ -429,7 +437,7 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 				return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("gate enforce %q", req.ID), err)
 			}
 
-			if report.Blocked && !req.Force {
+			if report.Blocked && (!req.Force || report.StructuralBlocked) {
 				entity, convErr := ef.ToEntity()
 				if convErr != nil {
 					return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), convErr)
@@ -437,6 +445,12 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 				// Reflect the unchanged stored status in the returned entity.
 				entity.Status = oldStatus
 				return UpdateEntityResult{Entity: entity, GateReport: report}, nil
+			}
+			if report.Blocked && strings.TrimSpace(req.Reason) == "" {
+				return UpdateEntityResult{}, newError(CodeInvalidInput, "forced completion requires a reason", nil)
+			}
+			if report.Blocked {
+				gateReport = report
 			}
 		}
 	}
@@ -455,7 +469,7 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 	if err != nil {
 		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), err)
 	}
-	return UpdateEntityResult{Entity: entity}, nil
+	return UpdateEntityResult{Entity: entity, GateReport: gateReport}, nil
 }
 
 // DeprecateEntity sets an entity's status to deprecated, updates its timestamp,

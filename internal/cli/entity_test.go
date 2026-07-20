@@ -664,7 +664,7 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
 	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
-		"--status", "resolved", "--force")
+		"--status", "resolved", "--force", "--reason", "Accept unresolved question")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0 (force bypass), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}

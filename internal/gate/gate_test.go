@@ -106,14 +106,15 @@ func TestLookupPolicy(t *testing.T) {
 			wantChecks: []string{"plan_coverage"},
 		},
 		{
-			name: "phase to active returns nil (not gated)",
+			name: "phase to active returns activation policy",
 			target: Target{
 				EntityID:   "PHS-001",
 				EntityType: model.EntityTypePhase,
 				FromStatus: model.EntityStatusDraft,
 				ToStatus:   model.EntityStatusActive,
 			},
-			wantNil: true,
+			wantNil:    false,
+			wantChecks: nil,
 		},
 		{
 			name: "requirement to resolved returns nil",
@@ -184,15 +185,21 @@ func TestEnforce(t *testing.T) {
 		wantErr           bool
 	}{
 		{
-			name: "non-gated transition returns empty report",
+			name: "phase activation with active parent returns empty report",
 			target: Target{
 				EntityID:   "PHS-001",
 				EntityType: model.EntityTypePhase,
 				FromStatus: model.EntityStatusDraft,
 				ToStatus:   model.EntityStatusActive,
 			},
-			entities:          map[string]model.Entity{},
-			relations:         map[string][]model.Relation{},
+			entities: map[string]model.Entity{
+				"PHS-001": execEntity("PHS-001", model.EntityTypePhase, model.EntityStatusActive),
+				"PLN-001": execEntity("PLN-001", model.EntityTypePlan, model.EntityStatusActive),
+			},
+			relations: map[string][]model.Relation{
+				"PHS-001": {rel("PHS-001", "PLN-001", model.RelationBelongsTo)},
+				"PLN-001": {rel("PHS-001", "PLN-001", model.RelationBelongsTo)},
+			},
 			wantBlocked:       false,
 			wantBlockingCount: 0,
 			wantWarningCount:  0,

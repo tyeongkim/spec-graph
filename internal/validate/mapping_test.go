@@ -172,7 +172,7 @@ func TestCheckPlanCoverage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ef := newMockEntityFetcher(tt.entities...)
 			rf := newMockRelationFetcher(tt.relations...)
-			issues := checkPlanCoverage(rf, ef)
+			issues := checkPlanCoverage(ValidateOptions{}, rf, ef)
 			if len(issues) != tt.wantIssues {
 				t.Errorf("got %d issues; want %d; issues=%+v", len(issues), tt.wantIssues, issues)
 			}

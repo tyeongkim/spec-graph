@@ -16,6 +16,8 @@ type Target struct {
 	EntityType model.EntityType
 	FromStatus model.EntityStatus
 	ToStatus   model.EntityStatus
+	Candidate  model.Entity
+	RepoRoot   string
 }
 
 // Enforce checks whether a status transition is allowed by running the
@@ -32,32 +34,43 @@ func Enforce(target Target, rf validate.RelationFetcher, ef validate.EntityFetch
 		}, nil
 	}
 
-	opts := buildValidateOptions(target, policy)
-
-	result, err := validate.Validate(opts, rf, ef)
+	overlay := newOverlayEntityFetcher(ef, target.Candidate)
+	structuralResult, err := runChecks(target, policy.StructuralChecks, rf, overlay)
+	if err != nil {
+		return nil, fmt.Errorf("gate enforce %s: %w", target.EntityID, err)
+	}
+	completionResult, err := runChecks(target, policy.Checks, rf, overlay)
 	if err != nil {
 		return nil, fmt.Errorf("gate enforce %s: %w", target.EntityID, err)
 	}
 
-	return buildReport(target, result, policy), nil
+	structuralIssues, completionIssues := evaluateLifecycle(target, rf, overlay)
+	structuralResult.Issues = append(structuralResult.Issues, structuralIssues...)
+	completionResult.Issues = append(completionResult.Issues, completionIssues...)
+
+	return buildReport(target, structuralResult, completionResult, policy), nil
 }
 
-func buildValidateOptions(target Target, policy *Policy) validate.ValidateOptions {
-	layer := model.LayerMapping
-
+func runChecks(target Target, checks []string, rf validate.RelationFetcher, ef validate.EntityFetcher) (*validate.ValidateResult, error) {
 	opts := validate.ValidateOptions{
-		Checks: policy.Checks,
-		Layer:  &layer,
+		Checks: checks,
 	}
-
 	if target.EntityType == model.EntityTypePhase {
 		opts.Phase = &target.EntityID
 	}
-
-	return opts
+	if target.EntityType == model.EntityTypeTask {
+		opts.EntityID = target.EntityID
+	}
+	if target.EntityType == model.EntityTypePlan {
+		opts.Plan = &target.EntityID
+	}
+	if len(checks) == 0 {
+		return &validate.ValidateResult{}, nil
+	}
+	return validate.Validate(opts, rf, ef)
 }
 
-func buildReport(target Target, result *validate.ValidateResult, policy *Policy) *Report {
+func buildReport(target Target, structural, completion *validate.ValidateResult, policy *Policy) *Report {
 	blocking := severitySet(policy.BlockingSeverities)
 
 	report := &Report{
@@ -67,7 +80,15 @@ func buildReport(target Target, result *validate.ValidateResult, policy *Policy)
 		ToStatus:   target.ToStatus,
 	}
 
-	for _, issue := range result.Issues {
+	for _, issue := range structural.Issues {
+		if blocking[issue.Severity] {
+			report.BlockingIssues = append(report.BlockingIssues, issue)
+			report.StructuralBlocked = true
+		} else {
+			report.Warnings = append(report.Warnings, issue)
+		}
+	}
+	for _, issue := range completion.Issues {
 		if blocking[issue.Severity] {
 			report.BlockingIssues = append(report.BlockingIssues, issue)
 		} else {

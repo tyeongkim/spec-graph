@@ -50,6 +50,7 @@ func TestTaskContractRoundTrip(t *testing.T) {
 func TestTaskLifecycleValidTransitions(t *testing.T) {
 	_, engine := openTaskTestEngine(t)
 	createTask(t, engine, "TSK-001")
+	attachTaskToActivePhase(t, engine, "TSK-001")
 
 	active := string(model.EntityStatusActive)
 	result, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{ID: "TSK-001", Status: &active})
@@ -61,7 +62,7 @@ func TestTaskLifecycleValidTransitions(t *testing.T) {
 	}
 
 	contract := validTaskContract()
-	contract.QA[0].Evidence = "PASS: go test ./pkg/specgraph"
+	contract.QA[0].Evidence = writeLifecycleEvidence(t, engine)
 	metadata := marshalTaskContract(t, contract)
 	resolved := string(model.EntityStatusResolved)
 	result, err = engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
@@ -206,17 +207,46 @@ func createTask(t *testing.T, engine *specgraph.Engine, id string) {
 func resolveTask(t *testing.T, engine *specgraph.Engine, id string) {
 	t.Helper()
 	createTask(t, engine, id)
+	attachTaskToActivePhase(t, engine, id)
 	active := string(model.EntityStatusActive)
 	if _, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{ID: id, Status: &active}); err != nil {
 		t.Fatalf("activate task: %v", err)
 	}
 	contract := validTaskContract()
-	contract.QA[0].Evidence = "PASS"
+	contract.QA[0].Evidence = writeLifecycleEvidence(t, engine)
 	metadata := marshalTaskContract(t, contract)
 	resolved := string(model.EntityStatusResolved)
 	if _, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{ID: id, Status: &resolved, Metadata: &metadata}); err != nil {
 		t.Fatalf("resolve task: %v", err)
 	}
+}
+
+func attachTaskToActivePhase(t *testing.T, engine *specgraph.Engine, taskID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "phase", ID: "PHS-001", Title: "Active parent", Status: "active"}); err != nil {
+		t.Fatalf("create active parent phase: %v", err)
+	}
+	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "PHS-001", Type: "belongs_to"}); err != nil {
+		t.Fatalf("attach task to active phase: %v", err)
+	}
+	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "requirement", ID: "REQ-001", Title: "Task deliverable", Status: "active"}); err != nil {
+		t.Fatalf("create task deliverable: %v", err)
+	}
+	for _, relationType := range []string{"covers", "delivers"} {
+		if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "REQ-001", Type: relationType}); err != nil {
+			t.Fatalf("add task %s: %v", relationType, err)
+		}
+	}
+}
+
+func writeLifecycleEvidence(t *testing.T, engine *specgraph.Engine) string {
+	t.Helper()
+	const name = "task-lifecycle-evidence.txt"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(engine.Root()), name), []byte("verified"), 0o600); err != nil {
+		t.Fatalf("write lifecycle evidence: %v", err)
+	}
+	return name
 }
 
 func validTaskContract() model.TaskContract {

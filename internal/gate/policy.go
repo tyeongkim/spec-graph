@@ -8,6 +8,7 @@ import (
 // Policy defines which validation checks to enforce for a gated transition
 // and which severities block the transition.
 type Policy struct {
+	StructuralChecks   []string
 	Checks             []string
 	BlockingSeverities []validate.Severity
 }
@@ -17,8 +18,24 @@ var defaultBlockingSeverities = []validate.Severity{
 	validate.SeverityMedium,
 }
 
-var phasePolicies = map[transitionKey]Policy{
+var taskPolicies = map[transitionKey]Policy{
+	{toStatus: "active"}: {
+		StructuralChecks:   []string{"task_graph"},
+		BlockingSeverities: defaultBlockingSeverities,
+	},
 	{toStatus: "resolved"}: {
+		StructuralChecks:   []string{"task_graph", "task_scope"},
+		BlockingSeverities: defaultBlockingSeverities,
+	},
+}
+
+var phasePolicies = map[transitionKey]Policy{
+	{toStatus: "active"}: {
+		StructuralChecks:   []string{"invalid_exec_edges"},
+		BlockingSeverities: defaultBlockingSeverities,
+	},
+	{toStatus: "resolved"}: {
+		StructuralChecks:   []string{"task_graph", "task_scope", "invalid_exec_edges", "invalid_mapping_edges", "mapping_consistency"},
 		Checks:             []string{"delivery_completeness", "gates"},
 		BlockingSeverities: defaultBlockingSeverities,
 	},
@@ -42,6 +59,8 @@ func LookupPolicy(t Target) *Policy {
 
 	var policies map[transitionKey]Policy
 	switch t.EntityType {
+	case model.EntityTypeTask:
+		policies = taskPolicies
 	case model.EntityTypePhase:
 		policies = phasePolicies
 	case model.EntityTypePlan:

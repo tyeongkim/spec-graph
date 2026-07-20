@@ -219,7 +219,7 @@ func allowlistFor(entityType model.EntityType) ([]model.EntityStatus, bool) {
 //     phase when the relation is `delivers`) +
 //     Layer 3 (any matching evidence source has status in per-type allowlist)
 //     c. Fallback: type-specific status allowlist if no rule applies
-func evaluateMember(member closureMember, phaseID string, ef EntityFetcher, rf RelationFetcher) SatisfactionItem {
+func evaluateMember(member closureMember, phaseID string, deliverySources map[string]bool, ef EntityFetcher, rf RelationFetcher) SatisfactionItem {
 	if member.class == closureAdvisory {
 		entity, _ := ef.Get(member.entityID)
 		return SatisfactionItem{
@@ -295,7 +295,7 @@ func evaluateMember(member closureMember, phaseID string, ef EntityFetcher, rf R
 		if r.Type != evidenceRel || r.ToID != entity.ID {
 			continue
 		}
-		if scopedToPhase && r.FromID != phaseID {
+		if scopedToPhase && !deliverySources[r.FromID] {
 			crossPhaseDelivers = append(crossPhaseDelivers, r.FromID)
 			continue
 		}
@@ -357,6 +357,14 @@ func computePhaseSatisfaction(phaseID string, includeReferences bool, rf Relatio
 	if err != nil {
 		return nil, err
 	}
+	deliverySources := map[string]bool{phaseID: true}
+	effective, err := graph.EffectivePhaseScope(phaseID, rf)
+	if err != nil {
+		return nil, err
+	}
+	for _, taskID := range effective.TaskIDs {
+		deliverySources[taskID] = true
+	}
 
 	report := &PhaseSatisfaction{
 		PhaseID: phaseID,
@@ -364,7 +372,7 @@ func computePhaseSatisfaction(phaseID string, includeReferences bool, rf Relatio
 	}
 
 	for _, member := range closure {
-		item := evaluateMember(member, phaseID, ef, rf)
+		item := evaluateMember(member, phaseID, deliverySources, ef, rf)
 		report.Items = append(report.Items, item)
 
 		switch item.Status {

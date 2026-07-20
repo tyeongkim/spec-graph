@@ -45,6 +45,8 @@ type ValidateOptions struct {
 	Checks []string
 	// Phase restricts validation to entities belonging to this phase. nil = all entities.
 	Phase *string
+	// Plan restricts plan-scoped checks to this plan. nil selects the active plan.
+	Plan *string
 	// EntityID restricts reported issues to those for this specific entity. "" = all entities.
 	EntityID string
 	// Layer restricts validation to this layer. nil = all layers.

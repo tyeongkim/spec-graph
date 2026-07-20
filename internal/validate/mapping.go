@@ -25,7 +25,7 @@ func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher)
 		var issues []ValidationIssue
 		switch check {
 		case "plan_coverage":
-			issues = checkPlanCoverage(rf, ef)
+			issues = checkPlanCoverage(opts, rf, ef)
 		case "delivery_completeness":
 			issues = checkDeliveryCompleteness(rf, ef)
 		case "mapping_consistency":
@@ -52,15 +52,24 @@ func isMappingRelation(r model.Relation) bool {
 	return model.LayerForRelationType(r.Type) == model.LayerMapping
 }
 
-func checkPlanCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+func checkPlanCoverage(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	planType := model.EntityTypePlan
 	activeStatus := model.EntityStatusActive
 	execLayer := model.LayerExec
-	plans, err := ef.List(EntityListFilters{Type: &planType, Status: &activeStatus, Layer: &execLayer})
-	if err != nil || len(plans) == 0 {
-		return nil
+	var activePlan model.Entity
+	if opts.Plan != nil {
+		plan, err := ef.Get(*opts.Plan)
+		if err != nil {
+			return nil
+		}
+		activePlan = plan
+	} else {
+		plans, err := ef.List(EntityListFilters{Type: &planType, Status: &activeStatus, Layer: &execLayer})
+		if err != nil || len(plans) == 0 {
+			return nil
+		}
+		activePlan = plans[0]
 	}
-	activePlan := plans[0]
 
 	planPhaseIDs := make(map[string]bool)
 	phaseType := model.EntityTypePhase
@@ -387,16 +396,13 @@ func checkGates(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []Va
 	var issues []ValidationIssue
 
 	for _, phase := range phases {
-		rels, err := rf.GetByEntity(phase.ID)
-		if err != nil {
+		scope, scopeErr := graph.EffectivePhaseScope(phase.ID, rf)
+		if scopeErr != nil {
 			continue
 		}
-
-		coveredIDs := make(map[string]bool)
-		for _, r := range rels {
-			if r.Type == model.RelationCovers && r.FromID == phase.ID {
-				coveredIDs[r.ToID] = true
-			}
+		coveredIDs := make(map[string]bool, len(scope.Covered))
+		for _, id := range scope.Covered {
+			coveredIDs[id] = true
 		}
 
 		for entityID := range coveredIDs {
