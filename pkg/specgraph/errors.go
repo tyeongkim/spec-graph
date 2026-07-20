@@ -15,6 +15,7 @@ const (
 	CodeGateBlocked      ErrorCode = "gate_blocked"
 	CodeNotFound         ErrorCode = "not_found"
 	CodeConflict         ErrorCode = "conflict"
+	CodeInvalidState     ErrorCode = "invalid_state"
 	CodeRuntime          ErrorCode = "runtime"
 )
 
@@ -44,6 +45,8 @@ func (e *Error) ExitCode() int {
 	case CodeNotFound:
 		return 1
 	case CodeConflict:
+		return 2
+	case CodeInvalidState:
 		return 2
 	case CodeInvalidInput:
 		return 3
