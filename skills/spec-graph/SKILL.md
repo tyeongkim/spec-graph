@@ -320,8 +320,12 @@ explicit verification.
 **Gated transitions (v0.3.1+):** Transitioning a phase or plan to `resolved` is gated.
 The CLI automatically runs `delivery_completeness` + `gates` checks (for phases) or
 `plan_coverage` (for plans). If issues are found, the transition is blocked (exit 2).
-Use `--force` to bypass the gate; warnings are emitted to stderr and
-`force=true` is recorded in the TOML file metadata.
+Completion findings can be accepted with `--force --reason "..."`; structural findings
+cannot be bypassed. A successful forced completion emits `outcome = "applied_with_force"`,
+reports the accepted findings, and records top-level `completion_forced = true` plus
+`completion_reason = "..."` in the entity TOML. A blocked transition emits
+`outcome = "blocked"` and exits 2. Phase gate checks evaluate only the target phase,
+its child tasks, and their effective mapping scope; unscoped `validate` remains graph-wide.
 
 ### PLN / PHS Lifecycle
 
@@ -464,9 +468,14 @@ spec-graph relation add --from TSK-005 --to REQ-001 --type delivers
 # 4. Retry
 spec-graph entity update PHS-002 --status resolved
 
-# Force bypass (when issues are accepted risks)
-spec-graph entity update PHS-002 --status resolved --force
+# Force completion findings only (structural findings remain blocked)
+spec-graph entity update PHS-002 --status resolved --force \
+  --reason "Accept the documented completion risk"
 ```
+
+Update responses expose one of three outcomes: `applied`, `applied_with_force`, or
+`blocked`. `blocked` always means the TOML was left unchanged; a non-nil gate report
+does not by itself mean the update was blocked.
 
 **Pre-flight checks (optional, for visibility before attempting completion):**
 
