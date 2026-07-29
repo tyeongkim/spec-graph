@@ -474,3 +474,108 @@ func TestCheckOrphanChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePhaseExcludesUnrelatedExecIssues(t *testing.T) {
+	targetPhaseID := "PHS-1"
+	tests := []struct {
+		name      string
+		check     string
+		entities  []model.Entity
+		relations []model.Relation
+	}{
+		{
+			name:  "task graph",
+			check: "task_graph",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("TSK-2", model.EntityTypeTask, model.EntityStatusActive, nil),
+			},
+		},
+		{
+			name:  "invalid exec edges",
+			check: "invalid_exec_edges",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				execEntity("PLN-2", model.EntityTypePlan, model.EntityStatusResolved, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "PLN-2", "PHS-2", model.RelationBelongsTo),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rf := newMockRelationFetcher(test.relations...)
+			ef := newMockEntityFetcher(test.entities...)
+
+			unscoped, err := Validate(ValidateOptions{Checks: []string{test.check}}, rf, ef)
+			if err != nil {
+				t.Fatalf("validate unscoped: %v", err)
+			}
+			if len(unscoped.Issues) == 0 {
+				t.Fatalf("unscoped validation did not report the fixture issue")
+			}
+
+			scoped, err := Validate(ValidateOptions{Checks: []string{test.check}, Phase: &targetPhaseID}, rf, ef)
+			if err != nil {
+				t.Fatalf("validate phase: %v", err)
+			}
+			if len(scoped.Issues) != 0 {
+				t.Fatalf("phase validation leaked unrelated issues: %+v", scoped.Issues)
+			}
+		})
+	}
+}
+
+func TestValidatePhaseRetainsTargetExecIssues(t *testing.T) {
+	targetPhaseID := "PHS-1"
+	tests := []struct {
+		name      string
+		check     string
+		entities  []model.Entity
+		relations []model.Relation
+	}{
+		{
+			name:  "task graph",
+			check: "task_graph",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("TSK-1", model.EntityTypeTask, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "TSK-1", targetPhaseID, model.RelationBelongsTo),
+				rel(2, "TSK-1", "TSK-1", model.RelationTaskDependsOn),
+			},
+		},
+		{
+			name:  "invalid exec edges",
+			check: "invalid_exec_edges",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PLN-1", model.EntityTypePlan, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "PLN-1", targetPhaseID, model.RelationBelongsTo),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Validate(
+				ValidateOptions{Checks: []string{test.check}, Phase: &targetPhaseID},
+				newMockRelationFetcher(test.relations...),
+				newMockEntityFetcher(test.entities...),
+			)
+			if err != nil {
+				t.Fatalf("validate phase: %v", err)
+			}
+			if len(result.Issues) == 0 {
+				t.Fatalf("phase validation omitted target issue")
+			}
+		})
+	}
+}

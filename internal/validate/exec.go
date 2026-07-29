@@ -35,11 +35,11 @@ func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []
 		case "exec_cycles":
 			issues = checkExecCycles(rf, ef)
 		case "invalid_exec_edges":
-			issues = checkInvalidExecEdges(rf, ef)
+			issues = checkInvalidExecEdgesFor(opts, rf, ef)
 		case "orphan_changes":
 			issues = checkOrphanChanges(rf, ef)
 		case "task_graph":
-			issues = checkTaskGraph(rf, ef)
+			issues = checkTaskGraphFor(opts, rf, ef)
 		}
 
 		allIssues = append(allIssues, issues...)
@@ -49,6 +49,15 @@ func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []
 }
 
 func checkTaskGraph(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	return checkTaskGraphFor(ValidateOptions{}, rf, ef)
+}
+
+func checkTaskGraphFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	subjects, err := resolveValidationSubjects(opts, rf, ef)
+	if err != nil {
+		return nil
+	}
+
 	taskType := model.EntityTypeTask
 	layer := model.LayerExec
 	tasks, err := ef.List(EntityListFilters{Type: &taskType, Layer: &layer})
@@ -80,6 +89,9 @@ func checkTaskGraph(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 
 	var issues []ValidationIssue
 	addIssue := func(entity, message string) {
+		if subjects.scoped && !subjects.taskIDs[entity] {
+			return
+		}
 		issues = append(issues, ValidationIssue{Check: "task_graph", Severity: SeverityHigh, Entity: entity, Message: message, Layer: model.LayerExec})
 	}
 	for _, task := range tasks {
@@ -376,9 +388,28 @@ func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 // checkInvalidExecEdges finds exec-layer relations that violate the exec edge matrix.
 // Note: CHG is intentionally absent from execEdgeMatrix; invalid CHG exec edges are caught automatically if added.
 func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	entities, err := execEntities(ef)
+	return checkInvalidExecEdgesFor(ValidateOptions{}, rf, ef)
+}
+
+func checkInvalidExecEdgesFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
 		return nil
+	}
+
+	var entities []model.Entity
+	if subjects.scoped {
+		for id := range subjects.execIDs {
+			entity, err := ef.Get(id)
+			if err == nil {
+				entities = append(entities, entity)
+			}
+		}
+	} else {
+		entities, err = execEntities(ef)
+		if err != nil {
+			return nil
+		}
 	}
 
 	seen := make(map[string]bool)
@@ -412,10 +443,14 @@ func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIss
 
 			execLayer := model.LayerExec
 			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, &execLayer) {
+				issueEntity := rel.FromID
+				if subjects.scoped && !subjects.execIDs[issueEntity] {
+					issueEntity = rel.ToID
+				}
 				issues = append(issues, ValidationIssue{
 					Check:    "invalid_exec_edges",
 					Severity: SeverityHigh,
-					Entity:   rel.FromID,
+					Entity:   issueEntity,
 					Message:  fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type),
 					Layer:    model.LayerExec,
 				})

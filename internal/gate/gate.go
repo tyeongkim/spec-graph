@@ -59,7 +59,7 @@ func runChecks(target Target, checks []string, rf validate.RelationFetcher, ef v
 		opts.Phase = &target.EntityID
 	}
 	if target.EntityType == model.EntityTypeTask {
-		opts.EntityID = target.EntityID
+		opts.Task = &target.EntityID
 	}
 	if target.EntityType == model.EntityTypePlan {
 		opts.Plan = &target.EntityID
