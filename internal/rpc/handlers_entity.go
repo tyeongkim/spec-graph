@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/tyeongkim/spec-graph/internal/gate"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
+	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
@@ -86,13 +88,12 @@ type entityUpdateParams struct {
 	Reason      string           `json:"reason"`
 }
 
-// entityUpdateResult carries the updated entity and, when a gate blocked a
-// status transition, the gate report so the client can inspect the blocking
-// issues instead of receiving an error.
+// entityUpdateResult carries persisted state and any blocked or force-accepted findings.
 type entityUpdateResult struct {
-	Entity     any  `json:"entity"`
-	Blocked    bool `json:"blocked"`
-	GateReport any  `json:"gate_report,omitempty"`
+	Entity     model.Entity `json:"entity"`
+	Outcome    string       `json:"outcome"`
+	Blocked    bool         `json:"blocked"`
+	GateReport *gate.Report `json:"gate_report,omitempty"`
 }
 
 func (d *Dispatcher) entityUpdate(ctx context.Context, params json.RawMessage) (any, *rpcError) {
@@ -112,10 +113,12 @@ func (d *Dispatcher) entityUpdate(ctx context.Context, params json.RawMessage) (
 	if err != nil {
 		return nil, engineError(err)
 	}
-	if res.GateReport != nil {
-		return entityUpdateResult{Entity: res.Entity, Blocked: true, GateReport: res.GateReport}, nil
-	}
-	return entityUpdateResult{Entity: res.Entity, Blocked: false}, nil
+	return entityUpdateResult{
+		Entity:     res.Entity,
+		Outcome:    string(res.Outcome),
+		Blocked:    res.Outcome == specgraph.UpdateOutcomeBlocked,
+		GateReport: res.GateReport,
+	}, nil
 }
 
 func (d *Dispatcher) entityDeprecate(ctx context.Context, params json.RawMessage) (any, *rpcError) {
