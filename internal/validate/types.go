@@ -45,6 +45,8 @@ type ValidateOptions struct {
 	Checks []string
 	// Phase restricts validation to entities belonging to this phase. nil = all entities.
 	Phase *string
+	// Task restricts gate evaluation to this task while loading its dependencies as context.
+	Task *string
 	// Plan restricts plan-scoped checks to this plan. nil selects the active plan.
 	Plan *string
 	// EntityID restricts reported issues to those for this specific entity. "" = all entities.
