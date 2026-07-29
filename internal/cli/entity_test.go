@@ -628,6 +628,9 @@ func TestGateBlocksPhaseResolution(t *testing.T) {
 	if !resp.Blocked {
 		t.Error("expected blocked=true")
 	}
+	if resp.Outcome != "blocked" {
+		t.Errorf("outcome = %q; want blocked", resp.Outcome)
+	}
 	if resp.EntityID != "PHS-001" {
 		t.Errorf("entity_id = %q; want PHS-001", resp.EntityID)
 	}
@@ -669,7 +672,11 @@ func TestGateForceBypassWithReason(t *testing.T) {
 		t.Fatalf("expected exit 0 (force bypass), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
 
-	var resp jsoncontract.EntityResponse
+	var resp struct {
+		Entity  model.Entity `json:"entity"`
+		Outcome string       `json:"outcome"`
+		Blocked bool         `json:"blocked"`
+	}
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal entity response: %v\nraw: %s", err, r.stdout)
 	}
@@ -678,6 +685,15 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	}
 	if resp.Entity.Status != model.EntityStatusResolved {
 		t.Errorf("entity.status = %q; want resolved", resp.Entity.Status)
+	}
+	if resp.Outcome != "applied_with_force" {
+		t.Errorf("outcome = %q; want applied_with_force", resp.Outcome)
+	}
+	if resp.Blocked {
+		t.Error("blocked = true; want false")
+	}
+	if !resp.Entity.CompletionForced || resp.Entity.CompletionReason != "Accept unresolved question" {
+		t.Errorf("completion audit = (%v, %q)", resp.Entity.CompletionForced, resp.Entity.CompletionReason)
 	}
 
 	if r.stderr == "" {
@@ -692,6 +708,41 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	}
 }
 
+func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	setup := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "phase",
+		"--id", "PHS-001", "--title", "Resolved phase", "--status", "resolved")
+	if setup.exitCode != 0 {
+		t.Fatalf("setup failed: exit=%d stderr=%s", setup.exitCode, setup.stderr)
+	}
+
+	result := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
+		"--status", "active", "--force", "--reason", "Attempt structural bypass")
+	if result.exitCode != 2 {
+		t.Fatalf("exit = %d; want 2; stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
+	}
+	var response jsoncontract.EntityUpdateGateResponse
+	if err := json.Unmarshal([]byte(result.stdout), &response); err != nil {
+		t.Fatalf("unmarshal blocked response: %v\nraw: %s", err, result.stdout)
+	}
+	if !response.Blocked {
+		t.Fatal("blocked = false; want true")
+	}
+
+	stored := runCLI(t, dir, "--db", dbFile, "entity", "get", "PHS-001")
+	if stored.exitCode != 0 {
+		t.Fatalf("get phase: %s", stored.stderr)
+	}
+	var entityResponse jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(stored.stdout), &entityResponse); err != nil {
+		t.Fatalf("unmarshal stored phase: %v", err)
+	}
+	if entityResponse.Entity.Status != model.EntityStatusResolved {
+		t.Fatalf("stored status = %q; want resolved", entityResponse.Entity.Status)
+	}
+}
+
 func TestGateNotAppliedForNonResolvedTransition(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
@@ -703,7 +754,7 @@ func TestGateNotAppliedForNonResolvedTransition(t *testing.T) {
 		t.Fatalf("expected exit 0 for non-gated transition, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
 
-	var resp jsoncontract.EntityResponse
+	var resp jsoncontract.EntityUpdateSuccessResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}
@@ -735,7 +786,7 @@ func TestGatePassesWhenNoIssues(t *testing.T) {
 		t.Fatalf("expected exit 0 (gate passes), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
 
-	var resp jsoncontract.EntityResponse
+	var resp jsoncontract.EntityUpdateSuccessResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}
@@ -744,5 +795,8 @@ func TestGatePassesWhenNoIssues(t *testing.T) {
 	}
 	if resp.Entity.Status != model.EntityStatusResolved {
 		t.Errorf("entity.status = %q; want resolved", resp.Entity.Status)
+	}
+	if resp.Outcome != "applied" || resp.Blocked {
+		t.Errorf("outcome = %q, blocked = %v", resp.Outcome, resp.Blocked)
 	}
 }

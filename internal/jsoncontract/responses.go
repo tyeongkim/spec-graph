@@ -10,6 +10,15 @@ type EntityResponse struct {
 	Entity model.Entity `json:"entity"`
 }
 
+// EntityUpdateSuccessResponse reports a persisted entity update and its gate outcome.
+type EntityUpdateSuccessResponse struct {
+	Entity   model.Entity    `json:"entity"`
+	Outcome  string          `json:"outcome"`
+	Blocked  bool            `json:"blocked"`
+	Issues   []ValidateIssue `json:"issues,omitempty"`
+	Warnings []ValidateIssue `json:"warnings,omitempty"`
+}
+
 type EntityListResponse struct {
 	Entities []model.Entity `json:"entities"`
 	Count    int            `json:"count"`
@@ -136,6 +145,7 @@ type ValidatePhaseSatisfaction struct {
 // can parse them with the same schema as validate output.
 type EntityUpdateGateResponse struct {
 	Blocked    bool            `json:"blocked"`
+	Outcome    string          `json:"outcome"`
 	EntityID   string          `json:"entity_id"`
 	EntityType string          `json:"entity_type"`
 	FromStatus string          `json:"from_status"`

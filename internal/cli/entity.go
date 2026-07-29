@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/validate"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
@@ -135,42 +136,20 @@ var entityUpdateCmd = &cobra.Command{
 
 		forceFlag, _ := cmd.Flags().GetBool("force")
 		reason, _ := cmd.Flags().GetString("reason")
+		req.Force = forceFlag
 		req.Reason = reason
 
-		// Always probe with Force=false first so a blocking gate surfaces a
-		// report. When the caller passed --force we still want to emit the
-		// warnings before applying the change.
 		res, err := engine.UpdateEntity(cmd.Context(), req)
 		if err != nil {
 			return handleEngineError(cmd, err, id)
 		}
 
-		if res.GateReport != nil {
+		switch res.Outcome {
+		case specgraph.UpdateOutcomeBlocked:
 			report := res.GateReport
-			if forceFlag {
-				if len(report.Warnings) > 0 || len(report.BlockingIssues) > 0 {
-					allIssues := append(report.BlockingIssues, report.Warnings...)
-					warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
-					for i, issue := range allIssues {
-						warningOutput[i] = jsoncontract.ValidateIssue{
-							Check:    issue.Check,
-							Severity: string(issue.Severity),
-							Entity:   issue.Entity,
-							Message:  issue.Message,
-						}
-					}
-					warningJSON, _ := json.Marshal(warningOutput)
-					fmt.Fprintf(os.Stderr, "%s\n", warningJSON)
-				}
-
-				req.Force = true
-				forced, ferr := engine.UpdateEntity(cmd.Context(), req)
-				if ferr != nil {
-					return handleEngineError(cmd, ferr, id)
-				}
-				return writeJSON(cmd, jsoncontract.EntityResponse{Entity: forced.Entity})
+			if report == nil {
+				return fmt.Errorf("blocked update %q returned no gate report", id)
 			}
-
 			issues := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
 			for i, issue := range report.BlockingIssues {
 				issues[i] = jsoncontract.ValidateIssue{
@@ -195,6 +174,7 @@ var entityUpdateCmd = &cobra.Command{
 			}
 			response := jsoncontract.EntityUpdateGateResponse{
 				Blocked:    true,
+				Outcome:    string(res.Outcome),
 				EntityID:   report.EntityID,
 				EntityType: string(report.EntityType),
 				FromStatus: string(report.FromStatus),
@@ -210,9 +190,56 @@ var entityUpdateCmd = &cobra.Command{
 				return err
 			}
 			return &exitError{code: 2}
+		case specgraph.UpdateOutcomeAppliedWithForce:
+			report := res.GateReport
+			if report == nil {
+				return fmt.Errorf("forced update %q returned no gate report", id)
+			}
+			issueOutput := make([]jsoncontract.ValidateIssue, len(report.BlockingIssues))
+			for i, issue := range report.BlockingIssues {
+				issueOutput[i] = jsoncontract.ValidateIssue{
+					Check:    issue.Check,
+					Severity: string(issue.Severity),
+					Entity:   issue.Entity,
+					Message:  issue.Message,
+				}
+			}
+			advisoryOutput := make([]jsoncontract.ValidateIssue, len(report.Warnings))
+			for i, issue := range report.Warnings {
+				advisoryOutput[i] = jsoncontract.ValidateIssue{
+					Check:    issue.Check,
+					Severity: string(issue.Severity),
+					Entity:   issue.Entity,
+					Message:  issue.Message,
+				}
+			}
+			allIssues := append([]validate.ValidationIssue(nil), report.BlockingIssues...)
+			allIssues = append(allIssues, report.Warnings...)
+			warningOutput := make([]jsoncontract.ValidateIssue, len(allIssues))
+			for i, issue := range allIssues {
+				warningOutput[i] = jsoncontract.ValidateIssue{
+					Check:    issue.Check,
+					Severity: string(issue.Severity),
+					Entity:   issue.Entity,
+					Message:  issue.Message,
+				}
+			}
+			warningJSON, marshalErr := json.Marshal(warningOutput)
+			if marshalErr != nil {
+				return fmt.Errorf("marshal gate warnings: %w", marshalErr)
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", warningJSON)
+			return writeJSON(cmd, jsoncontract.EntityUpdateSuccessResponse{
+				Entity: res.Entity, Outcome: string(res.Outcome), Blocked: false,
+				Issues: issueOutput, Warnings: advisoryOutput,
+			})
+		case specgraph.UpdateOutcomeApplied:
+			return writeJSON(cmd, jsoncontract.EntityUpdateSuccessResponse{
+				Entity: res.Entity, Outcome: string(res.Outcome), Blocked: false,
+			})
+		default:
+			return fmt.Errorf("update %q returned unknown outcome %q", id, res.Outcome)
 		}
-
-		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: res.Entity})
 	},
 }
 
