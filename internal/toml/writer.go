@@ -15,7 +15,7 @@ import (
 func MarshalEntityFile(ef EntityFile) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("schema = %d\n", ef.Schema))
+	fmt.Fprintf(&b, "schema = %d\n", ef.Schema)
 	b.WriteString("id = " + tomlQuote(ef.ID) + "\n")
 	b.WriteString("type = " + tomlQuote(string(ef.Type)) + "\n")
 	b.WriteString("title = " + tomlQuote(ef.Title) + "\n")
@@ -25,10 +25,16 @@ func MarshalEntityFile(ef EntityFile) string {
 	b.WriteString("status = " + tomlQuote(string(ef.Status)) + "\n")
 
 	if !ef.CreatedAt.IsZero() {
-		b.WriteString(fmt.Sprintf("created_at = %s\n", ef.CreatedAt.Format(time.RFC3339)))
+		fmt.Fprintf(&b, "created_at = %s\n", ef.CreatedAt.Format(time.RFC3339))
 	}
 	if !ef.UpdatedAt.IsZero() {
-		b.WriteString(fmt.Sprintf("updated_at = %s\n", ef.UpdatedAt.Format(time.RFC3339)))
+		fmt.Fprintf(&b, "updated_at = %s\n", ef.UpdatedAt.Format(time.RFC3339))
+	}
+	if ef.CompletionForced {
+		b.WriteString("completion_forced = true\n")
+	}
+	if ef.CompletionReason != "" {
+		b.WriteString("completion_reason = " + tomlQuote(ef.CompletionReason) + "\n")
 	}
 
 	if len(ef.Metadata) > 0 {
@@ -53,10 +59,10 @@ func MarshalEntityFile(ef EntityFile) string {
 			b.WriteString("to = " + tomlQuote(rel.To) + "\n")
 			b.WriteString("type = " + tomlQuote(string(rel.Type)) + "\n")
 			if rel.Weight != 0 && rel.Weight != 1.0 {
-				b.WriteString(fmt.Sprintf("weight = %s\n", formatFloat(rel.Weight)))
+				fmt.Fprintf(&b, "weight = %s\n", formatFloat(rel.Weight))
 			}
 			if len(rel.Metadata) > 0 {
-				b.WriteString(fmt.Sprintf("metadata = %s\n", formatInlineTable(rel.Metadata)))
+				fmt.Fprintf(&b, "metadata = %s\n", formatInlineTable(rel.Metadata))
 			}
 		}
 	}
@@ -120,7 +126,7 @@ func writeMapCanonical(b *strings.Builder, m map[string]any) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("%s = %s\n", k, formatValue(m[k])))
+		fmt.Fprintf(b, "%s = %s\n", k, formatValue(m[k]))
 	}
 }
 

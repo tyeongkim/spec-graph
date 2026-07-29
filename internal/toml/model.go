@@ -10,16 +10,18 @@ import (
 // EntityFile represents the TOML structure for a single entity file.
 // Layer is NOT stored — it is derived from entity type at load time.
 type EntityFile struct {
-	Schema      int                `toml:"schema"`
-	ID          string             `toml:"id"`
-	Type        model.EntityType   `toml:"type"`
-	Title       string             `toml:"title"`
-	Description string             `toml:"description,omitempty"`
-	Status      model.EntityStatus `toml:"status"`
-	CreatedAt   time.Time          `toml:"created_at,omitempty"`
-	UpdatedAt   time.Time          `toml:"updated_at,omitempty"`
-	Metadata    map[string]any     `toml:"metadata,omitempty"`
-	Relations   []RelationEntry    `toml:"relations,omitempty"`
+	Schema           int                `toml:"schema"`
+	ID               string             `toml:"id"`
+	Type             model.EntityType   `toml:"type"`
+	Title            string             `toml:"title"`
+	Description      string             `toml:"description,omitempty"`
+	Status           model.EntityStatus `toml:"status"`
+	CreatedAt        time.Time          `toml:"created_at,omitempty"`
+	UpdatedAt        time.Time          `toml:"updated_at,omitempty"`
+	CompletionForced bool               `toml:"completion_forced,omitempty"`
+	CompletionReason string             `toml:"completion_reason,omitempty"`
+	Metadata         map[string]any     `toml:"metadata,omitempty"`
+	Relations        []RelationEntry    `toml:"relations,omitempty"`
 }
 
 // RelationEntry represents a single relation within an entity's TOML file.
@@ -53,15 +55,17 @@ func (ef *EntityFile) ToEntity() (model.Entity, error) {
 	}
 
 	return model.Entity{
-		ID:          ef.ID,
-		Type:        ef.Type,
-		Layer:       model.LayerForEntityType(ef.Type),
-		Title:       ef.Title,
-		Description: ef.Description,
-		Status:      ef.Status,
-		Metadata:    meta,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:               ef.ID,
+		Type:             ef.Type,
+		Layer:            model.LayerForEntityType(ef.Type),
+		Title:            ef.Title,
+		Description:      ef.Description,
+		Status:           ef.Status,
+		Metadata:         meta,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
+		CompletionForced: ef.CompletionForced,
+		CompletionReason: ef.CompletionReason,
 	}, nil
 }
 
@@ -141,15 +145,17 @@ func EntityFileFrom(e model.Entity, relations []model.Relation) (EntityFile, err
 	}
 
 	return EntityFile{
-		Schema:      1,
-		ID:          e.ID,
-		Type:        e.Type,
-		Title:       e.Title,
-		Description: e.Description,
-		Status:      e.Status,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
-		Metadata:    meta,
-		Relations:   entries,
+		Schema:           1,
+		ID:               e.ID,
+		Type:             e.Type,
+		Title:            e.Title,
+		Description:      e.Description,
+		Status:           e.Status,
+		CreatedAt:        createdAt,
+		UpdatedAt:        updatedAt,
+		CompletionForced: e.CompletionForced,
+		CompletionReason: e.CompletionReason,
+		Metadata:         meta,
+		Relations:        entries,
 	}, nil
 }

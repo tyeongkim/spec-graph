@@ -341,7 +341,7 @@ func TestMarshalEntityFile_Deterministic(t *testing.T) {
 	}
 
 	first := MarshalEntityFile(ef)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		got := MarshalEntityFile(ef)
 		if got != first {
 			t.Fatalf("non-deterministic output on iteration %d", i)
@@ -381,4 +381,38 @@ func TestRelationWeight_DefaultOmitted(t *testing.T) {
 			t.Errorf("weight=0.5 should be preserved, got %v", rel.Weight)
 		}
 	}
+}
+
+func TestEntityFileCompletionAuditRoundTrip(t *testing.T) {
+	entity := model.Entity{
+		ID:               "PHS-001",
+		Type:             model.EntityTypePhase,
+		Layer:            model.LayerExec,
+		Title:            "Forced phase",
+		Status:           model.EntityStatusResolved,
+		Metadata:         json.RawMessage(`{"goal":"ship"}`),
+		CompletionForced: true,
+		CompletionReason: "Accepted incomplete evidence",
+	}
+
+	entityFile, err := EntityFileFrom(entity, nil)
+	if err != nil {
+		t.Fatalf("EntityFileFrom: %v", err)
+	}
+	encoded := MarshalEntityFile(entityFile)
+	var parsed EntityFile
+	if _, err := toml.Decode(encoded, &parsed); err != nil {
+		t.Fatalf("decode completion audit: %v", err)
+	}
+	got, err := parsed.ToEntity()
+	if err != nil {
+		t.Fatalf("ToEntity: %v", err)
+	}
+	if !got.CompletionForced {
+		t.Fatal("completion_forced was not preserved")
+	}
+	if got.CompletionReason != entity.CompletionReason {
+		t.Fatalf("completion_reason = %q; want %q", got.CompletionReason, entity.CompletionReason)
+	}
+	assertJSONEqual(t, string(entity.Metadata), string(got.Metadata))
 }

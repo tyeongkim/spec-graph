@@ -74,15 +74,17 @@ const (
 )
 
 type Entity struct {
-	ID          string          `json:"id"`
-	Type        EntityType      `json:"type"`
-	Layer       Layer           `json:"layer"`
-	Title       string          `json:"title"`
-	Description string          `json:"description,omitempty"`
-	Status      EntityStatus    `json:"status"`
-	Metadata    json.RawMessage `json:"metadata"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID               string          `json:"id"`
+	Type             EntityType      `json:"type"`
+	Layer            Layer           `json:"layer"`
+	Title            string          `json:"title"`
+	Description      string          `json:"description,omitempty"`
+	Status           EntityStatus    `json:"status"`
+	Metadata         json.RawMessage `json:"metadata"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
+	CompletionForced bool            `json:"completion_forced,omitempty"`
+	CompletionReason string          `json:"completion_reason,omitempty"`
 }
 
 var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-([0-9]+)(?:-([0-9a-z]{3}))?$`)
