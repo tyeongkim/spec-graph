@@ -61,12 +61,22 @@ type UpdateEntityRequest struct {
 	Reason string
 }
 
-// UpdateEntityResult is the outcome of an UpdateEntity call. When a status
-// transition was blocked by a gate and Force was false, GateReport is non-nil
-// and Entity holds the unchanged entity.
+// UpdateOutcome states whether an entity update was persisted or blocked.
+type UpdateOutcome string
+
+const (
+	UpdateOutcomeApplied          UpdateOutcome = "applied"
+	UpdateOutcomeAppliedWithForce UpdateOutcome = "applied_with_force"
+	UpdateOutcomeBlocked          UpdateOutcome = "blocked"
+)
+
+// UpdateEntityResult is the outcome of an UpdateEntity call. Entity always
+// reflects persisted state; GateReport also carries findings accepted by force.
 type UpdateEntityResult struct {
 	// Entity is the updated entity (or the unchanged entity when blocked).
 	Entity model.Entity
+	// Outcome distinguishes a normal write, a forced completion write, and no write.
+	Outcome UpdateOutcome
 	// GateReport is non-nil when a gate blocked the transition or Force bypassed
 	// completion findings.
 	GateReport *gate.Report
@@ -367,6 +377,10 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 	if err != nil {
 		return UpdateEntityResult{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.ID), err)
 	}
+	storedEntity, err := ef.ToEntity()
+	if err != nil {
+		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert stored entity %q", req.ID), err)
+	}
 
 	if req.Title != nil {
 		ef.Title = *req.Title
@@ -415,6 +429,7 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 	}
 
 	var gateReport *gate.Report
+	outcome := UpdateOutcomeApplied
 	if statusChanged {
 		candidate, convErr := ef.ToEntity()
 		if convErr != nil {
@@ -438,20 +453,21 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 			}
 
 			if report.Blocked && (!req.Force || report.StructuralBlocked) {
-				entity, convErr := ef.ToEntity()
-				if convErr != nil {
-					return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), convErr)
-				}
-				// Reflect the unchanged stored status in the returned entity.
-				entity.Status = oldStatus
-				return UpdateEntityResult{Entity: entity, GateReport: report}, nil
+				return UpdateEntityResult{Entity: storedEntity, Outcome: UpdateOutcomeBlocked, GateReport: report}, nil
 			}
 			if report.Blocked && strings.TrimSpace(req.Reason) == "" {
 				return UpdateEntityResult{}, newError(CodeInvalidInput, "forced completion requires a reason", nil)
 			}
 			if report.Blocked {
 				gateReport = report
+				outcome = UpdateOutcomeAppliedWithForce
+				ef.CompletionForced = true
+				ef.CompletionReason = strings.TrimSpace(req.Reason)
 			}
+		}
+		if ef.Status == model.EntityStatusResolved && outcome == UpdateOutcomeApplied {
+			ef.CompletionForced = false
+			ef.CompletionReason = ""
 		}
 	}
 
@@ -469,7 +485,7 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 	if err != nil {
 		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), err)
 	}
-	return UpdateEntityResult{Entity: entity, GateReport: gateReport}, nil
+	return UpdateEntityResult{Entity: entity, Outcome: outcome, GateReport: gateReport}, nil
 }
 
 // DeprecateEntity sets an entity's status to deprecated, updates its timestamp,

@@ -29,6 +29,9 @@ func TestTaskResolveUsesCandidateEvidence(t *testing.T) {
 	if result.Entity.Status != model.EntityStatusResolved {
 		t.Fatalf("status = %q; want resolved", result.Entity.Status)
 	}
+	if result.Outcome != specgraph.UpdateOutcomeApplied {
+		t.Fatalf("outcome = %q; want applied", result.Outcome)
+	}
 }
 
 func TestTaskPhasePlanCompletionFlow(t *testing.T) {
@@ -79,11 +82,27 @@ func TestForceCompletionReturnsGateReport(t *testing.T) {
 	if result.Entity.Status != model.EntityStatusResolved {
 		t.Fatalf("status = %q; want resolved", result.Entity.Status)
 	}
+	if result.Outcome != specgraph.UpdateOutcomeAppliedWithForce {
+		t.Fatalf("outcome = %q; want applied_with_force", result.Outcome)
+	}
+	if !result.Entity.CompletionForced {
+		t.Fatal("forced completion was not recorded")
+	}
+	if result.Entity.CompletionReason != "Accept unfinished task" {
+		t.Fatalf("completion reason = %q", result.Entity.CompletionReason)
+	}
 	if result.GateReport == nil || !result.GateReport.Blocked {
 		t.Fatal("forced completion did not return its blocking gate report")
 	}
 	if len(result.GateReport.BlockingIssues) == 0 {
 		t.Fatal("forced completion returned an empty gate report")
+	}
+	stored, err := engine.GetEntity(context.Background(), "PHS-001")
+	if err != nil {
+		t.Fatalf("get forced phase: %v", err)
+	}
+	if !reflect.DeepEqual(stored, result.Entity) {
+		t.Fatalf("stored entity = %+v; want result entity %+v", stored, result.Entity)
 	}
 }
 
@@ -155,6 +174,9 @@ func TestBlockedTransitionIsAtomic(t *testing.T) {
 	if result.GateReport == nil || !result.GateReport.Blocked {
 		t.Fatal("task without matching delivers was not blocked")
 	}
+	if result.Outcome != specgraph.UpdateOutcomeBlocked {
+		t.Fatalf("outcome = %q; want blocked", result.Outcome)
+	}
 	if after := readTaskBytes(t, path); !reflect.DeepEqual(after, before) {
 		t.Fatal("blocked transition changed task TOML")
 	}
@@ -177,12 +199,85 @@ func TestForceCannotBypassLifecycle(t *testing.T) {
 	if result.GateReport == nil || !result.GateReport.StructuralBlocked {
 		t.Fatal("force bypassed a terminal lifecycle transition")
 	}
+	if result.Outcome != specgraph.UpdateOutcomeBlocked {
+		t.Fatalf("outcome = %q; want blocked", result.Outcome)
+	}
 	entity, getErr := engine.GetEntity(context.Background(), "PHS-001")
 	if getErr != nil {
 		t.Fatalf("get phase: %v", getErr)
 	}
 	if entity.Status != model.EntityStatusResolved {
 		t.Fatalf("status = %q; want resolved", entity.Status)
+	}
+}
+
+func TestBlockedTransitionReturnsStoredEntity(t *testing.T) {
+	root, engine := openTaskTestEngine(t)
+	setupTaskLifecycle(t, engine, "TSK-001", false)
+	before, err := engine.GetEntity(context.Background(), "TSK-001")
+	if err != nil {
+		t.Fatalf("get task before update: %v", err)
+	}
+	resolved := string(model.EntityStatusResolved)
+	candidateTitle := "Candidate title"
+	contract := validTaskContract()
+	contract.QA[0].Evidence = writeTaskEvidence(t, root, "stored-result-evidence.txt")
+	metadata := marshalTaskContract(t, contract)
+
+	result, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
+		ID: "TSK-001", Title: &candidateTitle, Status: &resolved, Metadata: &metadata,
+	})
+	if err != nil {
+		t.Fatalf("blocked update: %v", err)
+	}
+	if result.Outcome != specgraph.UpdateOutcomeBlocked {
+		t.Fatalf("outcome = %q; want blocked", result.Outcome)
+	}
+	if !reflect.DeepEqual(result.Entity, before) {
+		t.Fatalf("blocked result = %+v; want stored entity %+v", result.Entity, before)
+	}
+}
+
+func TestTaskGateExcludesUnrelatedTaskGraphIssues(t *testing.T) {
+	root, engine := openTaskTestEngine(t)
+	setupTaskLifecycle(t, engine, "TSK-001", true)
+	createTask(t, engine, "TSK-999")
+	contract := validTaskContract()
+	contract.QA[0].Evidence = writeTaskEvidence(t, root, "scoped-task-evidence.txt")
+	metadata := marshalTaskContract(t, contract)
+	resolved := string(model.EntityStatusResolved)
+
+	result, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
+		ID: "TSK-001", Status: &resolved, Metadata: &metadata,
+	})
+	if err != nil {
+		t.Fatalf("resolve scoped task: %v", err)
+	}
+	if result.Outcome != specgraph.UpdateOutcomeApplied {
+		t.Fatalf("outcome = %q; want applied; report=%+v", result.Outcome, result.GateReport)
+	}
+}
+
+func TestForceWithoutFindingsIsNormalApply(t *testing.T) {
+	_, engine := openTaskTestEngine(t)
+	if _, err := engine.CreateEntity(context.Background(), specgraph.CreateEntityRequest{
+		Type: "phase", ID: "PHS-001", Title: "Phase", Status: "active",
+	}); err != nil {
+		t.Fatalf("create phase: %v", err)
+	}
+	resolved := string(model.EntityStatusResolved)
+
+	result, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
+		ID: "PHS-001", Status: &resolved, Force: true,
+	})
+	if err != nil {
+		t.Fatalf("resolve clean phase with force: %v", err)
+	}
+	if result.Outcome != specgraph.UpdateOutcomeApplied {
+		t.Fatalf("outcome = %q; want applied", result.Outcome)
+	}
+	if result.Entity.CompletionForced || result.Entity.CompletionReason != "" {
+		t.Fatalf("unexpected completion audit: %+v", result.Entity)
 	}
 }
 
