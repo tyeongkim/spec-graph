@@ -47,15 +47,11 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 	}
 
 	if opts.Phase != nil {
-		phaseScope, err := phaseEntityScope(*opts.Phase, rf)
-		if err == nil && len(phaseScope) > 0 {
+		phaseScope, err := phaseEntityScope(*opts.Phase, rf, ef)
+		if err == nil {
 			filtered := allIssues[:0]
 			for _, issue := range allIssues {
-				if issue.Check == "phase_satisfaction" {
-					filtered = append(filtered, issue)
-					continue
-				}
-				if phaseScope[issue.Entity] || issue.Entity == *opts.Phase {
+				if issue.Check == "phase_satisfaction" || phaseScope[issue.Entity] {
 					filtered = append(filtered, issue)
 				}
 			}
@@ -79,17 +75,24 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 	}, nil
 }
 
-func phaseEntityScope(phaseID string, rf RelationFetcher) (map[string]bool, error) {
+func phaseEntityScope(phaseID string, rf RelationFetcher, ef EntityFetcher) (map[string]bool, error) {
 	effective, err := graph.EffectivePhaseScope(phaseID, rf)
 	if err != nil {
 		return nil, err
 	}
 
-	scope := make(map[string]bool)
+	scope := map[string]bool{phaseID: true}
 	for _, id := range effective.Covered {
 		scope[id] = true
 	}
 	for _, id := range effective.Delivered {
+		scope[id] = true
+	}
+	subjects, err := resolveValidationSubjects(ValidateOptions{Phase: &phaseID}, rf, ef)
+	if err != nil {
+		return nil, err
+	}
+	for id := range subjects.execIDs {
 		scope[id] = true
 	}
 	return scope, nil

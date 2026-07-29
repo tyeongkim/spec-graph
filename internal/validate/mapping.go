@@ -27,15 +27,15 @@ func validateMapping(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher)
 		case "plan_coverage":
 			issues = checkPlanCoverage(opts, rf, ef)
 		case "delivery_completeness":
-			issues = checkDeliveryCompleteness(rf, ef)
+			issues = checkDeliveryCompletenessFor(opts, rf, ef)
 		case "mapping_consistency":
-			issues = checkMappingConsistency(rf, ef)
+			issues = checkMappingConsistencyFor(opts, rf, ef)
 		case "invalid_mapping_edges":
-			issues = checkInvalidMappingEdges(rf, ef)
+			issues = checkInvalidMappingEdgesFor(opts, rf, ef)
 		case "gates":
 			issues = checkGates(opts, rf, ef)
 		case "task_scope":
-			issues = checkTaskScope(rf, ef)
+			issues = checkTaskScopeFor(opts, rf, ef)
 		case "phase_satisfaction":
 			satIssues, satReports := checkPhaseSatisfaction(opts, rf, ef)
 			issues = satIssues
@@ -125,12 +125,26 @@ func checkPlanCoverage(opts ValidateOptions, rf RelationFetcher, ef EntityFetche
 }
 
 func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	return checkDeliveryCompletenessFor(ValidateOptions{}, rf, ef)
+}
+
+func checkDeliveryCompletenessFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	phaseType := model.EntityTypePhase
 	resolvedStatus := model.EntityStatusResolved
 	execLayer := model.LayerExec
-	phases, err := ef.List(EntityListFilters{Type: &phaseType, Status: &resolvedStatus, Layer: &execLayer})
-	if err != nil {
-		return nil
+	var phases []model.Entity
+	if opts.Phase != nil {
+		phase, err := ef.Get(*opts.Phase)
+		if err != nil || phase.Type != model.EntityTypePhase {
+			return nil
+		}
+		phases = []model.Entity{phase}
+	} else {
+		var err error
+		phases, err = ef.List(EntityListFilters{Type: &phaseType, Status: &resolvedStatus, Layer: &execLayer})
+		if err != nil {
+			return nil
+		}
 	}
 
 	var issues []ValidationIssue
@@ -176,6 +190,15 @@ func checkDeliveryCompleteness(rf RelationFetcher, ef EntityFetcher) []Validatio
 }
 
 func checkTaskScope(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	return checkTaskScopeFor(ValidateOptions{}, rf, ef)
+}
+
+func checkTaskScopeFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	subjects, err := resolveValidationSubjects(opts, rf, ef)
+	if err != nil {
+		return nil
+	}
+
 	taskType := model.EntityTypeTask
 	execLayer := model.LayerExec
 	tasks, err := ef.List(EntityListFilters{Type: &taskType, Layer: &execLayer})
@@ -185,6 +208,9 @@ func checkTaskScope(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 
 	var issues []ValidationIssue
 	for _, task := range tasks {
+		if subjects.scoped && !subjects.taskIDs[task.ID] {
+			continue
+		}
 		relations, fetchErr := rf.GetByEntity(task.ID)
 		if fetchErr != nil {
 			continue
@@ -223,6 +249,9 @@ func checkTaskScope(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 		return issues
 	}
 	for _, phase := range phases {
+		if subjects.scoped && !subjects.phaseIDs[phase.ID] {
+			continue
+		}
 		scope, scopeErr := graph.EffectivePhaseScope(phase.ID, rf)
 		if scopeErr != nil || !scope.TaskManaged {
 			continue
@@ -246,9 +275,28 @@ func checkTaskScope(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 }
 
 func checkMappingConsistency(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	entities, err := execEntities(ef)
+	return checkMappingConsistencyFor(ValidateOptions{}, rf, ef)
+}
+
+func checkMappingConsistencyFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
 		return nil
+	}
+
+	var entities []model.Entity
+	if subjects.scoped {
+		for id := range subjects.execIDs {
+			entity, err := ef.Get(id)
+			if err == nil {
+				entities = append(entities, entity)
+			}
+		}
+	} else {
+		entities, err = execEntities(ef)
+		if err != nil {
+			return nil
+		}
 	}
 
 	seen := make(map[string]bool)
@@ -261,7 +309,7 @@ func checkMappingConsistency(rf RelationFetcher, ef EntityFetcher) []ValidationI
 		}
 
 		for _, r := range rels {
-			if !isMappingRelation(r) {
+			if r.FromID != e.ID || !isMappingRelation(r) {
 				continue
 			}
 
@@ -317,15 +365,32 @@ func checkMappingConsistency(rf RelationFetcher, ef EntityFetcher) []ValidationI
 }
 
 func checkInvalidMappingEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	var allEntities []model.Entity
+	return checkInvalidMappingEdgesFor(ValidateOptions{}, rf, ef)
+}
 
-	execEnts, err := execEntities(ef)
-	if err == nil {
-		allEntities = append(allEntities, execEnts...)
+func checkInvalidMappingEdgesFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	subjects, scopeErr := resolveValidationSubjects(opts, rf, ef)
+	if scopeErr != nil {
+		return nil
 	}
-	archEnts, err := archEntities(ef)
-	if err == nil {
-		allEntities = append(allEntities, archEnts...)
+
+	var allEntities []model.Entity
+	if subjects.scoped {
+		for id := range subjects.execIDs {
+			entity, err := ef.Get(id)
+			if err == nil {
+				allEntities = append(allEntities, entity)
+			}
+		}
+	} else {
+		execEnts, err := execEntities(ef)
+		if err == nil {
+			allEntities = append(allEntities, execEnts...)
+		}
+		archEnts, err := archEntities(ef)
+		if err == nil {
+			allEntities = append(allEntities, archEnts...)
+		}
 	}
 
 	seen := make(map[string]bool)
@@ -359,10 +424,14 @@ func checkInvalidMappingEdges(rf RelationFetcher, ef EntityFetcher) []Validation
 
 			mappingLayer := model.LayerMapping
 			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, &mappingLayer) {
+				issueEntity := rel.FromID
+				if subjects.scoped && !subjects.execIDs[issueEntity] {
+					issueEntity = rel.ToID
+				}
 				issues = append(issues, ValidationIssue{
 					Check:    "invalid_mapping_edges",
 					Severity: SeverityHigh,
-					Entity:   rel.FromID,
+					Entity:   issueEntity,
 					Message:  fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type),
 					Layer:    model.LayerMapping,
 				})

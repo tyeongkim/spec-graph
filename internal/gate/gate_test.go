@@ -317,9 +317,11 @@ func TestEnforce(t *testing.T) {
 			relations: map[string][]model.Relation{
 				"PHS-001": {
 					rel("PHS-001", "REQ-001", model.RelationCovers),
+					rel("PHS-001", "REQ-001", model.RelationDelivers),
 				},
 				"REQ-001": {
 					rel("PHS-001", "REQ-001", model.RelationCovers),
+					rel("PHS-001", "REQ-001", model.RelationDelivers),
 				},
 			},
 			wantBlocked:       false,

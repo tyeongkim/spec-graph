@@ -517,3 +517,156 @@ func TestCheckGates(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePhaseExcludesUnrelatedMappingIssues(t *testing.T) {
+	targetPhaseID := "PHS-1"
+	tests := []struct {
+		name      string
+		check     string
+		entities  []model.Entity
+		relations []model.Relation
+	}{
+		{
+			name:  "delivery completeness",
+			check: "delivery_completeness",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusResolved, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-2", "REQ-2", model.RelationCovers),
+			},
+		},
+		{
+			name:  "mapping consistency",
+			check: "mapping_consistency",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("DEC-2", model.EntityTypeDecision, model.EntityStatusDeprecated),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-2", "DEC-2", model.RelationCovers),
+			},
+		},
+		{
+			name:  "invalid mapping edges",
+			check: "invalid_mapping_edges",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-2", "PHS-2", model.RelationCovers),
+			},
+		},
+		{
+			name:  "task scope",
+			check: "task_scope",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("TSK-2", model.EntityTypeTask, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "TSK-2", "PHS-2", model.RelationBelongsTo),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rf := newMockRelationFetcher(test.relations...)
+			ef := newMockEntityFetcher(test.entities...)
+
+			unscoped, err := Validate(ValidateOptions{Checks: []string{test.check}}, rf, ef)
+			if err != nil {
+				t.Fatalf("validate unscoped: %v", err)
+			}
+			if len(unscoped.Issues) == 0 {
+				t.Fatalf("unscoped validation did not report the fixture issue")
+			}
+
+			scoped, err := Validate(ValidateOptions{Checks: []string{test.check}, Phase: &targetPhaseID}, rf, ef)
+			if err != nil {
+				t.Fatalf("validate phase: %v", err)
+			}
+			if len(scoped.Issues) != 0 {
+				t.Fatalf("phase validation leaked unrelated issues: %+v", scoped.Issues)
+			}
+		})
+	}
+}
+
+func TestValidatePhaseRetainsTargetMappingIssues(t *testing.T) {
+	targetPhaseID := "PHS-1"
+	tests := []struct {
+		name      string
+		check     string
+		entities  []model.Entity
+		relations []model.Relation
+	}{
+		{
+			name:  "delivery completeness",
+			check: "delivery_completeness",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, targetPhaseID, "REQ-1", model.RelationCovers),
+			},
+		},
+		{
+			name:  "mapping consistency",
+			check: "mapping_consistency",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusDeprecated),
+			},
+			relations: []model.Relation{
+				rel(1, targetPhaseID, "DEC-1", model.RelationCovers),
+			},
+		},
+		{
+			name:  "invalid mapping edges",
+			check: "invalid_mapping_edges",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-1", targetPhaseID, model.RelationCovers),
+			},
+		},
+		{
+			name:  "task scope",
+			check: "task_scope",
+			entities: []model.Entity{
+				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("TSK-1", model.EntityTypeTask, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "TSK-1", targetPhaseID, model.RelationBelongsTo),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Validate(
+				ValidateOptions{Checks: []string{test.check}, Phase: &targetPhaseID},
+				newMockRelationFetcher(test.relations...),
+				newMockEntityFetcher(test.entities...),
+			)
+			if err != nil {
+				t.Fatalf("validate phase: %v", err)
+			}
+			if len(result.Issues) == 0 {
+				t.Fatalf("phase validation omitted target issue")
+			}
+		})
+	}
+}
