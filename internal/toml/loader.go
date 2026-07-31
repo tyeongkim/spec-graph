@@ -28,9 +28,53 @@ func NewStore(root string) *Store {
 	return &Store{root: root}
 }
 
-// EntityPath returns the filesystem path for an entity file.
+// EntityPath returns the filesystem path for an entity file without validating
+// id or entityType. Callers deriving either value from request data must use
+// safeEntityPath.
 func (s *Store) EntityPath(id string, entityType model.EntityType) string {
 	return filepath.Join(s.root, "entities", string(entityType), id+".toml")
+}
+
+// validatePathComponent rejects values unusable as a single path component:
+// empty, ".", "..", or containing a separator.
+func validatePathComponent(kind, value string) error {
+	if value == "" {
+		return fmt.Errorf("entity %s must not be empty", kind)
+	}
+	if value == "." || value == ".." {
+		return fmt.Errorf("entity %s %q is not a valid path component", kind, value)
+	}
+	if strings.ContainsRune(value, '/') || strings.ContainsRune(value, os.PathSeparator) {
+		return fmt.Errorf("entity %s %q must not contain a path separator", kind, value)
+	}
+	if filepath.Base(value) != value {
+		return fmt.Errorf("entity %s %q is not a valid path component", kind, value)
+	}
+	return nil
+}
+
+// safeEntityPath resolves an entity file path, guaranteeing the result stays
+// inside <root>/entities regardless of the id and entityType supplied.
+func (s *Store) safeEntityPath(id string, entityType model.EntityType) (string, error) {
+	if err := validatePathComponent("type", string(entityType)); err != nil {
+		return "", err
+	}
+	if err := validatePathComponent("ID", id); err != nil {
+		return "", err
+	}
+
+	entitiesDir := filepath.Join(s.root, "entities")
+	path := filepath.Join(entitiesDir, string(entityType), id+".toml")
+
+	rel, err := filepath.Rel(entitiesDir, path)
+	if err != nil {
+		return "", fmt.Errorf("resolve entity path for %q: %w", id, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("entity path for %q (%s) escapes the entities directory", id, entityType)
+	}
+
+	return path, nil
 }
 
 func (s *Store) Init() error {
@@ -45,7 +89,10 @@ func (s *Store) Init() error {
 // ReadEntity reads and parses an entity TOML file, validating that the content
 // matches the expected path (ID matches filename, type matches directory).
 func (s *Store) ReadEntity(id string, entityType model.EntityType) (*EntityFile, error) {
-	path := s.EntityPath(id, entityType)
+	path, err := s.safeEntityPath(id, entityType)
+	if err != nil {
+		return nil, err
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -74,7 +121,10 @@ func (s *Store) WriteEntity(ef *EntityFile) error {
 		return err
 	}
 
-	path := s.EntityPath(ef.ID, ef.Type)
+	path, err := s.safeEntityPath(ef.ID, ef.Type)
+	if err != nil {
+		return err
+	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -87,17 +137,24 @@ func (s *Store) WriteEntity(ef *EntityFile) error {
 
 // DeleteEntity removes an entity file from disk.
 func (s *Store) DeleteEntity(id string, entityType model.EntityType) error {
-	path := s.EntityPath(id, entityType)
+	path, err := s.safeEntityPath(id, entityType)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("delete entity %q: %w", id, err)
 	}
 	return nil
 }
 
-// EntityExists reports whether the entity file exists on disk.
+// EntityExists reports whether the entity file exists on disk. An id or type
+// that cannot form a safe path is reported as non-existent.
 func (s *Store) EntityExists(id string, entityType model.EntityType) bool {
-	path := s.EntityPath(id, entityType)
-	_, err := os.Stat(path)
+	path, err := s.safeEntityPath(id, entityType)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
 	return err == nil
 }
 

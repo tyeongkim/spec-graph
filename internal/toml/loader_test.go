@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -340,5 +341,81 @@ func TestStore_EntityPath(t *testing.T) {
 	want := "/tmp/.spec-graph/entities/requirement/REQ-001.toml"
 	if got != want {
 		t.Errorf("EntityPath = %q, want %q", got, want)
+	}
+}
+
+func TestStore_RejectsPathTraversal(t *testing.T) {
+	tests := []struct {
+		name       string
+		id         string
+		entityType model.EntityType
+	}{
+		{"traversal in type", "proof", "../../.."},
+		{"traversal in id", "../../../proof", model.EntityTypeRequirement},
+		{"traversal in both", "../escape", "../../.."},
+		{"separator in type", "REQ-001", "requirement/nested"},
+		{"separator in id", "nested/REQ-001", model.EntityTypeRequirement},
+		{"dot type", "REQ-001", "."},
+		{"dotdot id", "..", model.EntityTypeRequirement},
+		{"empty type", "REQ-001", ""},
+		{"empty id", "", model.EntityTypeRequirement},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sandbox := t.TempDir()
+			root := filepath.Join(sandbox, "project", ".spec-graph")
+			s := NewStore(root)
+			if err := s.Init(); err != nil {
+				t.Fatalf("Init: %v", err)
+			}
+
+			ef := &EntityFile{
+				Schema: 1,
+				ID:     tc.id,
+				Type:   tc.entityType,
+				Title:  "traversal probe",
+				Status: model.EntityStatusDraft,
+			}
+
+			if err := s.WriteEntity(ef); err == nil {
+				t.Error("WriteEntity accepted an unsafe entity reference; want error")
+			}
+			if _, err := s.ReadEntity(tc.id, tc.entityType); err == nil {
+				t.Error("ReadEntity accepted an unsafe entity reference; want error")
+			}
+			if err := s.DeleteEntity(tc.id, tc.entityType); err == nil {
+				t.Error("DeleteEntity accepted an unsafe entity reference; want error")
+			}
+			if s.EntityExists(tc.id, tc.entityType) {
+				t.Error("EntityExists returned true for an unsafe entity reference")
+			}
+
+			assertNoFileOutside(t, sandbox, root)
+		})
+	}
+}
+
+func assertNoFileOutside(t *testing.T, sandbox, graphRoot string) {
+	t.Helper()
+
+	err := filepath.WalkDir(sandbox, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(graphRoot, path)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			t.Errorf("file written outside the graph root: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk sandbox: %v", err)
 	}
 }
