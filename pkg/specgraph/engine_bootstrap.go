@@ -76,6 +76,19 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 		}
 
 		et := model.EntityType(c.Type)
+		if _, known := model.TypePrefixMap[et]; !known {
+			result.Errors = append(result.Errors, BootstrapErrorItem{
+				ID: c.ID, Error: fmt.Sprintf("unknown entity type %q", c.Type),
+			})
+			continue
+		}
+		if err := model.ValidateEntityID(c.ID, et); err != nil {
+			result.Errors = append(result.Errors, BootstrapErrorItem{
+				ID: c.ID, Error: err.Error(),
+			})
+			continue
+		}
+
 		if e.store.EntityExists(c.ID, et) {
 			result.Skipped = append(result.Skipped, BootstrapSkippedItem{
 				ID: c.ID, Reason: "already exists",
