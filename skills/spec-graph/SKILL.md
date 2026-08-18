@@ -233,6 +233,8 @@ spec-graph init
 spec-graph init --path /custom/path
 ```
 
+Do not duplicate `.spec-graph/.gitignore` entries in the root `.gitignore`.
+
 ### Entity CRUD
 ```bash
 spec-graph entity add --type <TYPE> --title "..." [--description "..."] [--metadata '{}'] [--metadata-file <PATH>]
