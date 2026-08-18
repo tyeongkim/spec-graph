@@ -302,6 +302,19 @@ func TestCheckMappingConsistency(t *testing.T) {
 			},
 			wantIssues: 1,
 		},
+		{
+			name: "resolved phase may keep mapping the revision it delivered",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusDeprecated),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "REQ-1", model.RelationDelivers),
+				rel(2, "REQ-2", "REQ-1", model.RelationSupersedes),
+			},
+			wantIssues: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -543,7 +556,7 @@ func TestValidatePhaseExcludesUnrelatedMappingIssues(t *testing.T) {
 			check: "mapping_consistency",
 			entities: []model.Entity{
 				execEntity(targetPhaseID, model.EntityTypePhase, model.EntityStatusActive, nil),
-				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusResolved, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusActive, nil),
 				archEntity("DEC-2", model.EntityTypeDecision, model.EntityStatusDeprecated),
 			},
 			relations: []model.Relation{

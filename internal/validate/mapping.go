@@ -327,6 +327,13 @@ func checkMappingConsistencyFor(opts ValidateOptions, rf RelationFetcher, ef Ent
 				continue
 			}
 
+			// A resolved phase or task records execution that already finished, so
+			// its mappings must keep pointing at the entity revision that was
+			// actually delivered even after that revision is deprecated.
+			if e.Status == model.EntityStatusResolved {
+				continue
+			}
+
 			archEntity, err := ef.Get(archEntityID)
 			if err != nil {
 				continue
