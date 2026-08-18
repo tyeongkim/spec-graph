@@ -19,8 +19,10 @@ import (
 type CreateEntityRequest struct {
 	// Type is the entity type (e.g. "requirement", "decision"). Required.
 	Type string
-	// ID is the entity identifier in PREFIX-NNN form. Optional; when empty it is
-	// auto-generated from Type using the next available number for that type.
+	// ID is the entity identifier. Optional; when empty a decentralized,
+	// sortable ID of the form PREFIX-<unixSeconds>-<rand3> is generated from
+	// Type. When supplied, it must be either that form or the legacy PREFIX-NNN
+	// form, and its prefix must match Type.
 	ID string
 	// Title is the human-readable title. Required.
 	Title string

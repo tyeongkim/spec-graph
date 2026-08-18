@@ -153,7 +153,7 @@ func ValidateEntityID(id string, entityType EntityType) error {
 
 	prefix, _, _, ok := ParseEntityID(id)
 	if !ok {
-		return fmt.Errorf("entity ID %q does not match format PREFIX-NNN", id)
+		return fmt.Errorf("entity ID %q does not match the entity ID format (e.g. REQ-1752239482-k3f, or legacy REQ-001)", id)
 	}
 
 	expectedPrefix, ok := TypePrefixMap[entityType]

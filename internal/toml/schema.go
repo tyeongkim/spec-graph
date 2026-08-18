@@ -120,7 +120,7 @@ func (s *Schema) ValidateEntity(id string, entityType, status string) error {
 
 	matches := entityIDPattern.FindStringSubmatch(id)
 	if matches == nil {
-		return fmt.Errorf("entity ID %q does not match format PREFIX-NNN", id)
+		return fmt.Errorf("entity ID %q does not match the entity ID format (e.g. REQ-1752239482-k3f, or legacy REQ-001)", id)
 	}
 
 	prefix := matches[1]
