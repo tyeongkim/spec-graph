@@ -260,6 +260,58 @@ var entityDeprecateCmd = &cobra.Command{
 	},
 }
 
+var entityReviseCmd = &cobra.Command{
+	Use:   "revise [id]",
+	Short: "Supersede an arch entity with a new revision",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+
+		reason, _ := cmd.Flags().GetString("reason")
+		req := specgraph.ReviseEntityRequest{ID: id, Reason: reason}
+
+		if cmd.Flags().Changed("title") {
+			v, _ := cmd.Flags().GetString("title")
+			req.Title = &v
+		}
+		if cmd.Flags().Changed("description") {
+			v, _ := cmd.Flags().GetString("description")
+			req.Description = &v
+		}
+		if cmd.Flags().Changed("metadata") {
+			v, _ := cmd.Flags().GetString("metadata")
+			raw := json.RawMessage(v)
+			req.Metadata = &raw
+		}
+
+		metadata, err := resolveMetadata(cmd, nil)
+		if err != nil {
+			return err
+		}
+		if len(metadata) > 0 {
+			if req.Metadata != nil {
+				return handleError(cmd, &model.ErrInvalidInput{Message: "--metadata and --metadata-file are mutually exclusive"})
+			}
+			req.Metadata = &metadata
+		}
+
+		result, err := engine.ReviseEntity(cmd.Context(), req)
+		if err != nil {
+			if specgraph.IsNotFound(err) {
+				return handleError(cmd, &model.ErrEntityNotFound{ID: id})
+			}
+			return handleError(cmd, err)
+		}
+
+		return writeJSON(cmd, jsoncontract.EntityReviseResponse{
+			Revision:   result.Revision,
+			Superseded: result.Superseded,
+			Carried:    result.CarriedRelations,
+			Retained:   result.RetainedRelations,
+		})
+	},
+}
+
 var entityDeleteCmd = &cobra.Command{
 	Use:   "delete [id]",
 	Short: "Delete an entity",
@@ -371,6 +423,12 @@ func init() {
 	entityUpdateCmd.Flags().String("reason", "", "audit note for the change")
 	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
 
+	entityReviseCmd.Flags().String("title", "", "title for the new revision (carried forward when omitted)")
+	entityReviseCmd.Flags().String("description", "", "description for the new revision (carried forward when omitted)")
+	entityReviseCmd.Flags().String("metadata", "", "metadata for the new revision as JSON string (carried forward when omitted)")
+	entityReviseCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
+	entityReviseCmd.Flags().String("reason", "", "why the entity was revised (required)")
+
 	entityImportCmd.Flags().String("input", "", "path to JSON file containing entity array (required)")
 
 	entityCmd.AddCommand(entityAddCmd)
@@ -378,6 +436,7 @@ func init() {
 	entityCmd.AddCommand(entityListCmd)
 	entityCmd.AddCommand(entityUpdateCmd)
 	entityCmd.AddCommand(entityDeprecateCmd)
+	entityCmd.AddCommand(entityReviseCmd)
 	entityCmd.AddCommand(entityDeleteCmd)
 	entityCmd.AddCommand(entityImportCmd)
 }

@@ -24,6 +24,15 @@ type EntityListResponse struct {
 	Count    int            `json:"count"`
 }
 
+// EntityReviseResponse reports a created revision, the entity it superseded, and
+// which inbound relations moved onto the revision versus stayed behind.
+type EntityReviseResponse struct {
+	Revision   model.Entity     `json:"revision"`
+	Superseded model.Entity     `json:"superseded"`
+	Carried    []model.Relation `json:"carried_relations"`
+	Retained   []model.Relation `json:"retained_relations"`
+}
+
 type RelationResponse struct {
 	Relation model.Relation `json:"relation"`
 }
