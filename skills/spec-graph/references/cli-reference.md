@@ -10,16 +10,21 @@
 7. [validate](#validate)
 8. [query](#query)
 9. [export](#export)
-10. [phase context](#phase-context)
+10. [phase](#phase)
 11. [bootstrap](#bootstrap)
+12. [migrate](#migrate)
+13. [doctor](#doctor)
+14. [serve / mcp](#serve--mcp)
 
 ---
 
 ## General Rules
 
-- All output is **JSON on stdout** — machine-parseable, not human prose.
+- Command output is **JSON on stdout** — machine-parseable, not human prose. Exceptions:
+  `export --format dot|mermaid` emits the raw diagram format, and `serve` speaks JSON-RPC.
 - Error messages go to **stderr**.
-- Exit codes: `0` success, `1` runtime error, `2` validation failure, `3` invalid input / schema violation.
+- Exit codes: `0` success, `1` runtime error, `2` validation failure / gate blocked, `3` invalid input / schema violation.
+- Root persistent flags: `--layer` and `--db <PATH>`.
 
 ---
 
@@ -56,13 +61,13 @@ spec-graph <command> --layer all      # no filter (default)
 
 ```bash
 # Valid
-spec-graph validate --phase PHS-002 --layer mapping
-spec-graph validate --phase PHS-002 --layer all
-spec-graph validate --phase PHS-002   # --layer all is the default
+spec-graph validate --phase "$PHS_ID" --layer mapping
+spec-graph validate --phase "$PHS_ID" --layer all
+spec-graph validate --phase "$PHS_ID"   # --layer all is the default
 
 # Invalid — returns exit 3
-spec-graph validate --phase PHS-002 --layer arch
-spec-graph validate --phase PHS-002 --layer exec
+spec-graph validate --phase "$PHS_ID" --layer arch
+spec-graph validate --phase "$PHS_ID" --layer exec
 ```
 
 ---
@@ -76,7 +81,8 @@ spec-graph init                    # current directory
 spec-graph init --path /other/dir  # custom path
 ```
 
-Fails with exit 1 if already initialized.
+Fails with exit 1 only on a real filesystem/store error. Re-running in an initialized directory is
+idempotent and succeeds.
 
 ---
 
@@ -88,40 +94,47 @@ Fails with exit 1 if already initialized.
 spec-graph entity add \
   --type <TYPE> \
   --title "Title" \
-  [--id <PREFIX-NNN>] \
   [--description "Description"] \
   [--status draft|active] \
-  [--metadata '{"key":"value"}']
+  [--metadata '{"key":"value"}'] \
+  [--metadata-file <PATH>] \
+  [--id <ID>]
 ```
 
 - `--type`: requirement, decision, plan, phase, task, change, interface, state, test, crosscut, question, assumption, criterion, risk
-- `--id`: optional. Type prefix + number (e.g. REQ-001, DEC-003). When omitted, auto-generated from `--type` using `MAX(existing number)+1`. Generated ID is returned in `.entity.id` of the JSON response. Format: unpadded (`REQ-1`, `REQ-2`) for fresh graphs; follows existing zero-padding if padded IDs already exist (e.g. after `REQ-001`, next auto is `REQ-002`). Counters are per-type and independent. Manual `--id` is still validated (prefix must match type) and auto-gen respects manually-set numbers.
-- `--status`: defaults to `draft`
+- `--id`: **omit this.** IDs are generated as `PREFIX-<unixSeconds>-<rand3>` (e.g. `REQ-1752239482-k3f`) and returned in `.entity.id`. There is no counter, so there is no next number to supply. Pass `--id` only to reproduce a specific pre-existing ID, such as restoring a deleted entity or importing from an external system. A supplied ID is validated: the prefix must match `--type`, and both the new form and legacy `PREFIX-NNN` are accepted.
+- `--status`: defaults to `draft`. Tasks must be created in `draft`.
 - `--metadata`: type-specific required fields — see `references/data-model.md`
+- `--metadata-file`: read metadata JSON from a file; mutually exclusive with `--metadata`
 
 **Examples**:
 ```bash
-# Auto-generated ID (capture returned id for subsequent commands)
-spec-graph entity add --type requirement \
+# Always capture the generated ID
+REQ_ID=$(spec-graph entity add --type requirement \
   --title "All APIs require authentication" \
   --description "No anonymous access allowed" \
-  --metadata '{"priority":"must","kind":"functional","owner":"auth-team"}'
-# → returns {"entity":{"id":"REQ-1", ...}}
+  --metadata '{"priority":"must","kind":"functional","owner":"auth-team"}' | jq -r '.entity.id')
+# → REQ_ID is e.g. REQ-1752239482-k3f
 
-# Capture the generated ID for use in relation commands
-REQ_ID=$(spec-graph entity add --type requirement \
-  --title "Payments must be idempotent" \
-  --metadata '{"priority":"must","kind":"non_functional"}' | jq -r '.entity.id')
-spec-graph relation add --from PHS-001 --to "$REQ_ID" --type covers
+# Reference the captured ID in later commands
+spec-graph relation add --from "$PHS_ID" --to "$REQ_ID" --type covers
 
-# Explicit ID (recommended for batch/cross-referencing workflows)
-spec-graph entity add --type plan --id PLN-001 \
+# Multi-entity flow: capture each ID as it is created
+# Note: --status sets entity status; a "status" key in --metadata does not.
+PLN_ID=$(spec-graph entity add --type plan \
   --title "v1 Delivery Plan" \
-  --metadata '{"status":"active"}'
+  --status active | jq -r '.entity.id')
 
-spec-graph entity add --type phase --id PHS-001 \
+PHS_ID=$(spec-graph entity add --type phase \
   --title "Phase 1 - Auth" \
-  --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete"]}'
+  --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete"]}' | jq -r '.entity.id')
+
+spec-graph relation add --from "$PHS_ID" --to "$PLN_ID" --type belongs_to
+```
+
+Recovering IDs in a later session:
+```bash
+spec-graph entity list --type phase --status active | jq -r '.entities[] | "\(.id)\t\(.title)"'
 ```
 
 ### entity get
@@ -154,16 +167,87 @@ spec-graph entity update <ID> \
   [--title "New title"] \
   [--description "New description"] \
   [--status <STATUS>] \
-  [--metadata '{}']
+  [--metadata '{}'] \
+  [--metadata-file <PATH>] \
+  [--force] [--reason "..."]
 ```
+
+Transitions to `resolved` on a phase or plan are gated. The response carries an `outcome` of
+`applied`, `applied_with_force`, or `blocked`; `blocked` exits 2 and leaves the TOML unchanged.
+`--force --reason "..."` accepts completion findings but cannot bypass structural ones.
+
+For a change in what an arch entity *means*, use `entity revise` instead — `update` discards the
+prior wording.
+
+### entity revise
+
+```bash
+spec-graph entity revise <ID> \
+  --reason "why the entity was revised" \
+  [--title "New title"] \
+  [--description "New description"] \
+  [--metadata '{}'] \
+  [--metadata-file <PATH>]
+```
+
+Supersedes an arch entity with a new revision in one atomic operation: creates the revision with a
+newly generated ID in `draft`, carries the prior outbound relations, adds a `supersedes` edge whose
+metadata records `--reason`, repoints inbound relations, and deprecates the prior entity.
+
+`--title`, `--description`, and `--metadata` carry the prior value forward when omitted.
+`--metadata` replaces the metadata object wholesale.
+
+Response:
+```json
+{
+  "revision":   {"id": "REQ-1752240001-9dm", "status": "draft",      "...": "..."},
+  "superseded": {"id": "REQ-1752239482-k3f", "status": "deprecated", "...": "..."},
+  "carried_relations":  [{"from_id": "API-1752239500-t7n", "type": "implements"}],
+  "retained_relations": [{"from_id": "PHS-1752239600-5xq", "type": "covers"}]
+}
+```
+
+`carried_relations` moved onto the revision. `retained_relations` stayed on the superseded entity:
+mapping edges (`covers`/`delivers`) from a **resolved** phase or task are left behind, because a
+completed phase delivered the prior wording, not the revision. Both fields are `null` when empty.
+`mapping_consistency` exempts resolved sources, so retained edges produce no findings.
+
+Capture the new ID — it differs from the original:
+```bash
+NEW_ID=$(spec-graph entity revise "$REQ_ID" --reason "Dedup window was unspecified" | jq -r '.revision.id')
+```
+
+Errors:
+
+| Condition | Code | Exit |
+|-----------|------|------|
+| `--reason` omitted | INVALID_INPUT | 3 |
+| target is an exec entity (PLN/PHS/TSK/CHG) | INVALID_INPUT | 3 |
+| target already superseded (message names the successor) | CONFLICT | 2 |
+| target is `deprecated` | INVALID_INPUT | 3 |
+| target does not exist | ENTITY_NOT_FOUND | 1 |
+
+CLI-only; not exposed over RPC or MCP.
 
 ### entity deprecate
 
 ```bash
-spec-graph entity deprecate <ID>
+spec-graph entity deprecate <ID> [--reason "..."]
 ```
 
 Sets status to `deprecated`. Run `validate --check superseded_refs` afterward to clean up references.
+To deprecate *and* replace an arch entity, use `entity revise` instead.
+
+### entity import
+
+```bash
+spec-graph entity import --input <PATH>
+```
+
+Bulk-creates entities from a JSON array. Each item requires `id`, `type`, and `title`; `description`,
+`status`, and `metadata` are optional. Because `id` is required here, this command is for
+round-tripping known IDs, not for creating new entities. Existing IDs are skipped rather than
+overwritten, and per-item failures are reported without failing the batch.
 
 ### entity delete
 
@@ -195,23 +279,23 @@ Automatic validations on add:
 4. duplicate edge check
 5. self-loop prohibition (supersedes, conflicts_with, etc.)
 
-**Examples**:
+**Examples** (all IDs are shell variables captured from `entity add`):
 ```bash
 # Arch relations
-spec-graph relation add --from API-005 --to REQ-001 --type implements
-spec-graph relation add --from TST-012 --to REQ-001 --type verifies
+spec-graph relation add --from "$API_ID" --to "$REQ_ID" --type implements
+spec-graph relation add --from "$TST_ID" --to "$REQ_ID" --type verifies
 
 # Exec relations
-spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
-spec-graph relation add --from TSK-001 --to PHS-001 --type belongs_to
-spec-graph relation add --from TSK-002 --to TSK-001 --type task_depends_on
-spec-graph relation add --from PHS-001 --to PHS-002 --type precedes
+spec-graph relation add --from "$PHS_ID" --to "$PLN_ID" --type belongs_to
+spec-graph relation add --from "$TSK1_ID" --to "$PHS_ID" --type belongs_to
+spec-graph relation add --from "$TSK2_ID" --to "$TSK1_ID" --type task_depends_on
+spec-graph relation add --from "$PHS1_ID" --to "$PHS2_ID" --type precedes
 
 # Mapping relations (v1 — use these)
-spec-graph relation add --from PHS-001 --to REQ-001 --type covers
-spec-graph relation add --from PHS-001 --to API-005 --type delivers
-spec-graph relation add --from TSK-001 --to REQ-001 --type covers
-spec-graph relation add --from TSK-001 --to API-005 --type delivers
+spec-graph relation add --from "$PHS_ID" --to "$REQ_ID" --type covers
+spec-graph relation add --from "$PHS_ID" --to "$API_ID" --type delivers
+spec-graph relation add --from "$TSK1_ID" --to "$REQ_ID" --type covers
+spec-graph relation add --from "$TSK1_ID" --to "$API_ID" --type delivers
 ```
 
 ### relation list
@@ -256,14 +340,13 @@ spec-graph impact <ID> --layer mapping                    # restrict traversal t
 ### Response Shape
 ```json
 {
-  "sources": ["REQ-001"],
+  "sources": ["REQ-1752239482-k3f"],
   "affected": [
     {
-      "id": "API-005",
+      "id": "API-1752239500-t7n",
       "type": "interface",
-      "layer": "arch",
       "depth": 1,
-      "path": ["REQ-001", "API-005"],
+      "path": ["REQ-1752239482-k3f", "API-1752239500-t7n"],
       "relation_chain": ["implements"],
       "impact": {
         "overall": "high",
@@ -284,7 +367,7 @@ spec-graph impact <ID> --layer mapping                    # restrict traversal t
 
 ### Multi-source Analysis
 ```bash
-spec-graph impact REQ-001 DEC-003
+spec-graph impact "$REQ_ID" "$DEC_ID"
 ```
 Computes the combined impact when both entities change simultaneously.
 
@@ -304,7 +387,11 @@ spec-graph validate --phase <PHS-ID>                       # scope to a phase (m
 spec-graph validate --entity <ID>                          # scope to a single entity
 spec-graph validate --layer mapping --phase <PHS-ID>       # combinable
 spec-graph validate --layer arch --check coverage          # combinable
+spec-graph validate --check phase_satisfaction --phase <PHS-ID> --include-references
 ```
+
+`--include-references` applies to `phase_satisfaction` and additionally reports `references`
+evidence as advisory findings.
 
 ### Check Types by Layer
 
@@ -314,23 +401,26 @@ spec-graph validate --layer arch --check coverage          # combinable
 - `cycles`: circular references in depends_on chains
 - `conflicts`: semantic conflicts between entities
 - `invalid_edges`: arch edge matrix violations
-- `superseded_refs`: active references to deprecated entities
+- `superseded_refs`: active references to superseded entities
 - `unresolved`: open questions, unverified assumptions, unmitigated risks
 
 **Execution layer** (`--layer exec`):
-- `phase_order`: phases with precedes/blocks form a valid sequence
+- `phase_order`: detects duplicate numeric phase `order` values
 - `single_active_plan`: only one plan has active status
 - `orphan_phases`: phases not belonging to any plan
-- `exec_cycles`: circular precedes/blocks chains
+- `exec_cycles`: circular `blocks` chains
 - `invalid_exec_edges`: exec edge matrix violations
+- `orphan_changes`: changes with no relations
 - `task_graph`: exact task parents, same-phase dependencies, and dependency cycles
 
 **Mapping layer** (`--layer mapping`):
 - `plan_coverage`: all active requirements are covered by some phase
-- `delivery_completeness`: covered arch entities have delivery evidence
-- `mapping_consistency`: covers/delivers targets exist and are arch entities
+- `delivery_completeness`: each covered arch entity is itself delivered (exact ID match, no proxies)
+- `mapping_consistency`: covers/delivers targets are valid; sources that are `resolved` are exempt
 - `invalid_mapping_edges`: mapping edge matrix violations
+- `gates`: unresolved questions, unmitigated risks, draft decisions in phase scope
 - `task_scope`: task coverage, delivery subset, and no mixed phase/task mappings
+- `phase_satisfaction`: opt-in only — never runs as part of a default validation pass
 
 ### Response Shape
 ```json
@@ -340,8 +430,7 @@ spec-graph validate --layer arch --check coverage          # combinable
     {
       "check": "coverage",
       "severity": "high|medium|low",
-      "entity": "REQ-007",
-      "layer": "arch",
+      "entity": "REQ-1752239482-k3f",
       "message": "No implementation found"
     }
   ],
@@ -352,7 +441,8 @@ spec-graph validate --layer arch --check coverage          # combinable
 }
 ```
 
-Each issue includes a `layer` field indicating which layer the check belongs to.
+Each issue carries exactly `check`, `severity`, `entity`, and `message`. The CLI does not emit a
+`layer` field on issues; infer the layer from the check name.
 
 ---
 
@@ -363,19 +453,22 @@ Graph traversal and lookup.
 ### query neighbors
 ```bash
 spec-graph query neighbors <ID> --depth <N>
-spec-graph query neighbors <ID> --depth <N> --layer arch
 ```
-Returns all entities within N hops from the given entity.
+Returns all entities within N hops from the given entity. Note: `--layer` is accepted as a root
+persistent flag but is **not** applied to neighbor traversal, so it will not filter these results.
 
 ### query path
 ```bash
 spec-graph query path <FROM-ID> <TO-ID>
+spec-graph query path <FROM-ID> <TO-ID> --layer arch
 ```
-Returns the shortest path between two entities. Empty result if no path exists.
+Returns the shortest path between two entities. Empty result if no path exists. `--layer` restricts
+which relations the path may use.
 
 ### query scope
 ```bash
 spec-graph query scope <PHS-ID>
+spec-graph query scope <PHS-ID> --layer mapping
 ```
 Returns effective arch scope. Task-managed phases return the union of child task mappings;
 taskless phases preserve direct mappings and their insertion order.
@@ -383,8 +476,10 @@ taskless phases preserve direct mappings and their insertion order.
 ### query unresolved
 ```bash
 spec-graph query unresolved --type question|assumption|risk
+spec-graph query unresolved --type question --phase <PHS-ID>
 ```
-Returns items with status `draft` or `active` (i.e. not yet resolved).
+Returns items with status `draft` or `active` (i.e. not yet resolved). `--phase` restricts results
+to the phase's effective scope.
 
 ### query sql
 ```bash
@@ -395,7 +490,18 @@ both `entities` and `relations` tables.
 
 ---
 
-## phase context
+## phase
+
+### phase next
+
+```bash
+spec-graph phase next [--activate]
+```
+
+Selects the next eligible phase — only phases whose `precedes` predecessors are resolved qualify.
+`--activate` transitions the selected phase from `draft` to `active`.
+
+### phase context
 
 ```bash
 spec-graph phase context <PHS-ID>
@@ -443,9 +549,9 @@ spec-graph bootstrap scan --input ./docs/
 spec-graph bootstrap scan --input ./docs/ --format json
 ```
 Scans `.md` files and extracts candidate entities and relations using regex pattern matching.
-Extraction is based on entity ID patterns (`REQ-001`, `DEC-005`, `PHS-002`, etc.) — not
-free-text NLP. Documents must already contain spec-graph ID format (`PREFIX-NNN`) for
-candidates to be detected.
+Extraction is based on entity ID patterns — not free-text NLP. Both ID forms are recognized:
+the current `PREFIX-<unixSeconds>-<rand3>` (e.g. `REQ-1752239482-k3f`) and legacy `PREFIX-NNN`
+(e.g. `REQ-001`). Documents must already contain one of these forms for candidates to be detected.
 
 Each candidate includes `confidence` (0.4–0.9), `source` (file path with line number),
 and an inferred type based on the ID prefix.
@@ -456,3 +562,45 @@ spec-graph bootstrap import --input extracted.json --mode review
 ```
 - `--mode review` (default): presents candidates for approval before committing.
 - Low-confidence items are never auto-imported.
+- Each candidate's `id` and `type` are validated before any file is written: the type must be a
+  known entity type and the ID must match its prefix. Rejected candidates are reported
+  individually rather than failing the whole batch.
+
+---
+
+## migrate
+
+One-shot migration from the legacy SQLite-only layout to TOML-first storage.
+
+```bash
+spec-graph migrate [--dry-run] [--keep-db]
+```
+
+- `--dry-run`: preview the migration without writing files.
+- `--keep-db`: keep the old `graph.db` instead of renaming it to `.bak`.
+
+---
+
+## doctor
+
+Integrity validation of the TOML store. Run after `git merge` or `git pull` resolves conflicts.
+
+```bash
+spec-graph doctor [--check <names>] [--fix]
+```
+
+- `--check`: comma-separated list of checks; defaults to all.
+- `--fix`: reserved, not yet supported.
+
+---
+
+## serve / mcp
+
+```bash
+spec-graph serve   # JSON-RPC over stdio
+spec-graph mcp     # MCP server over stdio
+```
+
+`serve` exposes engine operations as JSON-RPC methods (e.g. `phase.context`); `mcp` exposes them as
+MCP tools (e.g. `phase_context`). Note that `entity revise` is CLI-only and is not available on
+either transport.

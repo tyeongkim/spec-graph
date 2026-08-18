@@ -80,19 +80,50 @@ Layer is determined by entity type prefix. It is always deterministic:
 | TSK | task | exec |
 | CHG | change | exec |
 
+### Entity IDs
+
+IDs are decentralized and sortable: `PREFIX-<unixSeconds>-<rand3>`, e.g.
+`REQ-1752239482-k3f`. The unix-seconds segment makes IDs sort chronologically as
+strings; the three-character random suffix (Crockford base32 lowercase, minus
+`i`/`l`/`o`/`u`) prevents same-second collisions.
+
+**Never invent or predict an ID.** There is no counter to continue and no next number
+to guess. Always omit `--id` and read the assigned ID from the response:
+
+```bash
+REQ_ID=$(spec-graph entity add --type requirement \
+  --title "All payments must be idempotent" \
+  --metadata '{"priority":"must","kind":"non_functional"}' | jq -r '.entity.id')
+```
+
+Then reference `"$REQ_ID"` in later commands. For multi-entity flows, capture every ID
+into a shell variable before wiring relations.
+
+Why this matters: the old scheme was `MAX+1` per type, which collided whenever two
+branches created entities in parallel — both produced `REQ-6` and clashed on merge.
+The current scheme needs no central coordination, so concurrent and branch-parallel
+creation is safe.
+
+`--id` still exists and legacy `PREFIX-NNN` IDs remain valid (the validation regex
+accepts both forms, so no migration is needed). Pass `--id` only when reproducing a
+specific existing ID, such as restoring an entity or importing from an external
+system. Do not use it to keep sequential numbering.
+
 ---
 
 ## Core Principles
 
 0. **English only**: all spec-graph content — entity titles, descriptions, metadata, `--reason` messages, criteria text, and any other field written into the graph — MUST be in English. Regardless of the language used in conversation, never write non-English text into spec-graph entities or relations.
 1. **Compute first**: never modify by guesswork. Always run `impact` and `validate` to identify targets before making changes.
-2. **JSON contract**: all CLI output goes to JSON stdout. Parse it to decide the next action.
+2. **JSON contract**: command output is JSON on stdout (except `export --format dot|mermaid`). Parse it to decide the next action.
 3. **Layer discipline**: arch entities belong in arch, exec entities in exec. Do not mix concerns.
 4. **Phase gates**: always run `validate --layer mapping --phase` before starting or completing a phase.
 5. **Git as audit log**: each commit is a logical changeset. The project's git history is the sole audit trail for spec-graph changes.
 6. **covers/delivers**: use the v1 mapping relations. `covers` expresses planning intent, `delivers` expresses completion.
 7. **Graph-native plans**: new plans create `TSK` entities and no Markdown plan files. Never auto-import,
    delete, or reinterpret old Markdown.
+8. **Never guess IDs**: IDs are generated, not sequential. Omit `--id` on create and capture
+   `.entity.id` from the response. Never construct an ID by incrementing a number you saw.
 
 ## Task Contract and Scope
 
@@ -142,11 +173,11 @@ The SQLite index exists purely for fast queries (neighbors, impact, path). If de
 
 ## TOML File Format
 
-Canonical entity file at `.spec-graph/entities/requirement/REQ-001.toml`:
+Canonical entity file at `.spec-graph/entities/requirement/REQ-1752239482-k3f.toml`:
 
 ```toml
 schema = 1
-id = "REQ-001"
+id = "REQ-1752239482-k3f"
 type = "requirement"
 title = "User authentication"
 description = "All APIs require OAuth2"
@@ -159,11 +190,11 @@ priority = "must"
 kind = "non_functional"
 
 [[relations]]
-to = "ACT-001"
+to = "ACT-1752239485-q7m"
 type = "has_criterion"
 
 [[relations]]
-to = "DEC-001"
+to = "DEC-1752239490-b2x"
 type = "constrained_by"
 weight = 0.8
 ```
@@ -204,14 +235,16 @@ spec-graph init --path /custom/path
 
 ### Entity CRUD
 ```bash
-spec-graph entity add --type <TYPE> --title "..." [--id <ID>] [--description "..."] [--metadata '{}']
-# --id is optional. When omitted, auto-generated (MAX+1 for that type). Capture returned .entity.id via jq -r '.entity.id'.
+spec-graph entity add --type <TYPE> --title "..." [--description "..."] [--metadata '{}'] [--metadata-file <PATH>]
+# Omit --id. The ID is generated; capture it with jq -r '.entity.id'.
 spec-graph entity get <ID>
 spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapping|all]
 spec-graph entity update <ID> --title "..."
-spec-graph entity update <ID> --status resolved [--force]
-spec-graph entity deprecate <ID>
+spec-graph entity update <ID> --status resolved [--force] [--reason "..."]
+spec-graph entity revise <ID> --reason "..." [--title "..."] [--description "..."] [--metadata '{}']
+spec-graph entity deprecate <ID> [--reason "..."]
 spec-graph entity delete <ID>
+spec-graph entity import --input <PATH>
 ```
 
 ### Relation CRUD
@@ -307,10 +340,12 @@ See `references/data-model.md` for full type catalog, metadata schemas, and edge
 
 ### Entity Status: `draft` → `active` → `deprecated` / `resolved` / `deleted`
 
-**Auto-activation (v0.4.0+):** When a `delivers` relation is added targeting an arch entity,
-the CLI automatically transitions that entity from `draft` to `active`. This means:
+**Auto-activation (v0.4.0+):** When a `delivers` relation is added targeting a **draft** arch
+entity, the CLI transitions it to `active`. The source may be a phase or a task. Entities in any
+other status are left alone. This means:
 - `draft` = registered, no delivery evidence yet
-- `active` = at least one phase has delivered this entity (auto or manual)
+- `active` = either set explicitly (on create with `--status active`, or via update), or
+  auto-promoted from `draft` by a `delivers` edge
 - `resolved` = verified complete (only spec-verifier should set this)
 
 Do NOT manually transition arch entities to `active` after adding `delivers` — the CLI
@@ -333,10 +368,11 @@ its child tasks, and their effective mapping scope; unscoped `validate` remains 
 
 ```
 PLN:  draft → active → resolved (gated: plan_coverage)
-                     → deprecated (--force required)
+                     → deprecated
 
-PHS:  draft → active → resolved (gated: delivery_completeness + gates)
-                     → deprecated (--force required)
+PHS:  draft → active (gated: predecessors resolved)
+                     → resolved (gated: delivery_completeness + gates)
+                     → deprecated
 ```
 
 #### Transition Ownership
@@ -344,18 +380,22 @@ PHS:  draft → active → resolved (gated: delivery_completeness + gates)
 | Transition | Owner | Precondition |
 |------------|-------|--------------|
 | PLN: draft → active | spec-planner | Only one active plan allowed |
-| PHS: draft → active | spec-executor | Predecessor phases resolved (soft — warn if not) |
+| PHS: draft → active | spec-executor | Predecessor phases resolved (blocking) |
 | PHS: active → resolved | spec-verifier | All deliverables verified, gate passes |
-| Any → deprecated | User (manual) | `--force` required |
+| Any → deprecated | User (manual) | Reason recommended; no `--force` needed |
 
 #### Rules
 
 1. **Only one active PLN** at a time — `single_active_plan` check enforces this.
-2. **PHS activation order**: phases with `precedes` predecessors should be activated in order. Activating out-of-order is allowed but triggers a warning.
-3. **PHS resolution is gated**: `entity update PHS-XXX --status resolved` auto-runs `delivery_completeness` + `gates`. Blocked (exit 2) if issues exist.
+2. **PHS activation order is enforced**: activating a phase whose `precedes` predecessors are not
+   yet resolved is **blocked** (`outcome: blocked`), not merely warned. Activate in order, or use
+   `phase next --activate`, which only selects phases whose predecessors are resolved.
+3. **PHS resolution is gated**: `entity update <PHS-ID> --status resolved` auto-runs
+   `delivery_completeness` + `gates`. Blocked (exit 2) if issues exist.
 4. **PLN resolution is gated**: requires `plan_coverage` — all active arch entities must be covered.
 5. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
-6. **deprecated is terminal**: no transitions out of `deprecated`.
+6. **deprecated is terminal**: no transitions out of `deprecated`. Deprecating does not require
+   `--force`; `entity deprecate <ID> --reason "..."` is enough. Task deprecation requires a reason.
 
 ### Relation Types (18)
 
@@ -380,41 +420,53 @@ This section is the heart of this skill. Agents follow these patterns.
 Create a graph-native plan, add phases and tasks, then wire task scope. This path creates no
 Markdown. Direct phase mappings shown in older projects are a legacy taskless path only.
 
-> **Note**: This pattern uses explicit `--id` because it's a batch/cross-referencing flow where IDs are referenced before all entities exist. For single interactive creates, you can omit `--id` and capture the auto-generated ID from `.entity.id` (via `jq -r '.entity.id'`).
+> **Note**: IDs are generated, so a cross-referencing flow like this must capture each ID into a
+> shell variable as it creates the entity. Do not pass `--id`, and do not assume the plan is
+> `PLN-001`. `$REQ_AUTH` and `$REQ_SESSION` below are requirement IDs captured the same way when
+> those requirements were created.
 
 ```bash
 # 1. Create the plan (only one active plan allowed)
-spec-graph entity add --type plan --id PLN-001 \
+#    --status active sets the entity status; a "status" key inside --metadata does NOT.
+PLN=$(spec-graph entity add --type plan \
   --title "v1 Delivery Plan" \
-  --metadata '{"status":"active"}'
+  --status active | jq -r '.entity.id')
 
 # 2. Create a phase
-spec-graph entity add --type phase --id PHS-001 \
+PHS=$(spec-graph entity add --type phase \
   --title "Phase 1 - Auth" \
-  --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete","E2E tests pass"]}'
+  --metadata '{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete","E2E tests pass"]}' | jq -r '.entity.id')
 
 # 3. Assign the phase to the plan
-spec-graph relation add --from PHS-001 --to PLN-001 --type belongs_to
+spec-graph relation add --from "$PHS" --to "$PLN" --type belongs_to
 
 # 4. Create tasks with the closed TaskContract
-spec-graph entity add --type task --id TSK-001 --title "Implement auth API" \
+TSK1=$(spec-graph entity add --type task --title "Implement auth API" \
   --description "Implement the authentication API and tests." \
-  --metadata '{"order":1,"instructions":["Implement the auth API."],"acceptance":["Auth tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
-spec-graph entity add --type task --id TSK-002 --title "Integrate auth flow" \
+  --metadata '{"order":1,"instructions":["Implement the auth API."],"acceptance":["Auth tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}' | jq -r '.entity.id')
+TSK2=$(spec-graph entity add --type task --title "Integrate auth flow" \
   --description "Integrate the completed authentication API." \
-  --metadata '{"order":2,"instructions":["Integrate the auth flow."],"acceptance":["Integration tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}'
+  --metadata '{"order":2,"instructions":["Integrate the auth flow."],"acceptance":["Integration tests pass."],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}' | jq -r '.entity.id')
 
 # 5. Wire membership, dependency, and canonical task scope
-spec-graph relation add --from TSK-001 --to PHS-001 --type belongs_to
-spec-graph relation add --from TSK-002 --to PHS-001 --type belongs_to
-spec-graph relation add --from TSK-002 --to TSK-001 --type task_depends_on
-spec-graph relation add --from TSK-001 --to REQ-001 --type covers
-spec-graph relation add --from TSK-002 --to REQ-002 --type covers
+spec-graph relation add --from "$TSK1" --to "$PHS" --type belongs_to
+spec-graph relation add --from "$TSK2" --to "$PHS" --type belongs_to
+spec-graph relation add --from "$TSK2" --to "$TSK1" --type task_depends_on
+spec-graph relation add --from "$TSK1" --to "$REQ_AUTH" --type covers
+spec-graph relation add --from "$TSK2" --to "$REQ_SESSION" --type covers
 
 # 6. Validate and obtain the executor/verifier contract
 spec-graph validate --layer exec --check task_graph
-spec-graph validate --layer mapping --phase PHS-001 --check task_scope
-spec-graph phase context PHS-001
+spec-graph validate --layer mapping --phase "$PHS" --check task_scope
+spec-graph phase context "$PHS"
+```
+
+If you are working across separate command invocations rather than one script, recover IDs by
+querying instead of guessing:
+
+```bash
+spec-graph entity list --type phase --status active | jq -r '.entities[].id'
+spec-graph query sql "SELECT id, title FROM entities WHERE type = 'task' ORDER BY id"
 ```
 
 `phase context` returns `{plan,phase,tasks,scope,delivery,blockers,ready_task_ids,blocked_task_ids}`.
@@ -427,16 +479,16 @@ When an existing entity changes, always run impact first:
 
 ```bash
 # 1. Compute impact — what else must change
-spec-graph impact DEC-031 --dimension behavioral
+spec-graph impact "$DEC_ID" --dimension behavioral
 
 # 2. Inspect affected targets (parse JSON)
-spec-graph impact DEC-031 | jq '.affected[] | {id, type, impact, reason}'
+spec-graph impact "$DEC_ID" | jq '.affected[] | {id, type, impact, reason}'
 
 # 3. Check unresolved items
 spec-graph query unresolved --type question
 
 # 4. Modify only affected targets (do not touch unrelated entities)
-spec-graph entity update DEC-031 --title "New decision"
+spec-graph entity update "$DEC_ID" --title "New decision"
 
 # 5. Full validation
 spec-graph validate
@@ -452,24 +504,24 @@ transition is blocked with exit code 2.
 
 ```bash
 # Direct completion attempt — gate runs automatically
-spec-graph entity update PHS-002 --status resolved
+spec-graph entity update "$PHS_ID" --status resolved
 
 # If blocked, resolve issues first:
 # 1. Review graph-native phase context
-spec-graph phase context PHS-002
+spec-graph phase context "$PHS_ID"
 
 # 2. Check what's missing
-spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
-spec-graph validate --layer mapping --phase PHS-002 --check gates
+spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completeness
+spec-graph validate --layer mapping --phase "$PHS_ID" --check gates
 
 # 3. Fix issues (add delivers, answer questions, mitigate risks)
-spec-graph relation add --from TSK-005 --to REQ-001 --type delivers
+spec-graph relation add --from "$TSK_ID" --to "$REQ_ID" --type delivers
 
 # 4. Retry
-spec-graph entity update PHS-002 --status resolved
+spec-graph entity update "$PHS_ID" --status resolved
 
 # Force completion findings only (structural findings remain blocked)
-spec-graph entity update PHS-002 --status resolved --force \
+spec-graph entity update "$PHS_ID" --status resolved --force \
   --reason "Accept the documented completion risk"
 ```
 
@@ -481,13 +533,13 @@ does not by itself mean the update was blocked.
 
 ```bash
 # Review scope
-spec-graph query scope PHS-002
+spec-graph query scope "$PHS_ID"
 
 # Arch coverage
 spec-graph validate --layer arch --check coverage
 
 # Mapping consistency
-spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
+spec-graph validate --layer mapping --phase "$PHS_ID" --check mapping_consistency
 
 # Exec ordering
 spec-graph validate --layer exec --check phase_order
@@ -497,34 +549,33 @@ If validate reports issues, resolve them before attempting `--status resolved`.
 
 #### Handling "covered but not delivered" mapping failures
 
-When `delivery_completeness` reports a covered arch entity has no `delivers` relation:
+When `delivery_completeness` reports a covered arch entity has no `delivers` relation, the fix is
+to deliver **that exact entity**. The check compares covered IDs against delivered IDs directly —
+it does not traverse `implements`/`verifies`. Delivering an implementing interface or test does
+**not** satisfy a covered requirement.
 
 ```bash
-# 1. Identify what the phase covers
-spec-graph query scope PHS-002
+# 1. Identify what the phase covers vs delivers
+spec-graph query scope "$PHS_ID"
 
-# 2. Find implementing entities for the requirement
-spec-graph relation list --to REQ-001   # find what implements/verifies REQ-001
+# 2. Add delivers for the covered entity that lacks it.
+#    In a task-managed phase, delivers must come from the child task that covers it,
+#    not from the phase.
+spec-graph relation add --from "$TSK_ID" --to "$REQ_ID" --type delivers
 
-# 3. Determine the MINIMAL proxy set — only entities whose delivery in this
-#    phase is necessary and sufficient to consider REQ-001 delivered
-#    Ask: "Which implementing entities are necessary and sufficient?"
-
-# 4. Add delivers ONLY for that minimal set
-spec-graph relation add --from PHS-002 --to API-005 --type delivers
-spec-graph relation add --from PHS-002 --to TST-001 --type delivers
-
-# 5. Re-validate
-spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
+# 3. Re-validate
+spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completeness
 ```
 
-Critical rules for delivery proxy resolution:
-- Compute the minimum set of implementing entities per requirement. Do not add all related entities.
-- If the check still fails after adding the minimal proxy set, investigate the validator semantics
-  or the graph model before expanding further. Do not blindly widen the delivered set.
-- Apply the same precision level consistently across all phases.
-- After adding proxy relations, verify semantic correctness: does each `delivers` accurately
-  represent work completed in this phase, or is it just silencing the check?
+Rules:
+- Deliver the covered entity itself. There is no proxy resolution — a "minimal proxy set" of
+  implementing entities will not clear the finding.
+- If a phase covers something it did not actually deliver, the honest fix is to narrow the
+  `covers` scope, not to add a `delivers` edge that misstates what happened.
+- Only entity types that may legally receive `delivers` from a phase are checked; others in scope
+  are skipped by the edge matrix.
+- Before adding any `delivers`, ask whether it accurately represents work completed in this phase,
+  or is just silencing the check.
 
 ### Pattern 4: Full Patch Orchestration (recommended)
 
@@ -549,30 +600,29 @@ over-broad relations is worse than one that fails a check with an honest gap.
 
 ### Pattern 5: Adding a Requirement
 
-Typical flow for adding a new requirement and wiring it into the graph:
-
-> **Tip**: For a single ad-hoc requirement, you can omit `--id` and capture the returned ID: `REQ_ID=$(spec-graph entity add --type requirement --title "..." --metadata '...' | jq -r '.entity.id')`. The example below uses explicit IDs for clarity.
+Typical flow for adding a new requirement and wiring it into the graph. `$PHS` and `$XCT` are
+existing IDs obtained from `entity list` or a prior capture.
 
 ```bash
-# 1. Create requirement
-spec-graph entity add --type requirement --id REQ-015 \
+# 1. Create requirement, capturing the generated ID
+REQ=$(spec-graph entity add --type requirement \
   --title "All payments must be idempotent" \
-  --metadata '{"priority":"must","kind":"non_functional","owner":"payment-team"}'
+  --metadata '{"priority":"must","kind":"non_functional","owner":"payment-team"}' | jq -r '.entity.id')
 
 # 2. Attach acceptance criterion
-spec-graph entity add --type criterion --id ACT-020 \
+ACT=$(spec-graph entity add --type criterion \
   --title "Duplicate request within window processed only once" \
-  --metadata '{"given":"Payment request already sent","when":"Same request resent","then":"No duplicate processing; return existing result"}'
-spec-graph relation add --from REQ-015 --to ACT-020 --type has_criterion
+  --metadata '{"given":"Payment request already sent","when":"Same request resent","then":"No duplicate processing; return existing result"}' | jq -r '.entity.id')
+spec-graph relation add --from "$REQ" --to "$ACT" --type has_criterion
 
 # 3. Map to phase using covers (not planned_in)
-spec-graph relation add --from PHS-003 --to REQ-015 --type covers
+spec-graph relation add --from "$PHS" --to "$REQ" --type covers
 
 # 4. Link crosscut constraint (if applicable)
-spec-graph relation add --from REQ-015 --to XCT-002 --type constrained_by
+spec-graph relation add --from "$REQ" --to "$XCT" --type constrained_by
 
 # 5. Validate arch layer
-spec-graph validate --layer arch --entity REQ-015
+spec-graph validate --layer arch --entity "$REQ"
 ```
 
 ### Pattern 6: Bootstrap (graph from existing docs)
@@ -592,6 +642,58 @@ spec-graph bootstrap import --input extracted.json --mode review
 
 Low-confidence relations are never auto-imported. A human must confirm, or the agent must
 cross-reference against the source document before deciding.
+
+### Pattern 7: Revising an Arch Entity
+
+When an arch entity's meaning changes and the prior wording must stay on the record, use
+`entity revise` rather than editing in place. `entity update` rewrites history; `revise`
+preserves it as a chain.
+
+```bash
+# Compute impact first — revision moves relations
+spec-graph impact "$REQ" --dimension behavioral
+
+spec-graph entity revise "$REQ" \
+  --title "All payments must be idempotent within a 24h window" \
+  --reason "Original requirement left the dedup window unspecified"
+```
+
+This is one atomic operation that:
+1. creates a new entity with a newly generated ID, in `draft` status
+2. carries the prior entity's outbound relations onto the revision
+3. adds `revision supersedes prior`, recording `--reason` in the edge metadata
+4. repoints inbound relations onto the revision
+5. deprecates the prior entity
+
+Capture the new ID from the response — the revision has a different ID than the original:
+
+```bash
+NEW=$(spec-graph entity revise "$REQ" --reason "..." | jq -r '.revision.id')
+```
+
+The response is `{revision, superseded, carried_relations, retained_relations}`.
+`carried_relations` lists inbound relations moved onto the revision; `retained_relations` lists
+those deliberately left on the superseded entity. Both are `null` rather than `[]` when empty.
+
+**Which relations stay behind**: mapping relations (`covers`/`delivers`) from a *resolved* phase
+or task are retained, not moved. A resolved phase delivered the wording that existed at the time,
+so crediting it with delivering a later revision would be false. Mapping relations from
+non-resolved phases and tasks move forward with everything else. `mapping_consistency` exempts
+resolved sources, so these retained edges do not produce findings.
+
+Constraints:
+- arch entities only. Revising a `PLN`/`PHS`/`TSK`/`CHG` fails with exit 3 — exec entities do not
+  form revision chains.
+- `--reason` is required (exit 3 when omitted).
+- an entity that is already superseded cannot be revised again (`CONFLICT`, exit 2). Revise the
+  latest revision instead; the error message names it.
+- a `deprecated` entity cannot be revised — chains start from a live entity.
+- `--title`, `--description`, and `--metadata` are each optional and carry the prior value
+  forward when omitted. Supplying `--metadata` replaces the metadata object wholesale.
+- the revision is created in `draft`, so it needs the usual `covers`/`delivers` wiring to be
+  delivered by a phase.
+
+`revise` is CLI-only. It is not exposed over RPC or MCP.
 
 ---
 
@@ -650,8 +752,8 @@ spec-graph validate --layer mapping --check plan_coverage
 # Before phase completion (now auto-enforced by entity update --status resolved)
 # These are still useful for pre-flight visibility:
 spec-graph validate --layer arch --check coverage
-spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
-spec-graph validate --layer mapping --phase PHS-003 --check gates
+spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completeness
+spec-graph validate --layer mapping --phase "$PHS_ID" --check gates
 
 # After any change
 spec-graph validate
@@ -667,7 +769,7 @@ Key fields in `impact` JSON output:
 {
   "affected": [
     {
-      "id": "API-005",
+      "id": "API-1752239500-t7n",
       "type": "interface",
       "depth": 1,
       "impact": {
@@ -713,7 +815,7 @@ Key fields in `impact` JSON output:
 ## Caveats
 
 - `bootstrap import` defaults to `--mode review`. Never use `--mode auto`.
-- `supersedes` requires both entities to be the same type. It is directional: stored in the `from` entity's file. `REQ-002 supersedes REQ-001` means REQ-002 is the newer entity.
+- `supersedes` requires both entities to be the same type. It is directional: stored in the `from` entity's file, so `revision supersedes prior` means the `from` entity is newer. Prefer `entity revise` over adding this edge by hand — it wires the edge, moves relations, and deprecates the prior entity in one operation.
 - `conflicts_with` does not allow self-loops. It is symmetric: stored in the lexicographically smaller entity's file. Both directions are queryable via the index.
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.
   On failure, consult the edge matrix in `references/data-model.md`.
@@ -725,13 +827,22 @@ Key fields in `impact` JSON output:
 - Entity timestamps (`created_at`, `updated_at`) are stored in TOML and populated automatically on create/update.
 - After `git merge` with conflicts in TOML files, run `spec-graph doctor` to validate integrity.
 - The SQLite index is rebuilt automatically on each command if TOML files changed. No manual sync needed.
-- Auto-generated IDs use `MAX(existing number)+1` per type. If an entity is deleted and its number was the highest, the next auto-gen may reuse that number. IDs are not stably unique across deletes. (Delete is rare and refused while relations reference the entity.)
+- Generated IDs are `PREFIX-<unixSeconds>-<rand3>`. Collisions are avoided by a crypto-random suffix plus an existence retry, so parallel branches are safe in practice. Never predict one; read it from `.entity.id`. Legacy `PREFIX-NNN` IDs remain valid — both forms pass validation and no migration is required.
 
 ## Anti-Patterns
 
 These are known failure modes. If you catch yourself doing any of these, stop and reconsider.
 
-### 1. Mixing arch and exec concerns
+### 1. Inventing or sequencing entity IDs
+**Symptom**: passing `--id REQ-004` because `REQ-003` exists, or referencing `PHS-001` in a
+relation command without ever reading that ID from a response.
+**Why it's wrong**: IDs are generated as `PREFIX-<unixSeconds>-<rand3>`. There is no counter to
+continue. A guessed ID either fails as not-found or, worse, silently attaches a relation to an
+unrelated entity.
+**Correct approach**: omit `--id`, capture `.entity.id` into a variable, and reference the
+variable. Recover forgotten IDs with `entity list` or `query sql`, never by guessing.
+
+### 2. Mixing arch and exec concerns
 **Symptom**: adding a requirement directly to a phase using arch-only relations,
 or treating a phase as an arch entity by linking it with arch-only relations.
 **Why it's wrong**: arch and exec are separate layers with separate edge matrices. Cross-layer
@@ -739,28 +850,37 @@ connections belong in the mapping layer using `covers` and `delivers`.
 **Correct approach**: use `covers` (phase→arch) to express intent, `delivers` (phase→arch)
 to express completion.
 
-### 2. Editing SQLite directly
+### 3. Editing SQLite directly
 **Symptom**: modifying `.spec-graph/graph.db` manually or treating it as the source of truth.
 **Why it's wrong**: the SQLite index is disposable and auto-rebuilt from TOML. Any manual
 edits are lost on the next rebuild.
 **Correct approach**: always use CLI commands to modify entities. The TOML files are the source of truth.
 
-### 3. Check-driven patching
+### 4. Rewriting an arch entity that should be revised
+**Symptom**: using `entity update --title/--description` to change what a requirement or decision
+means, discarding the prior wording.
+**Why it's wrong**: `update` leaves no trace of the superseded meaning, so resolved phases appear
+to have delivered text that never existed when they closed.
+**Correct approach**: use `entity revise --reason "..."` for meaning changes. Reserve `update` for
+corrections that do not change intent, and for status transitions.
+
+### 5. Check-driven patching
 **Symptom**: check fails → add relations broadly until check passes → commit.
 **Why it's wrong**: passing a check does not mean the graph is correct. Over-broad relations
 pollute the graph and produce inaccurate impact analysis downstream.
 **Correct approach**: diagnose why the check fails, compute the minimal fix, verify semantic
 accuracy, then re-validate.
 
-### 4. Bulk delivers expansion
+### 6. Bulk delivers expansion
 **Symptom**: a requirement is "covered but not delivered" → add `delivers` for every
 related interface, state, and test to the phase.
-**Why it's wrong**: not all implementing entities belong to every phase. Each `delivers`
-must represent actual delivery in that specific phase.
-**Correct approach**: identify the minimal proxy set per requirement. Only entities whose
-delivery in this phase is necessary and sufficient to consider the requirement fulfilled.
+**Why it's wrong**: it does not even work — `delivery_completeness` matches covered IDs against
+delivered IDs exactly, so delivering implementing entities never clears a finding on the
+requirement. It only pollutes the graph and skews impact analysis.
+**Correct approach**: add `delivers` for the covered entity itself, from the task that covers it in
+a task-managed phase. If the phase did not actually deliver it, narrow the `covers` scope instead.
 
-### 5. Semantic ambiguity bypass
+### 7. Semantic ambiguity bypass
 **Symptom**: discover a model-level conflict (e.g. edge matrix prevents a relation type
 the check seems to require) → work around it by expanding other relations instead of
 investigating the conflict.
@@ -770,7 +890,7 @@ investigating the conflict.
 and validator expectations, stop and investigate. Check `references/data-model.md` for the
 intended semantics. If the conflict is genuine, report it to the user rather than working around it.
 
-### 6. Inconsistent precision across phases
+### 8. Inconsistent precision across phases
 **Symptom**: Phase N uses broad relation additions, Phase N+1 uses precise minimal additions.
 **Why it's wrong**: the same rules must apply uniformly. If Phase 3 adds only 3 delivery
 proxies, Phase 2 should not have added 15 for a similar scope.

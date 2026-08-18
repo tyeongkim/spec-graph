@@ -16,13 +16,14 @@ Validation is organized into three layers matching the graph model. Each check b
 exactly one layer. The `--layer` flag restricts which checks run.
 
 ```bash
-spec-graph validate                  # runs all checks (all layers)
+spec-graph validate                  # runs all default checks (all layers)
 spec-graph validate --layer arch     # runs only arch checks
 spec-graph validate --layer exec     # runs only exec checks
 spec-graph validate --layer mapping  # runs only mapping checks
 ```
 
-Each issue in the response includes a `layer` field so you know which layer it came from.
+Each issue carries `check`, `severity`, `entity`, and `message`. There is no `layer` field in the
+CLI output — infer the layer from the check name.
 
 ### Severity Levels
 
@@ -47,8 +48,7 @@ spec-graph validate --layer arch --check orphans
 
 | Condition | Severity |
 |-----------|----------|
-| Active arch entity has no relations | medium |
-| Draft arch entity has no relations | low |
+| Active or draft arch entity has no arch relations | medium |
 
 Newly added entities without any relations are flagged. Draft-status orphans may be acceptable
 during early modeling, but active-status orphans indicate a wiring problem.
@@ -63,9 +63,9 @@ spec-graph validate --layer arch --check coverage
 | Condition | Severity |
 |-----------|----------|
 | Active requirement has no `implements` relation | high |
-| Active requirement has no `has_criterion` | medium |
+| Active requirement has no `has_criterion` | high |
 | Active criterion has no `verifies` relation | high |
-| Interface that triggers a state has no related test | medium |
+| Interface that triggers a state has no test linked via `verifies` | high |
 
 - `high` severity blocks phase exit. Must be resolved.
 - `medium` severity is recommended to resolve but may proceed with justification.
@@ -117,10 +117,11 @@ spec-graph validate --layer arch --check superseded_refs
 
 | Condition | Severity |
 |-----------|----------|
-| Active entity references a deprecated entity | medium |
+| Entity still references a superseded entity | high |
 
-Always run this after deprecating an entity. When flagged, update references to point to
-the replacement entity or remove the relation.
+Always run this after revising or deprecating an entity. It detects references to entities that
+have been **superseded** (i.e. have an inbound `supersedes` edge), not deprecated entities in
+general. When flagged, update references to point to the replacement entity or remove the relation.
 
 ### unresolved
 Detects open questions, unverified assumptions, and unmitigated risks.
@@ -131,9 +132,9 @@ spec-graph validate --layer arch --check unresolved
 
 | Condition | Severity |
 |-----------|----------|
-| Active question with no `answers` relation | high |
-| Active assumption with `confidence: low` and no verification plan | medium |
-| Active risk with no `mitigates` relation | high |
+| Active or draft question with no `answers` relation | medium |
+| Active or draft assumption needing validation | medium |
+| Active or draft risk with no `mitigates` relation | medium |
 
 Run this before starting a phase to confirm all blocking items are resolved.
 
@@ -144,7 +145,7 @@ Run this before starting a phase to confirm all blocking items are resolved.
 Run with `--layer exec`. These verify the structural integrity of the plan and phase graph.
 
 ### phase_order
-Detects ordering problems in the phase sequence.
+Detects duplicate phase `order` values.
 
 ```bash
 spec-graph validate --layer exec --check phase_order
@@ -152,8 +153,10 @@ spec-graph validate --layer exec --check phase_order
 
 | Condition | Severity |
 |-----------|----------|
-| Phase with `precedes` relation has a higher `order` value than its successor | high |
-| Phase with `blocks` relation is not ordered before the blocked phase | medium |
+| Two or more phases share the same numeric `order` | high |
+
+Note: this check does **not** compare `precedes`/`blocks` against `order`. Sequencing itself is
+enforced at activation time, where a phase with unresolved predecessors is blocked.
 
 ### single_active_plan
 Enforces the constraint that only one plan may be active at a time.
@@ -178,10 +181,9 @@ spec-graph validate --layer exec --check orphan_phases
 
 | Condition | Severity |
 |-----------|----------|
-| Active phase has no `belongs_to` relation pointing to a plan | high |
-| Draft phase has no `belongs_to` relation | low |
+| Phase has no `belongs_to` relation pointing to a plan | medium |
 
-Every active phase must belong to exactly one plan.
+Every phase should belong to exactly one plan; the check does not distinguish status.
 
 ### exec_cycles
 Detects circular chains in exec relations.
@@ -192,8 +194,23 @@ spec-graph validate --layer exec --check exec_cycles
 
 | Condition | Severity |
 |-----------|----------|
-| Circular chain in `precedes` | high |
 | Circular chain in `blocks` | high |
+
+Only `blocks` chains are examined.
+
+### orphan_changes
+Detects change entities with no relations at all.
+
+```bash
+spec-graph validate --layer exec --check orphan_changes
+```
+
+| Condition | Severity |
+|-----------|----------|
+| Active, resolved, or deprecated change with no relations | high |
+| Change in any other status with no relations | medium |
+
+A change exists to cover arch entities; one with no relations records nothing.
 
 ### invalid_exec_edges
 Detects relations that violate the exec edge matrix.
@@ -213,6 +230,14 @@ within that phase and is stored dependent→prerequisite, and the dependency gra
 ```bash
 spec-graph validate --layer exec --check task_graph
 ```
+
+| Condition | Severity |
+|-----------|----------|
+| Task has zero or multiple parents, or a non-phase parent | high |
+| `task_depends_on` points at itself | high |
+| Dependency crosses phases | high |
+| Dependency targets a deprecated task | high |
+| Dependency cycle | high |
 
 ---
 
@@ -239,29 +264,36 @@ Detects arch entities that are covered by a phase but have no delivery evidence.
 
 ```bash
 spec-graph validate --layer mapping --check delivery_completeness
-spec-graph validate --layer mapping --phase PHS-002 --check delivery_completeness
+spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completeness
 ```
 
 | Condition | Severity |
 |-----------|----------|
 | Phase covers an arch entity but no `delivers` relation exists for it | high |
 
-This is the primary gate check before phase completion. Every covered arch entity must have
-at least one `delivers` relation from the phase (or from a phase that delivers its implementing
-entities as proxies).
+This is the primary gate check before phase completion. Every covered arch entity must itself be
+delivered within the phase's effective scope — covered IDs are compared against delivered IDs
+directly. There is **no** proxy resolution: delivering an entity that `implements` or `verifies` the
+covered one does not satisfy it. Entity types that cannot legally receive `delivers` from a phase
+are skipped via the edge matrix.
 
 ### mapping_consistency
 Detects mapping relations whose target arch entity is no longer valid.
 
 ```bash
 spec-graph validate --layer mapping --check mapping_consistency
-spec-graph validate --layer mapping --phase PHS-002 --check mapping_consistency
+spec-graph validate --layer mapping --phase "$PHS_ID" --check mapping_consistency
 ```
 
 | Condition | Severity |
 |-----------|----------|
 | `covers` or `delivers` target is deprecated | medium |
 | `covers` or `delivers` target has been superseded by another entity | medium |
+
+Mapping relations whose **source phase or task is `resolved`** are exempt. Completed execution must
+keep pointing at the revision it actually delivered, so a deprecated or superseded target there is
+a historical record, not an inconsistency. Without this exemption every `entity revise` of a
+delivered entity would leave a permanent finding.
 
 Edge-shape violations (e.g. `covers` source not a phase, target not an arch entity) are
 caught by `invalid_mapping_edges`, not this check.
@@ -283,17 +315,25 @@ Checks each non-deprecated task covers at least one arch entity, task `delivers`
 
 ```bash
 spec-graph validate --layer mapping --check task_scope
-spec-graph validate --layer mapping --phase PHS-002 --check task_scope
+spec-graph validate --layer mapping --phase "$PHS_ID" --check task_scope
 ```
+
+| Condition | Severity |
+|-----------|----------|
+| Task covers nothing, or `delivers` is not a subset of `covers` | high |
+| Phase mixes direct mappings with child-task mappings | high |
 
 Task-managed phase scope is the union of child task mappings. Taskless phase scope remains direct
 and unchanged. Tasks are exec entities and do not enter the architecture closure.
 
 ### Task Completion Gates
-The four task-managed checks/gates are `task_graph`, `task_scope`, task delivery/evidence
-completion, and phase child-resolution plus existing `delivery_completeness`/`gates`. Task
-activation requires an active parent and resolved prerequisites. Resolution requires QA evidence,
-delivery, and resolved prerequisites; a phase cannot resolve until all non-deprecated children resolve.
+Task-managed completion rests on `task_graph`, `task_scope`, the task delivery/QA-evidence gate, and
+phase child-resolution alongside the existing `delivery_completeness`/`gates` checks.
+
+Task activation requires exactly one parent, that the parent is a phase, that the parent is active,
+and that all prerequisites are resolved. Resolution requires resolved prerequisites, QA evidence
+pointing at real repository files, and `delivers` for every deliverable target the task covers. A
+phase cannot resolve until every non-deprecated, non-deleted child task is resolved.
 
 ### gates
 Detects phase readiness blockers by checking arch entities in the phase scope for
@@ -302,14 +342,14 @@ draft decisions.
 
 ```bash
 spec-graph validate --layer mapping --check gates
-spec-graph validate --layer mapping --phase PHS-002 --check gates
+spec-graph validate --layer mapping --phase "$PHS_ID" --check gates
 ```
 
 | Condition | Severity |
 |-----------|----------|
-| Active question in phase scope with no `answers` relation | high |
-| Active risk in phase scope with no `mitigates` relation | high |
-| Active assumption in phase scope (needs validation) | medium |
+| Active or draft question in phase scope with no `answers` relation | high |
+| Active or draft risk in phase scope with no `mitigates` relation | high |
+| Active or draft assumption in phase scope (needs validation) | medium |
 | Requirement in phase scope depends on a draft decision | high |
 
 When `--phase` is specified, only that phase is checked. Without `--phase`, all active
@@ -320,9 +360,13 @@ Evaluates whether the phase's covered architecture closure is satisfied by deliv
 execution evidence. This is the unified phase exit gate — it answers a single question:
 "Is each member of this phase's covered closure backed by appropriate evidence?"
 
+**Opt-in only.** It is deliberately excluded from default validation runs, so a bare
+`spec-graph validate` or `--layer mapping` will not execute it. Invoke it explicitly with
+`--check phase_satisfaction`, normally together with `--phase`.
+
 ```bash
-spec-graph validate --layer mapping --check phase_satisfaction --phase PHS-002
-spec-graph validate --layer mapping --check phase_satisfaction --phase PHS-002 --include-references
+spec-graph validate --layer mapping --check phase_satisfaction --phase "$PHS_ID"
+spec-graph validate --layer mapping --check phase_satisfaction --phase "$PHS_ID" --include-references
 ```
 
 #### Closure Definition
@@ -352,17 +396,17 @@ Per-type Layer 3 allowlists (applied to the **evidence source's** status):
 |---------------------|----------------|
 | decision | active, resolved |
 | interface | active, resolved |
-| test | verified, passed |
-| requirement | resolved, verified |
-| risk | mitigated, resolved |
-| phase | active, completed, resolved |
+| test | resolved |
+| requirement | resolved |
+| risk | resolved |
+| phase | active, resolved |
 | (fallback for other types) | active, resolved |
 
 Layer 2 status-only rules (applied to the closure member's own status):
 
 | Member Entity Type | Allowed Status |
 |---|---|
-| assumption | verified |
+| assumption | resolved |
 | decision | active, resolved |
 
 Advisory members are always reported as `advisory`. They never produce a `phase_satisfaction`
@@ -395,14 +439,14 @@ allowed status, the member is satisfied.
 
 #### Same-Phase Delivers Requirement
 
-For the `delivers` evidence relation specifically, the source must be the **phase being
-validated**. Delivery by another phase is reported diagnostically but does not satisfy
-the current phase. This enforces phase-exit gate semantics: `PHS-1 covers REQ-1` is not
-satisfied by `PHS-2 delivers REQ-1` — `PHS-1` itself must deliver `REQ-1`.
+For the `delivers` evidence relation specifically, the source must be the **phase being validated
+or one of its child tasks**. Delivery by an unrelated phase is reported diagnostically but does not
+satisfy the current phase. This enforces phase-exit gate semantics: `phase A covers REQ-X` is not
+satisfied by `phase B delivers REQ-X` — phase A, or a task belonging to it, must deliver `REQ-X`.
 
 When only cross-phase deliveries exist, the unsatisfied reason names the other delivering
-phases for diagnostic clarity, e.g. `no inbound "delivers" relation from phase PHS-001
-(found from [PHS-002])`.
+phases for diagnostic clarity, e.g. `no inbound "delivers" relation from phase
+PHS-1752239600-5xq (found from [PHS-1752240100-w0q])`.
 
 The other evidence relations (`answers`, `mitigates`) are not phase-scoped because their
 valid sources per the edge matrix are arch entities (decisions, tests, crosscut), not
@@ -427,7 +471,7 @@ spec-graph validate --layer arch --check unresolved
 # Mapping: confirm all requirements are assigned
 spec-graph validate --layer mapping --check plan_coverage
 spec-graph validate --layer mapping --check task_scope
-spec-graph phase context PHS-XXX
+spec-graph phase context "$PHS_ID"
 ```
 
 Purpose: confirm that all prerequisites for items assigned to this phase are met.
@@ -451,13 +495,13 @@ spec-graph validate --layer arch --check coverage
 spec-graph validate --layer arch --check superseded_refs
 
 # Mapping: unified satisfaction gate — closure satisfied by evidence
-spec-graph validate --layer mapping --phase PHS-003 --check phase_satisfaction
+spec-graph validate --layer mapping --phase "$PHS_ID" --check phase_satisfaction
 
 # Mapping: confirm all covered items have delivery evidence
-spec-graph validate --layer mapping --phase PHS-003 --check delivery_completeness
+spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completeness
 
 # Mapping: confirm cross-layer integrity
-spec-graph validate --layer mapping --phase PHS-003 --check mapping_consistency
+spec-graph validate --layer mapping --phase "$PHS_ID" --check mapping_consistency
 ```
 
 Purpose: verify implementation/test completeness, open-item resolution, and delivery evidence.
@@ -479,23 +523,20 @@ to each member. Use `--include-references` when you want the report to also surf
     {
       "check": "coverage",
       "severity": "high",
-      "entity": "REQ-007",
-      "layer": "arch",
+      "entity": "REQ-1752239482-k3f",
       "message": "No implementation found"
     },
     {
       "check": "delivery_completeness",
       "severity": "high",
-      "entity": "PHS-002",
-      "layer": "mapping",
-      "message": "Phase covers REQ-007 but no delivers relation exists"
+      "entity": "PHS-1752239600-5xq",
+      "message": "Phase covers REQ-1752239482-k3f but no delivers relation exists"
     },
     {
       "check": "single_active_plan",
       "severity": "high",
-      "entity": "PLN-002",
-      "layer": "exec",
-      "message": "Multiple active plans found: PLN-001, PLN-002"
+      "entity": "PLN-1752240300-b2x",
+      "message": "Multiple active plans found: PLN-1752239400-w0q, PLN-1752240300-b2x"
     }
   ],
   "summary": {
@@ -518,9 +559,9 @@ to each member. Use `--include-references` when you want the report to also surf
 | `coverage`: no criterion | add `has_criterion` relation and create an ACT entity |
 | `unresolved`: open question | create a decision with `answers` relation, or set question to `resolved` |
 | `unresolved`: unmitigated risk | add `mitigates` relation, or set risk to `resolved` |
-| `single_active_plan`: multiple active | set all but one plan to `archived` or `deprecated` |
+| `single_active_plan`: multiple active | set all but one plan to `deprecated` or `resolved` |
 | `orphan_phases`: phase not in plan | add `belongs_to` relation from phase to the active plan |
-| `delivery_completeness`: no delivers | add `delivers` from the phase to the implementing entity (minimal proxy set) |
+| `delivery_completeness`: no delivers | add `delivers` for that exact covered entity (from its child task in a task-managed phase), or narrow the `covers` scope |
 | `mapping_consistency`: target deprecated or superseded | retarget the relation to the active replacement entity, or remove the stale relation |
 | `phase_satisfaction`: no inbound evidence relation | add the required relation (`delivers` for requirements, `answers` for questions, `mitigates` for risks); for assumptions/decisions, advance the entity status |
 | `phase_satisfaction`: evidence source status not in allowlist | progress the evidence source (e.g. activate the interface, mark the test verified, complete the phase) |
