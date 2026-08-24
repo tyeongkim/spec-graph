@@ -1,7 +1,6 @@
 package spectoml
 
 import (
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -58,114 +57,6 @@ func TestDefaultSchemaIncludesTask(t *testing.T) {
 	wantStatuses := []string{"draft", "active", "deprecated", "resolved", "deleted"}
 	if !slices.Equal(task.AllowedStatus, wantStatuses) {
 		t.Errorf("task statuses = %v; want %v", task.AllowedStatus, wantStatuses)
-	}
-}
-
-func TestLoadSchema(t *testing.T) {
-	path := filepath.Join("testdata", "schema.toml")
-	s, err := LoadSchema(path)
-	if err != nil {
-		t.Fatalf("LoadSchema(%q) error: %v", path, err)
-	}
-
-	if s.Version != 1 {
-		t.Errorf("Version = %d; want 1", s.Version)
-	}
-	if len(s.EntityTypes) != 12 {
-		t.Errorf("len(EntityTypes) = %d; want 12", len(s.EntityTypes))
-	}
-	if len(s.RelationTypes) != 17 {
-		t.Errorf("len(RelationTypes) = %d; want 17", len(s.RelationTypes))
-	}
-}
-
-func TestLoadSchema_FileNotFound(t *testing.T) {
-	_, err := LoadSchema("testdata/nonexistent.toml")
-	if err == nil {
-		t.Fatal("expected error for nonexistent file")
-	}
-}
-
-func TestParseSchema_InvalidTOML(t *testing.T) {
-	_, err := ParseSchema([]byte(`[[[invalid`))
-	if err == nil {
-		t.Fatal("expected error for invalid TOML")
-	}
-}
-
-func TestParseSchema_ValidationErrors(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{
-			name:  "unsupported version",
-			input: `version = 99` + "\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "no entity types",
-			input: "version = 1\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "no relation types",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n",
-		},
-		{
-			name:  "empty prefix",
-			input: "version = 1\n[entity_types.x]\nprefix = \"\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "duplicate prefix",
-			input: "version = 1\n[entity_types.x]\nprefix = \"DUP\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[entity_types.y]\nprefix = \"DUP\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "invalid entity layer",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"bad\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "empty allowed_status",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = []\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "invalid relation layer",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"bad\"\nspecial = \"any_to_any\"\n",
-		},
-		{
-			name:  "invalid special value",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nspecial = \"invalid\"\n",
-		},
-		{
-			name:  "relation empty from",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nfrom = []\nto = [\"x\"]\n",
-		},
-		{
-			name:  "relation empty to",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nfrom = [\"x\"]\nto = []\n",
-		},
-		{
-			name:  "relation unknown from entity",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nfrom = [\"unknown\"]\nto = [\"x\"]\n",
-		},
-		{
-			name:  "relation unknown to entity",
-			input: "version = 1\n[entity_types.x]\nprefix = \"X\"\nlayer = \"arch\"\nallowed_status = [\"draft\"]\n[relation_types.r]\nlayer = \"arch\"\nfrom = [\"x\"]\nto = [\"unknown\"]\n",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := ParseSchema([]byte(tc.input))
-			if err == nil {
-				t.Error("expected validation error")
-			}
-		})
-	}
-}
-
-func TestDefaultSchema_Validate(t *testing.T) {
-	s := DefaultSchema()
-	if err := s.validate(); err != nil {
-		t.Fatalf("DefaultSchema() fails validation: %v", err)
 	}
 }
 
@@ -401,47 +292,6 @@ func TestDefaultSchemaExhaustivelyMatchesEdgeMatrix(t *testing.T) {
 					t.Errorf("relation %q pair %q -> %q: model=%v schema=%v", relation, from, to, modelAllowed, schemaAllowed)
 				}
 			}
-		}
-	}
-}
-
-func TestLoadedSchema_MatchesDefault(t *testing.T) {
-	loaded, err := LoadSchema(filepath.Join("testdata", "schema.toml"))
-	if err != nil {
-		t.Fatalf("LoadSchema error: %v", err)
-	}
-
-	def := DefaultSchema()
-
-	if loaded.Version != def.Version {
-		t.Errorf("Version mismatch: loaded=%d, default=%d", loaded.Version, def.Version)
-	}
-
-	for name, loadedCfg := range loaded.EntityTypes {
-		defCfg, ok := def.EntityTypes[name]
-		if !ok {
-			t.Errorf("entity type %q missing from default schema", name)
-			continue
-		}
-		if loadedCfg.Prefix != defCfg.Prefix {
-			t.Errorf("entity %q prefix: loaded=%q, default=%q", name, loadedCfg.Prefix, defCfg.Prefix)
-		}
-		if loadedCfg.Layer != defCfg.Layer {
-			t.Errorf("entity %q layer: loaded=%q, default=%q", name, loadedCfg.Layer, defCfg.Layer)
-		}
-	}
-
-	for name, loadedCfg := range loaded.RelationTypes {
-		defCfg, ok := def.RelationTypes[name]
-		if !ok {
-			t.Errorf("relation type %q missing from default schema", name)
-			continue
-		}
-		if loadedCfg.Layer != defCfg.Layer {
-			t.Errorf("relation %q layer: loaded=%q, default=%q", name, loadedCfg.Layer, defCfg.Layer)
-		}
-		if loadedCfg.Special != defCfg.Special {
-			t.Errorf("relation %q special: loaded=%q, default=%q", name, loadedCfg.Special, defCfg.Special)
 		}
 	}
 }

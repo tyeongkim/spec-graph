@@ -57,17 +57,14 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("migrate old database schema: %w", err)
 	}
 
-	csStore := store.NewChangesetStore(oldDB)
-	hsStore := store.NewHistoryStore(oldDB)
-	esStore := store.NewEntityStore(oldDB, csStore, hsStore)
-	rsStore := store.NewRelationStore(oldDB, csStore, hsStore)
+	reader := store.NewLegacyReader(oldDB)
 
-	entities, _, err := esStore.List(store.EntityFilters{})
+	entities, err := reader.Entities()
 	if err != nil {
 		return fmt.Errorf("list entities: %w", err)
 	}
 
-	allRelations, _, err := rsStore.List(store.RelationFilters{})
+	allRelations, err := reader.Relations()
 	if err != nil {
 		return fmt.Errorf("list relations: %w", err)
 	}
@@ -144,37 +141,20 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	return writeJSON(cmd, result)
 }
 
-// buildRelationOwnership assigns each relation to the correct entity file owner,
-// handling symmetric relations (conflicts_with, supersedes) by placing them in
-// the lexicographically smaller ID's file.
+// buildRelationOwnership assigns each relation to the correct entity file owner.
+// Symmetric relations are normalised into the lexicographically smaller ID's
+// file, per the rule spectoml.WriteEntity enforces.
 func buildRelationOwnership(relations []model.Relation) map[string][]model.Relation {
 	result := make(map[string][]model.Relation)
 
-	symmetricTypes := map[model.RelationType]bool{
-		model.RelationConflictsWith: true,
-		model.RelationSupersedes:    true,
-	}
-
 	for _, r := range relations {
-		if symmetricTypes[r.Type] {
-			if r.FromID > r.ToID {
-				swapped := model.Relation{
-					ID:        r.ID,
-					FromID:    r.ToID,
-					ToID:      r.FromID,
-					Type:      r.Type,
-					Layer:     r.Layer,
-					Weight:    r.Weight,
-					Metadata:  r.Metadata,
-					CreatedAt: r.CreatedAt,
-				}
-				result[r.ToID] = append(result[r.ToID], swapped)
-			} else {
-				result[r.FromID] = append(result[r.FromID], r)
-			}
-		} else {
-			result[r.FromID] = append(result[r.FromID], r)
+		if spectoml.IsSymmetricRelation(r.Type) && r.FromID > r.ToID {
+			swapped := r
+			swapped.FromID, swapped.ToID = r.ToID, r.FromID
+			result[r.ToID] = append(result[r.ToID], swapped)
+			continue
 		}
+		result[r.FromID] = append(result[r.FromID], r)
 	}
 
 	return result

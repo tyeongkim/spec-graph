@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/validate"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
@@ -27,8 +28,6 @@ func NewSpecGraphServer(engine *specgraph.Engine) *server.MCPServer {
 
 	return s
 }
-
-// --- Tool definitions ---
 
 func queryScope() mcp.Tool {
 	return mcp.NewTool("query_scope",
@@ -90,9 +89,9 @@ func impactTool() mcp.Tool {
 
 func validateTool() mcp.Tool {
 	return mcp.NewTool("validate",
-		mcp.WithDescription("Validate the specification graph"),
+		mcp.WithDescription("Validate the specification graph against its architecture, execution, and mapping rules, reporting each violation with a severity"),
 		mcp.WithString("check",
-			mcp.Description("Comma-separated check names: orphans, coverage, invalid_edges, superseded_refs, gates"),
+			mcp.Description("Comma-separated check names. Architecture: "+strings.Join(validate.ArchChecks, ", ")+". Execution: "+strings.Join(validate.ExecChecks, ", ")+". Mapping: "+strings.Join(validate.MappingChecks, ", ")+". Defaults to every check for the selected layer."),
 		),
 		mcp.WithString("phase",
 			mcp.Description("Restrict validation to entities in this phase (must be a phase entity ID)"),
@@ -105,10 +104,10 @@ func validateTool() mcp.Tool {
 
 func exportTool() mcp.Tool {
 	return mcp.NewTool("export",
-		mcp.WithDescription("Export the spec graph in DOT or Mermaid format"),
+		mcp.WithDescription("Export the spec graph as a Graphviz DOT or Mermaid diagram"),
 		mcp.WithString("format",
 			mcp.Required(),
-			mcp.Description("Export format"),
+			mcp.Description("Export format: dot (Graphviz) or mermaid"),
 			mcp.Enum("dot", "mermaid"),
 		),
 		mcp.WithString("layer",
@@ -126,8 +125,6 @@ func phaseContextTool() mcp.Tool {
 		),
 	)
 }
-
-// --- Handlers ---
 
 func handleQueryScope(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -154,7 +151,7 @@ func handleQueryScope(engine *specgraph.Engine) server.ToolHandlerFunc {
 }
 
 func handlePhaseContext(engine *specgraph.Engine) server.ToolHandlerFunc {
-	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		phaseID, err := req.RequireString("id")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -163,7 +160,7 @@ func handlePhaseContext(engine *specgraph.Engine) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		result, err := engine.PhaseContext(phaseID)
+		result, err := engine.PhaseContext(ctx, phaseID)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -201,21 +198,10 @@ func handleQueryPath(engine *specgraph.Engine) server.ToolHandlerFunc {
 	}
 }
 
-var validUnresolvedTypes = map[string]model.EntityType{
-	"question":   model.EntityTypeQuestion,
-	"assumption": model.EntityTypeAssumption,
-	"risk":       model.EntityTypeRisk,
-}
-
 func handleQueryUnresolved(engine *specgraph.Engine) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// The engine validates the type filter, so all surfaces agree.
 		typeStr := req.GetString("type", "")
-
-		if typeStr != "" {
-			if _, ok := validUnresolvedTypes[typeStr]; !ok {
-				return mcp.NewToolResultError(fmt.Sprintf("invalid type %q; must be question, assumption, or risk", typeStr)), nil
-			}
-		}
 
 		result, err := engine.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Type: typeStr})
 		if err != nil {
@@ -243,23 +229,10 @@ func handleImpact(engine *specgraph.Engine) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		// dimension and min_severity are validated by the engine, so all three
+		// surfaces reject the same values with the same message.
 		dimStr := req.GetString("dimension", "")
-		if dimStr != "" {
-			switch dimStr {
-			case "structural", "behavioral", "planning":
-			default:
-				return mcp.NewToolResultError(fmt.Sprintf("invalid dimension %q; must be structural, behavioral, or planning", dimStr)), nil
-			}
-		}
-
 		minSevStr := req.GetString("min_severity", "")
-		if minSevStr != "" {
-			switch minSevStr {
-			case "high", "medium", "low":
-			default:
-				return mcp.NewToolResultError(fmt.Sprintf("invalid min_severity %q; must be high, medium, or low", minSevStr)), nil
-			}
-		}
 
 		result, err := engine.Impact(ctx, specgraph.ImpactRequest{
 			Sources:     sources,
@@ -330,8 +303,6 @@ func handleExport(engine *specgraph.Engine) server.ToolHandlerFunc {
 		return mcp.NewToolResultText(result.Data), nil
 	}
 }
-
-// --- Helpers ---
 
 func parseLayerParam(req mcp.CallToolRequest) (*model.Layer, error) {
 	val := req.GetString("layer", "")

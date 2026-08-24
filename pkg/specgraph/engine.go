@@ -50,14 +50,11 @@ type Engine struct {
 // Open initializes an Engine rooted at opts.Root. It validates that the
 // directory is an initialized spec-graph project, acquires an exclusive file
 // lock, opens the SQLite index, and synchronizes the index with the TOML
-// source of truth. The provided context is accepted for forward compatibility;
-// subsystems do not yet observe cancellation.
+// source of truth.
 //
 // On any failure partway through, Open releases anything it has already
 // acquired before returning. Errors are returned as *Error values.
 func Open(ctx context.Context, opts Options) (*Engine, error) {
-	_ = ctx
-
 	root := opts.Root
 
 	entitiesDir := filepath.Join(root, "entities")
@@ -131,12 +128,19 @@ func (e *Engine) Close() error {
 	return e.idx.Close()
 }
 
-// writeLocked runs fn as a write operation. It takes the cross-process file
-// lock (refreshing the index if another process changed it), then the
-// in-process write lock, guaranteeing both cross-process and in-process
-// exclusivity for the mutation before invoking fn.
-func writeLocked[T any](e *Engine, fn func() (T, error)) (T, error) {
+// writeLocked runs fn as a write operation. It honors ctx cancellation before
+// taking any lock, then takes the cross-process file lock (refreshing the index
+// if another process changed it), then the in-process write lock, guaranteeing
+// both cross-process and in-process exclusivity for the mutation.
+//
+// Cancellation is checked at entry rather than mid-operation: once a mutation
+// holds both locks it must run to completion, since abandoning it partway would
+// leave the TOML files and the index disagreeing.
+func writeLocked[T any](ctx context.Context, e *Engine, fn func() (T, error)) (T, error) {
 	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, cancelled(err)
+	}
 	if err := e.lock.acquire(); err != nil {
 		return zero, conflictFromLock(e.root, err)
 	}
@@ -147,12 +151,15 @@ func writeLocked[T any](e *Engine, fn func() (T, error)) (T, error) {
 	return fn()
 }
 
-// readLocked runs fn as a read operation. It takes the cross-process file lock
-// (refreshing the index if another process changed it), then the in-process
-// read lock, allowing concurrent in-process readers while excluding other
-// processes, before invoking fn.
-func readLocked[T any](e *Engine, fn func() (T, error)) (T, error) {
+// readLocked runs fn as a read operation. It honors ctx cancellation before
+// taking any lock, then takes the cross-process file lock (refreshing the index
+// if another process changed it), then the in-process read lock, allowing
+// concurrent in-process readers while excluding other processes.
+func readLocked[T any](ctx context.Context, e *Engine, fn func() (T, error)) (T, error) {
 	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, cancelled(err)
+	}
 	if err := e.lock.acquire(); err != nil {
 		return zero, conflictFromLock(e.root, err)
 	}
@@ -170,8 +177,8 @@ func (e *Engine) Root() string {
 
 // Fingerprint returns the content-based fingerprint of the TOML source files.
 // It is a locked read operation used by diagnostics to detect index staleness.
-func (e *Engine) Fingerprint() (string, error) {
-	return readLocked(e, func() (string, error) {
+func (e *Engine) Fingerprint(ctx context.Context) (string, error) {
+	return readLocked(ctx, e, func() (string, error) {
 		v, ferr := e.syncer.ComputeFingerprint()
 		if ferr != nil {
 			return "", newError(CodeRuntime, "compute fingerprint", ferr)
@@ -182,8 +189,8 @@ func (e *Engine) Fingerprint() (string, error) {
 
 // IndexMeta returns a metadata value stored in the index. It is a locked read
 // operation used by diagnostics.
-func (e *Engine) IndexMeta(key string) (string, error) {
-	return readLocked(e, func() (string, error) {
+func (e *Engine) IndexMeta(ctx context.Context, key string) (string, error) {
+	return readLocked(ctx, e, func() (string, error) {
 		v, merr := e.idx.GetMeta(key)
 		if merr != nil {
 			return "", newError(CodeRuntime, fmt.Sprintf("get index meta %q", key), merr)
@@ -195,8 +202,8 @@ func (e *Engine) IndexMeta(key string) (string, error) {
 // RelationsByEntity returns all relations referencing the given entity. It is a
 // locked read operation exposed for callers that need relation adjacency
 // without going through a higher-level query.
-func (e *Engine) RelationsByEntity(entityID string) ([]model.Relation, error) {
-	return readLocked(e, func() ([]model.Relation, error) {
+func (e *Engine) RelationsByEntity(ctx context.Context, entityID string) ([]model.Relation, error) {
+	return readLocked(ctx, e, func() ([]model.Relation, error) {
 		recs, rerr := e.idx.GetRelationsByEntity(entityID)
 		if rerr != nil {
 			return nil, newError(CodeRuntime, fmt.Sprintf("relations by entity %q", entityID), rerr)
@@ -228,8 +235,8 @@ type RawQueryResult struct {
 // column values are normalized to strings for stable JSON encoding. The caller
 // is responsible for ensuring the query is a read-only SELECT.
 func (e *Engine) RawQuery(ctx context.Context, query string) (*RawQueryResult, error) {
-	return readLocked(e, func() (*RawQueryResult, error) {
-		rows, qerr := e.idx.DB().QueryContext(ctx, query)
+	return readLocked(ctx, e, func() (*RawQueryResult, error) {
+		rows, qerr := e.idx.QueryRaw(ctx, query)
 		if qerr != nil {
 			return nil, newError(CodeRuntime, "query execution", qerr)
 		}

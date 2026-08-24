@@ -50,7 +50,7 @@ func TestPhaseContextCompleteDeterministicResult(t *testing.T) {
 		addPhaseContextRelation(t, engine, relation)
 	}
 
-	result, err := engine.PhaseContext("PHS-001")
+	result, err := engine.PhaseContext(context.Background(), "PHS-001")
 	if err != nil {
 		t.Fatalf("PhaseContext: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestPhaseContextRejectsCycle(t *testing.T) {
 		addPhaseContextRelation(t, engine, relation)
 	}
 
-	result, err := engine.PhaseContext("PHS-001")
+	result, err := engine.PhaseContext(context.Background(), "PHS-001")
 	assertPhaseContextStateError(t, err, "task_graph", "TSK-001", "TSK-002")
 	if !reflect.DeepEqual(result, specgraph.PhaseContextResult{}) {
 		t.Errorf("cycle returned partial context: %+v", result)
@@ -150,7 +150,7 @@ func TestPhaseContextRejectsAmbiguousParent(t *testing.T) {
 				addPhaseContextRelation(t, engine, specgraph.AddRelationRequest{From: "PHS-001", To: planID, Type: "belongs_to"})
 			}
 
-			_, err := engine.PhaseContext("PHS-001")
+			_, err := engine.PhaseContext(context.Background(), "PHS-001")
 			assertPhaseContextStateError(t, err, test.wantParts...)
 		})
 	}
@@ -185,7 +185,7 @@ func TestPhaseContextRejectsMalformedContract(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 
-	_, err = engine.PhaseContext("PHS-001")
+	_, err = engine.PhaseContext(context.Background(), "PHS-001")
 	assertPhaseContextStateError(t, err, "task_contract", "TSK-001")
 }
 
@@ -198,7 +198,7 @@ func TestPhaseContextTasklessUsesDirectEffectiveScope(t *testing.T) {
 	addPhaseContextRelation(t, engine, specgraph.AddRelationRequest{From: "PHS-001", To: "REQ-001", Type: "covers"})
 	addPhaseContextRelation(t, engine, specgraph.AddRelationRequest{From: "PHS-001", To: "REQ-001", Type: "delivers"})
 
-	result, err := engine.PhaseContext("PHS-001")
+	result, err := engine.PhaseContext(context.Background(), "PHS-001")
 	if err != nil {
 		t.Fatalf("PhaseContext: %v", err)
 	}

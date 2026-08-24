@@ -278,8 +278,8 @@ func (e *RebuildError) Unwrap() []error {
 	return e.Errors
 }
 
-// IsRebuildError reports whether err is or wraps a RebuildError.
-func IsRebuildError(err error) bool {
+// isRebuildError reports whether err is or wraps a RebuildError.
+func isRebuildError(err error) bool {
 	var re *RebuildError
 	return errors.As(err, &re)
 }

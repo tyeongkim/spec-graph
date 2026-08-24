@@ -275,7 +275,7 @@ func TestForceRebuild_PartialParseFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from ForceRebuild with bad file")
 	}
-	if !IsRebuildError(err) {
+	if !isRebuildError(err) {
 		t.Fatalf("expected RebuildError, got %T: %v", err, err)
 	}
 

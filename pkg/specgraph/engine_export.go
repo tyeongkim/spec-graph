@@ -36,13 +36,9 @@ type ExportResult struct {
 // Export renders the graph in the requested format. It validates the format,
 // optionally restricts output to the subgraph around req.Center (bounded by
 // req.Depth) or to a single layer, gathers the matching entities and
-// relations, and delegates to the corresponding graph export function. The
-// provided context is accepted for forward compatibility and is not yet
-// observed.
+// relations, and delegates to the corresponding graph export function.
 func (e *Engine) Export(ctx context.Context, req ExportRequest) (*ExportResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*ExportResult, error) {
+	return readLocked(ctx, e, func() (*ExportResult, error) {
 		return e.exportLocked(req)
 	})
 }
@@ -54,10 +50,9 @@ func (e *Engine) exportLocked(req ExportRequest) (*ExportResult, error) {
 		return nil, newError(CodeInvalidInput, fmt.Sprintf("unknown format %q; must be json, dot, or mermaid", req.Format), nil)
 	}
 
-	var layer *model.Layer
-	if req.Layer != "" {
-		l := model.Layer(req.Layer)
-		layer = &l
+	layer, err := parseLayer(req.Layer)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := &graph.ExportOptions{Layer: layer}

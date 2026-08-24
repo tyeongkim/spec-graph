@@ -126,8 +126,9 @@ func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*Qu
 	if err != nil {
 		return nil, fmt.Errorf("source entity: %w", err)
 	}
-	toEntity, err := ef.Get(opts.ToID)
-	if err != nil {
+	// The target is read only to confirm it exists; a path to a missing entity
+	// is an input error, not an empty result.
+	if _, err := ef.Get(opts.ToID); err != nil {
 		return nil, fmt.Errorf("target entity: %w", err)
 	}
 
@@ -150,7 +151,6 @@ func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*Qu
 		},
 	}
 	queue := []string{opts.FromID}
-	_ = toEntity
 
 	for depth := 0; depth < maxPathDepth && len(queue) > 0; depth++ {
 		nextQueue := make([]string, 0)

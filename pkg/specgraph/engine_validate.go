@@ -3,7 +3,6 @@ package specgraph
 import (
 	"context"
 
-	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
@@ -26,12 +25,9 @@ type ValidateRequest struct {
 }
 
 // Validate runs layered validation checks against the graph and returns the
-// combined results. The provided context is accepted for forward compatibility
-// and is not yet observed.
+// combined results.
 func (e *Engine) Validate(ctx context.Context, req ValidateRequest) (*validate.ValidateResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*validate.ValidateResult, error) {
+	return readLocked(ctx, e, func() (*validate.ValidateResult, error) {
 		return e.validateLocked(req)
 	})
 }
@@ -43,15 +39,9 @@ func (e *Engine) validateLocked(req ValidateRequest) (*validate.ValidateResult, 
 		phase = &p
 	}
 
-	var layer *model.Layer
-	if req.Layer != "" {
-		switch model.Layer(req.Layer) {
-		case model.LayerArch, model.LayerExec, model.LayerMapping:
-			l := model.Layer(req.Layer)
-			layer = &l
-		default:
-			return nil, newError(CodeInvalidInput, "layer must be one of: arch, exec, mapping", nil)
-		}
+	layer, err := parseLayer(req.Layer)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := validate.ValidateOptions{

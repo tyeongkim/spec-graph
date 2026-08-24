@@ -1,6 +1,8 @@
 // Package graph implements impact propagation semantics for the spec-graph.
 package graph
 
+import "slices"
+
 import "github.com/tyeongkim/spec-graph/internal/model"
 
 // PropagationDirection describes how impact flows along a relation edge.
@@ -27,6 +29,23 @@ const (
 )
 
 // Severity represents the impact severity level of a propagated change.
+// Dimension names one axis of impact propagation.
+type Dimension string
+
+const (
+	DimensionStructural Dimension = "structural"
+	DimensionBehavioral Dimension = "behavioral"
+	DimensionPlanning   Dimension = "planning"
+)
+
+// ValidDimensions lists every impact dimension.
+var ValidDimensions = []Dimension{DimensionStructural, DimensionBehavioral, DimensionPlanning}
+
+// IsValidDimension reports whether d is a recognized dimension.
+func IsValidDimension(d Dimension) bool {
+	return slices.Contains(ValidDimensions, d)
+}
+
 type Severity string
 
 const (

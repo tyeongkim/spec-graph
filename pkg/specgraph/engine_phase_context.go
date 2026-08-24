@@ -1,6 +1,7 @@
 package specgraph
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -37,8 +38,8 @@ type phaseTaskNode struct {
 }
 
 // PhaseContext returns a deterministic, non-persisted execution context for phaseID.
-func (e *Engine) PhaseContext(phaseID string) (PhaseContextResult, error) {
-	return readLocked(e, func() (PhaseContextResult, error) {
+func (e *Engine) PhaseContext(ctx context.Context, phaseID string) (PhaseContextResult, error) {
+	return readLocked(ctx, e, func() (PhaseContextResult, error) {
 		return e.phaseContextLocked(phaseID)
 	})
 }

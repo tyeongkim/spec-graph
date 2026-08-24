@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -93,18 +94,18 @@ func TestEntityStatusConstants(t *testing.T) {
 }
 
 func TestPrefixTypeMap(t *testing.T) {
-	if len(PrefixTypeMap) != len(TypePrefixMap) {
-		t.Fatalf("PrefixTypeMap has %d entries; TypePrefixMap has %d", len(PrefixTypeMap), len(TypePrefixMap))
+	if len(prefixTypeMap) != len(TypePrefixMap) {
+		t.Fatalf("prefixTypeMap has %d entries; TypePrefixMap has %d", len(prefixTypeMap), len(TypePrefixMap))
 	}
 
 	for et, prefix := range TypePrefixMap {
-		got, ok := PrefixTypeMap[prefix]
+		got, ok := prefixTypeMap[prefix]
 		if !ok {
-			t.Errorf("PrefixTypeMap missing key %q", prefix)
+			t.Errorf("prefixTypeMap missing key %q", prefix)
 			continue
 		}
 		if got != et {
-			t.Errorf("PrefixTypeMap[%q] = %q; want %q", prefix, got, et)
+			t.Errorf("prefixTypeMap[%q] = %q; want %q", prefix, got, et)
 		}
 	}
 }
@@ -350,5 +351,51 @@ func TestEntityStruct(t *testing.T) {
 	}
 	if string(decoded.Metadata) != string(e.Metadata) {
 		t.Errorf("decoded Metadata = %s; want %s", decoded.Metadata, e.Metadata)
+	}
+}
+
+func TestAllowedStatusesAppliesQuestionException(t *testing.T) {
+	// A question is answered or not, so it never reaches deprecated. Every other
+	// type accepts the full set. This rule lives here because internal/model owns
+	// the vocabulary; spectoml.DefaultSchema reads it rather than restating it.
+	for _, et := range ValidEntityTypes {
+		allowed := AllowedStatuses(et)
+		hasDeprecated := slices.Contains(allowed, EntityStatusDeprecated)
+
+		if et == EntityTypeQuestion {
+			if hasDeprecated {
+				t.Errorf("question accepts %q; want it excluded", EntityStatusDeprecated)
+			}
+			continue
+		}
+		if !hasDeprecated {
+			t.Errorf("type %q does not accept %q", et, EntityStatusDeprecated)
+		}
+	}
+}
+
+func TestValidateEntityStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityType EntityType
+		status     EntityStatus
+		wantErr    bool
+	}{
+		{"active requirement", EntityTypeRequirement, EntityStatusActive, false},
+		{"deprecated requirement", EntityTypeRequirement, EntityStatusDeprecated, false},
+		{"resolved question", EntityTypeQuestion, EntityStatusResolved, false},
+		{"deprecated question", EntityTypeQuestion, EntityStatusDeprecated, true},
+		{"unknown type", EntityType("nonsense"), EntityStatusActive, true},
+		{"unknown status", EntityTypeRequirement, EntityStatus("nonsense"), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateEntityStatus(tt.entityType, tt.status)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateEntityStatus(%q, %q) error = %v; wantErr = %v",
+					tt.entityType, tt.status, err, tt.wantErr)
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package specgraph
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -108,8 +109,8 @@ func withInitialLock(path string, timeout time.Duration, fn func() error) error 
 }
 
 // writeLockedErr adapts writeLocked for operations that return only an error.
-func writeLockedErr(e *Engine, fn func() error) error {
-	_, err := writeLocked(e, func() (struct{}, error) {
+func writeLockedErr(ctx context.Context, e *Engine, fn func() error) error {
+	_, err := writeLocked(ctx, e, func() (struct{}, error) {
 		return struct{}{}, fn()
 	})
 	return err

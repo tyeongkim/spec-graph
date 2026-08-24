@@ -13,7 +13,7 @@ import (
 func TestPhaseContextTransportParity(t *testing.T) {
 	engine := newTestEngine(t)
 	seedPhaseContextMCP(t, engine)
-	want, err := engine.PhaseContext("PHS-001")
+	want, err := engine.PhaseContext(context.Background(), "PHS-001")
 	if err != nil {
 		t.Fatalf("direct PhaseContext: %v", err)
 	}

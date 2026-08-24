@@ -8,15 +8,17 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// connectionPragmas are applied to every connection via the _pragma DSN
+// ConnectionPragmas are applied to every connection via the _pragma DSN
 // parameter so they take effect for in-memory and file-backed databases alike.
+// Both this package and internal/index open SQLite connections and must share
+// one durability and concurrency policy.
 //
 // synchronous=NORMAL is safe with WAL and avoids per-commit fsync.
 // busy_timeout=30000 absorbs cross-process writer contention.
 // foreign_keys=ON keeps referential integrity on every connection (PRAGMA is
 // connection-scoped and the default is OFF).
 // temp_store=MEMORY keeps temp tables/indices off disk for short transactions.
-var connectionPragmas = []string{
+var ConnectionPragmas = []string{
 	"busy_timeout(30000)",
 	"foreign_keys(1)",
 	"synchronous(NORMAL)",
@@ -25,7 +27,7 @@ var connectionPragmas = []string{
 
 func buildDSN(path string) string {
 	q := url.Values{}
-	for _, p := range connectionPragmas {
+	for _, p := range ConnectionPragmas {
 		q.Add("_pragma", p)
 	}
 	q.Set("_txlock", "immediate")

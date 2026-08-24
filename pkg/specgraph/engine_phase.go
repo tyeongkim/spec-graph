@@ -53,12 +53,9 @@ type enginePhaseInfo struct {
 // eligible when it is neither resolved nor deprecated and all of its
 // predecessor phases are resolved; among eligible phases the one with the
 // lowest order is selected. When req.Activate is true and the selected phase is
-// in draft, it is transitioned to active. The provided context is accepted for
-// forward compatibility and is not yet observed.
+// in draft, it is transitioned to active.
 func (e *Engine) PhaseNext(ctx context.Context, req PhaseNextRequest) (PhaseNextResult, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (PhaseNextResult, error) {
+	return writeLocked(ctx, e, func() (PhaseNextResult, error) {
 		return e.phaseNextLocked(req)
 	})
 }

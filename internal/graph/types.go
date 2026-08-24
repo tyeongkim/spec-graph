@@ -28,7 +28,7 @@ type ImpactOptions struct {
 	// MinSeverity filters out affected entities below this severity. nil = no filter.
 	MinSeverity *Severity
 	// Dimension restricts scoring to a single dimension. nil = all dimensions.
-	Dimension *string
+	Dimension *Dimension
 	// Layer restricts traversal to entities in this layer. nil = all layers.
 	Layer *model.Layer
 }

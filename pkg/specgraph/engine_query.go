@@ -50,9 +50,7 @@ type engineGraphEntityFetcher struct {
 
 // EffectivePhaseScope returns the canonical derived scope for a phase under the engine read lock.
 func (e *Engine) EffectivePhaseScope(ctx context.Context, phaseID string) (graph.EffectivePhaseScopeResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (graph.EffectivePhaseScopeResult, error) {
+	return readLocked(ctx, e, func() (graph.EffectivePhaseScopeResult, error) {
 		scope, err := graph.EffectivePhaseScope(phaseID, &engineRelationFetcher{idx: e.idx})
 		if err != nil {
 			return graph.EffectivePhaseScopeResult{}, newError(CodeRuntime, "derive phase scope", err)
@@ -94,12 +92,9 @@ func (f *engineGraphEntityFetcher) List(filters graph.EntityListFilters) ([]mode
 }
 
 // QueryScope returns all entities and relations belonging to the given phase,
-// optionally restricted to a single layer. The provided context is accepted for
-// forward compatibility and is not yet observed.
+// optionally restricted to a single layer.
 func (e *Engine) QueryScope(ctx context.Context, req QueryScopeRequest) (*graph.QueryScopeResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*graph.QueryScopeResult, error) {
+	return readLocked(ctx, e, func() (*graph.QueryScopeResult, error) {
 		return e.queryScopeLocked(req)
 	})
 }
@@ -109,9 +104,14 @@ func (e *Engine) queryScopeLocked(req QueryScopeRequest) (*graph.QueryScopeResul
 		return nil, newError(CodeInvalidInput, "phase id is required", nil)
 	}
 
+	layer, err := parseLayer(req.Layer)
+	if err != nil {
+		return nil, err
+	}
+
 	opts := graph.QueryScopeOptions{
 		PhaseID: req.PhaseID,
-		Layer:   layerPointer(req.Layer),
+		Layer:   layer,
 	}
 	ef := &engineGraphEntityFetcher{idx: e.idx}
 	rf := &engineRelationFetcher{idx: e.idx}
@@ -124,12 +124,9 @@ func (e *Engine) queryScopeLocked(req QueryScopeRequest) (*graph.QueryScopeResul
 }
 
 // QueryNeighbors performs a BFS from the requested entity up to the given depth,
-// traversing relations in both directions. The provided context is accepted for
-// forward compatibility and is not yet observed.
+// traversing relations in both directions.
 func (e *Engine) QueryNeighbors(ctx context.Context, req QueryNeighborsRequest) (*graph.NeighborResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*graph.NeighborResult, error) {
+	return readLocked(ctx, e, func() (*graph.NeighborResult, error) {
 		return e.queryNeighborsLocked(req)
 	})
 }
@@ -150,12 +147,9 @@ func (e *Engine) queryNeighborsLocked(req QueryNeighborsRequest) (*graph.Neighbo
 }
 
 // QueryPath finds the shortest path between two entities, optionally restricted
-// to a single layer. The provided context is accepted for forward compatibility
-// and is not yet observed.
+// to a single layer.
 func (e *Engine) QueryPath(ctx context.Context, req QueryPathRequest) (*graph.QueryPathResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*graph.QueryPathResult, error) {
+	return readLocked(ctx, e, func() (*graph.QueryPathResult, error) {
 		return e.queryPathLocked(req)
 	})
 }
@@ -165,10 +159,15 @@ func (e *Engine) queryPathLocked(req QueryPathRequest) (*graph.QueryPathResult, 
 		return nil, newError(CodeInvalidInput, "from and to ids are required", nil)
 	}
 
+	layer, err := parseLayer(req.Layer)
+	if err != nil {
+		return nil, err
+	}
+
 	opts := graph.QueryPathOptions{
 		FromID: req.FromID,
 		ToID:   req.ToID,
-		Layer:  layerPointer(req.Layer),
+		Layer:  layer,
 	}
 	ef := &engineGraphEntityFetcher{idx: e.idx}
 	rf := &engineRelationFetcher{idx: e.idx}
@@ -181,21 +180,17 @@ func (e *Engine) queryPathLocked(req QueryPathRequest) (*graph.QueryPathResult, 
 }
 
 // QueryUnresolved returns entities in an unresolved (draft or active) state,
-// optionally restricted to a single entity type. The provided context is
-// accepted for forward compatibility and is not yet observed.
+// optionally restricted to a single entity type.
 func (e *Engine) QueryUnresolved(ctx context.Context, req QueryUnresolvedRequest) (*graph.QueryUnresolvedResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*graph.QueryUnresolvedResult, error) {
+	return readLocked(ctx, e, func() (*graph.QueryUnresolvedResult, error) {
 		return e.queryUnresolvedLocked(req)
 	})
 }
 
 func (e *Engine) queryUnresolvedLocked(req QueryUnresolvedRequest) (*graph.QueryUnresolvedResult, error) {
-	var typ *model.EntityType
-	if req.Type != "" {
-		t := model.EntityType(req.Type)
-		typ = &t
+	typ, err := parseUnresolvedType(req.Type)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := graph.QueryUnresolvedOptions{Type: typ}
@@ -206,14 +201,4 @@ func (e *Engine) queryUnresolvedLocked(req QueryUnresolvedRequest) (*graph.Query
 		return nil, newError(CodeRuntime, "query unresolved", err)
 	}
 	return result, nil
-}
-
-// layerPointer converts a layer string into a *model.Layer. An empty string
-// yields nil, meaning all layers.
-func layerPointer(layer string) *model.Layer {
-	if layer == "" {
-		return nil
-	}
-	l := model.Layer(layer)
-	return &l
 }

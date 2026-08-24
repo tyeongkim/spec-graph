@@ -88,26 +88,12 @@ func init() {
 	queryCmd.AddCommand(queryNeighborsCmd)
 }
 
-var validUnresolvedTypes = map[string]model.EntityType{
-	"question":   model.EntityTypeQuestion,
-	"assumption": model.EntityTypeAssumption,
-	"risk":       model.EntityTypeRisk,
-}
-
 var queryUnresolvedCmd = &cobra.Command{
 	Use:   "unresolved",
 	Short: "List unresolved questions, assumptions, and risks",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		typeFlag, _ := cmd.Flags().GetString("type")
 		phaseFlag, _ := cmd.Flags().GetString("phase")
-
-		if typeFlag != "" {
-			if _, ok := validUnresolvedTypes[typeFlag]; !ok {
-				return handleError(cmd, &model.ErrInvalidInput{
-					Message: fmt.Sprintf("invalid --type %q; must be question, assumption, or risk", typeFlag),
-				})
-			}
-		}
 
 		result, err := engine.QueryUnresolved(cmd.Context(), specgraph.QueryUnresolvedRequest{Type: typeFlag})
 		if err != nil {

@@ -14,6 +14,20 @@ import (
 	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
 
+// doctor and internal/validate are two check engines with a deliberate split,
+// and a new rule belongs to exactly one of them:
+//
+//   - doctor owns file-level integrity. It parses the TOML files itself, so it
+//     is the only place that can catch a malformed file, a filename that
+//     disagrees with its contents, or an index that has gone stale. It answers
+//     "are the source files well-formed and is the index current?"
+//   - internal/validate owns graph semantics. It reads the index, so it can
+//     traverse relations, and it reports coverage, cycles, gates, and phase
+//     satisfaction. It answers "does the graph make sense?"
+//
+// A rule needing raw file access belongs here; a rule needing graph traversal
+// belongs in internal/validate. The shared edge-matrix rule lives in
+// model.IsEdgeAllowed, which both consult, so it is not duplicated.
 var allCheckNames = []string{
 	"toml_parse",
 	"id_filename_match",
@@ -449,7 +463,7 @@ func checkSelfLoopRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
 func checkStaleIndex(cmd *cobra.Command) []jsoncontract.DoctorIssue {
 	var issues []jsoncontract.DoctorIssue
 
-	currentFP, err := engine.Fingerprint()
+	currentFP, err := engine.Fingerprint(cmd.Context())
 	if err != nil {
 		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",
@@ -458,7 +472,7 @@ func checkStaleIndex(cmd *cobra.Command) []jsoncontract.DoctorIssue {
 		return issues
 	}
 
-	storedFP, err := engine.IndexMeta("toml_fingerprint")
+	storedFP, err := engine.IndexMeta(cmd.Context(), "toml_fingerprint")
 	if err != nil {
 		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",

@@ -48,30 +48,89 @@ func validateExec(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []
 	return allIssues
 }
 
+func execEntities(ef EntityFetcher) ([]model.Entity, error) {
+	layer := model.LayerExec
+	return ef.List(EntityListFilters{Layer: &layer})
+}
+
+func execEntitiesOfType(ef EntityFetcher, entityType model.EntityType) ([]model.Entity, error) {
+	layer := model.LayerExec
+	return ef.List(EntityListFilters{Type: &entityType, Layer: &layer})
+}
+
+func isExecRelation(r model.Relation) bool {
+	return model.LayerForRelationType(r.Type) == model.LayerExec
+}
+
+// execIssue builds an exec-layer issue for the given check.
+func execIssue(check string, severity Severity, entity, message string) ValidationIssue {
+	return ValidationIssue{
+		Check:    check,
+		Severity: severity,
+		Entity:   entity,
+		Message:  message,
+		Layer:    model.LayerExec,
+	}
+}
+
 func checkTaskGraph(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	return checkTaskGraphFor(ValidateOptions{}, rf, ef)
+}
+
+// taskGraph is the parent and prerequisite structure of the task set.
+type taskGraph struct {
+	byID         map[string]model.Entity
+	parents      map[string][]string
+	dependencies map[string][]string
 }
 
 func checkTaskGraphFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{execIssue("task_graph", SeverityHigh, "",
+			fmt.Sprintf("could not resolve validation subjects: %v", err))}
 	}
 
-	taskType := model.EntityTypeTask
-	layer := model.LayerExec
-	tasks, err := ef.List(EntityListFilters{Type: &taskType, Layer: &layer})
+	tasks, err := execEntitiesOfType(ef, model.EntityTypeTask)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("task_graph", model.LayerExec, err)}
 	}
 
-	taskByID := make(map[string]model.Entity, len(tasks))
-	parents := make(map[string][]string, len(tasks))
-	dependencies := make(map[string][]string, len(tasks))
+	graph, issues := buildTaskGraph(tasks, rf)
+
+	// A task_graph issue is reported only for tasks in scope, but the graph is
+	// always built from every task, since cycles and cross-phase dependencies
+	// can run through tasks outside the scope.
+	record := func(entity, message string) {
+		if subjects.scoped && !subjects.taskIDs[entity] {
+			return
+		}
+		issues = append(issues, execIssue("task_graph", SeverityHigh, entity, message))
+	}
+
 	for _, task := range tasks {
-		taskByID[task.ID] = task
-		relations, getErr := rf.GetByEntity(task.ID)
-		if getErr != nil {
+		checkTaskParentage(task, graph, record)
+		checkTaskDependencies(task, graph, record)
+	}
+	findTaskCycles(tasks, graph, record)
+
+	return issues
+}
+
+// buildTaskGraph indexes each task's parent phases and prerequisite tasks.
+func buildTaskGraph(tasks []model.Entity, rf RelationFetcher) (taskGraph, []ValidationIssue) {
+	graph := taskGraph{
+		byID:         make(map[string]model.Entity, len(tasks)),
+		parents:      make(map[string][]string, len(tasks)),
+		dependencies: make(map[string][]string, len(tasks)),
+	}
+	var issues []ValidationIssue
+
+	for _, task := range tasks {
+		graph.byID[task.ID] = task
+		relations, issue := fetchRelations(rf, task.ID, "task_graph", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 		for _, relation := range relations {
@@ -80,130 +139,145 @@ func checkTaskGraphFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetche
 			}
 			switch relation.Type {
 			case model.RelationBelongsTo:
-				parents[task.ID] = append(parents[task.ID], relation.ToID)
+				graph.parents[task.ID] = append(graph.parents[task.ID], relation.ToID)
 			case model.RelationTaskDependsOn:
-				dependencies[task.ID] = append(dependencies[task.ID], relation.ToID)
+				graph.dependencies[task.ID] = append(graph.dependencies[task.ID], relation.ToID)
 			}
 		}
+		sort.Strings(graph.parents[task.ID])
 	}
 
-	var issues []ValidationIssue
-	addIssue := func(entity, message string) {
-		if subjects.scoped && !subjects.taskIDs[entity] {
-			return
-		}
-		issues = append(issues, ValidationIssue{Check: "task_graph", Severity: SeverityHigh, Entity: entity, Message: message, Layer: model.LayerExec})
+	return graph, issues
+}
+
+// checkTaskParentage requires every task to belong to exactly one phase.
+func checkTaskParentage(task model.Entity, graph taskGraph, record func(entity, message string)) {
+	parents := graph.parents[task.ID]
+	switch len(parents) {
+	case 0:
+		record(task.ID, fmt.Sprintf("task %s has zero parent phases", task.ID))
+	case 1:
+	default:
+		record(task.ID, fmt.Sprintf("task %s has multiple parent phases: %s", task.ID, strings.Join(parents, ", ")))
 	}
-	for _, task := range tasks {
-		taskParents := parents[task.ID]
-		sort.Strings(taskParents)
-		switch len(taskParents) {
-		case 0:
-			addIssue(task.ID, fmt.Sprintf("task %s has zero parent phases", task.ID))
-		case 1:
-		default:
-			addIssue(task.ID, fmt.Sprintf("task %s has multiple parent phases: %s", task.ID, strings.Join(taskParents, ", ")))
+}
+
+// checkTaskDependencies reports self-dependencies, dependencies on deprecated
+// tasks, and dependencies that cross a phase boundary.
+func checkTaskDependencies(task model.Entity, graph taskGraph, record func(entity, message string)) {
+	parents := graph.parents[task.ID]
+
+	for _, prerequisiteID := range graph.dependencies[task.ID] {
+		if prerequisiteID == task.ID {
+			record(task.ID, fmt.Sprintf("task %s has self-dependency %s -> %s", task.ID, task.ID, prerequisiteID))
+			continue
+		}
+		prerequisite, ok := graph.byID[prerequisiteID]
+		if !ok {
+			continue
+		}
+		if prerequisite.Status == model.EntityStatusDeprecated {
+			record(task.ID, fmt.Sprintf("task %s depends on deprecated task %s", task.ID, prerequisiteID))
 		}
 
-		for _, prerequisiteID := range dependencies[task.ID] {
-			if prerequisiteID == task.ID {
-				addIssue(task.ID, fmt.Sprintf("task %s has self-dependency %s -> %s", task.ID, task.ID, prerequisiteID))
-				continue
-			}
-			prerequisite, ok := taskByID[prerequisiteID]
-			if !ok {
-				continue
-			}
-			if prerequisite.Status == model.EntityStatusDeprecated {
-				addIssue(task.ID, fmt.Sprintf("task %s depends on deprecated task %s", task.ID, prerequisiteID))
-			}
-			if len(taskParents) == 1 && len(parents[prerequisiteID]) == 1 && taskParents[0] != parents[prerequisiteID][0] {
-				addIssue(task.ID, fmt.Sprintf("cross-phase task dependency %s (%s) -> %s (%s)", task.ID, taskParents[0], prerequisiteID, parents[prerequisiteID][0]))
-			}
+		prerequisiteParents := graph.parents[prerequisiteID]
+		if len(parents) == 1 && len(prerequisiteParents) == 1 && parents[0] != prerequisiteParents[0] {
+			record(task.ID, fmt.Sprintf("cross-phase task dependency %s (%s) -> %s (%s)",
+				task.ID, parents[0], prerequisiteID, prerequisiteParents[0]))
 		}
 	}
+}
 
+// findTaskCycles reports every task participating in a task_depends_on cycle.
+func findTaskCycles(tasks []model.Entity, graph taskGraph, record func(entity, message string)) {
 	visited := make(map[string]bool, len(tasks))
 	inStack := make(map[string]bool, len(tasks))
 	var stack []string
+
 	var visit func(string)
 	visit = func(taskID string) {
 		visited[taskID] = true
 		inStack[taskID] = true
 		stack = append(stack, taskID)
-		for _, prerequisiteID := range dependencies[taskID] {
+
+		for _, prerequisiteID := range graph.dependencies[taskID] {
 			if prerequisiteID == taskID {
 				continue
 			}
-			if _, ok := taskByID[prerequisiteID]; !ok {
+			if _, ok := graph.byID[prerequisiteID]; !ok {
 				continue
 			}
 			if !visited[prerequisiteID] {
 				visit(prerequisiteID)
 				continue
 			}
-			if inStack[prerequisiteID] {
-				start := slices.Index(stack, prerequisiteID)
-				members := append([]string(nil), stack[start:]...)
-				description := strings.Join(append(append([]string(nil), members...), prerequisiteID), " -> ")
-				for _, member := range members {
-					addIssue(member, fmt.Sprintf("task dependency cycle members [%s]: %s", strings.Join(members, ", "), description))
-				}
+			if !inStack[prerequisiteID] {
+				continue
+			}
+
+			members := slices.Clone(stack[slices.Index(stack, prerequisiteID):])
+			description := strings.Join(append(slices.Clone(members), prerequisiteID), " -> ")
+			for _, member := range members {
+				record(member, fmt.Sprintf("task dependency cycle members [%s]: %s",
+					strings.Join(members, ", "), description))
 			}
 		}
+
 		stack = stack[:len(stack)-1]
 		inStack[taskID] = false
 	}
+
 	for _, task := range tasks {
 		if !visited[task.ID] {
 			visit(task.ID)
+		}
+	}
+}
+
+// checkPhaseOrder detects duplicate order values among phases within the same plan.
+func checkPhaseOrder(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
+	phases, err := execEntitiesOfType(ef, model.EntityTypePhase)
+	if err != nil {
+		return []ValidationIssue{listFailureIssue("phase_order", model.LayerExec, err)}
+	}
+
+	ordersByPlan, issues := phaseOrdersByPlan(phases, rf)
+
+	for _, orders := range ordersByPlan {
+		idsByOrder := make(map[int][]string)
+		for id, order := range orders {
+			idsByOrder[order] = append(idsByOrder[order], id)
+		}
+		for order, ids := range idsByOrder {
+			if len(ids) <= 1 {
+				continue
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				issues = append(issues, execIssue("phase_order", SeverityHigh, id,
+					fmt.Sprintf("duplicate phase order %d", order)))
+			}
 		}
 	}
 
 	return issues
 }
 
-func execEntities(ef EntityFetcher) ([]model.Entity, error) {
-	layer := model.LayerExec
-	return ef.List(EntityListFilters{Layer: &layer})
-}
+// phaseOrdersByPlan maps each plan to its phases' declared order values. Phases
+// with no parent plan or no order in metadata are not ordered and are omitted.
+func phaseOrdersByPlan(phases []model.Entity, rf RelationFetcher) (map[string]map[string]int, []ValidationIssue) {
+	ordersByPlan := make(map[string]map[string]int)
+	var issues []ValidationIssue
 
-func isExecRelation(r model.Relation) bool {
-	return model.LayerForRelationType(r.Type) == model.LayerExec
-}
-
-// checkPhaseOrder detects duplicate order values among phases within the same plan.
-func checkPhaseOrder(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	phaseType := model.EntityTypePhase
-	layer := model.LayerExec
-	phases, err := ef.List(EntityListFilters{Type: &phaseType, Layer: &layer})
-	if err != nil {
-		return nil
-	}
-
-	phasePlan := make(map[string]string)
 	for _, p := range phases {
-		rels, err := rf.GetByEntity(p.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, p.ID, "phase_order", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
-		for _, r := range rels {
-			if r.Type == model.RelationBelongsTo && r.FromID == p.ID {
-				phasePlan[p.ID] = r.ToID
-				break
-			}
-		}
-	}
 
-	type phaseOrder struct {
-		id    string
-		order int
-	}
-	planPhases := make(map[string][]phaseOrder)
-
-	for _, p := range phases {
-		planID, ok := phasePlan[p.ID]
-		if !ok {
+		planID := parentPlanID(p.ID, rels)
+		if planID == "" {
 			continue
 		}
 
@@ -214,31 +288,22 @@ func checkPhaseOrder(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			continue
 		}
 
-		planPhases[planID] = append(planPhases[planID], phaseOrder{id: p.ID, order: *meta.Order})
+		if ordersByPlan[planID] == nil {
+			ordersByPlan[planID] = make(map[string]int)
+		}
+		ordersByPlan[planID][p.ID] = *meta.Order
 	}
 
-	var issues []ValidationIssue
-	for _, phs := range planPhases {
-		orderSeen := make(map[int][]string)
-		for _, po := range phs {
-			orderSeen[po.order] = append(orderSeen[po.order], po.id)
-		}
-		for ord, ids := range orderSeen {
-			if len(ids) > 1 {
-				for _, id := range ids {
-					issues = append(issues, ValidationIssue{
-						Check:    "phase_order",
-						Severity: SeverityHigh,
-						Entity:   id,
-						Message:  fmt.Sprintf("duplicate phase order %d", ord),
-						Layer:    model.LayerExec,
-					})
-				}
-			}
+	return ordersByPlan, issues
+}
+
+func parentPlanID(phaseID string, rels []model.Relation) string {
+	for _, r := range rels {
+		if r.Type == model.RelationBelongsTo && r.FromID == phaseID {
+			return r.ToID
 		}
 	}
-
-	return issues
+	return ""
 }
 
 // checkSingleActivePlan reports when more than one plan has status=active.
@@ -248,7 +313,7 @@ func checkSingleActivePlan(ef EntityFetcher) []ValidationIssue {
 	layer := model.LayerExec
 	plans, err := ef.List(EntityListFilters{Type: &planType, Status: &activeStatus, Layer: &layer})
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("single_active_plan", model.LayerExec, err)}
 	}
 
 	if len(plans) <= 1 {
@@ -257,13 +322,8 @@ func checkSingleActivePlan(ef EntityFetcher) []ValidationIssue {
 
 	issues := make([]ValidationIssue, 0, len(plans))
 	for _, p := range plans {
-		issues = append(issues, ValidationIssue{
-			Check:    "single_active_plan",
-			Severity: SeverityHigh,
-			Entity:   p.ID,
-			Message:  fmt.Sprintf("multiple active plans detected (%d total)", len(plans)),
-			Layer:    model.LayerExec,
-		})
+		issues = append(issues, execIssue("single_active_plan", SeverityHigh, p.ID,
+			fmt.Sprintf("multiple active plans detected (%d total)", len(plans))))
 	}
 
 	return issues
@@ -271,36 +331,22 @@ func checkSingleActivePlan(ef EntityFetcher) []ValidationIssue {
 
 // checkOrphanPhases finds phases that have no belongs_to relation to any plan.
 func checkOrphanPhases(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	phaseType := model.EntityTypePhase
-	layer := model.LayerExec
-	phases, err := ef.List(EntityListFilters{Type: &phaseType, Layer: &layer})
+	phases, err := execEntitiesOfType(ef, model.EntityTypePhase)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("orphan_phases", model.LayerExec, err)}
 	}
 
 	var issues []ValidationIssue
 	for _, p := range phases {
-		rels, err := rf.GetByEntity(p.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, p.ID, "orphan_phases", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
-		hasBelongsTo := false
-		for _, r := range rels {
-			if r.Type == model.RelationBelongsTo && r.FromID == p.ID {
-				hasBelongsTo = true
-				break
-			}
-		}
-
-		if !hasBelongsTo {
-			issues = append(issues, ValidationIssue{
-				Check:    "orphan_phases",
-				Severity: SeverityMedium,
-				Entity:   p.ID,
-				Message:  "phase does not belong to any plan",
-				Layer:    model.LayerExec,
-			})
+		if parentPlanID(p.ID, rels) == "" {
+			issues = append(issues, execIssue("orphan_phases", SeverityMedium, p.ID,
+				"phase does not belong to any plan"))
 		}
 	}
 
@@ -309,19 +355,27 @@ func checkOrphanPhases(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 
 // checkExecCycles detects circular blocks relations between phases using DFS.
 func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	phaseType := model.EntityTypePhase
-	layer := model.LayerExec
-	phases, err := ef.List(EntityListFilters{Type: &phaseType, Layer: &layer})
+	phases, err := execEntitiesOfType(ef, model.EntityTypePhase)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("exec_cycles", model.LayerExec, err)}
 	}
 
+	phaseIDs, adj, issues := buildBlocksGraph(phases, rf)
+	issues = append(issues, findBlocksCycles(phases, phaseIDs, adj)...)
+	return issues
+}
+
+// buildBlocksGraph collects the blocks adjacency between phases.
+func buildBlocksGraph(phases []model.Entity, rf RelationFetcher) (map[string]bool, map[string][]string, []ValidationIssue) {
 	phaseIDs := make(map[string]bool, len(phases))
 	adj := make(map[string][]string)
+	var issues []ValidationIssue
+
 	for _, p := range phases {
 		phaseIDs[p.ID] = true
-		rels, err := rf.GetByEntity(p.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, p.ID, "exec_cycles", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 		for _, r := range rels {
@@ -331,6 +385,11 @@ func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 		}
 	}
 
+	return phaseIDs, adj, issues
+}
+
+// findBlocksCycles reports every phase participating in a blocks cycle.
+func findBlocksCycles(phases []model.Entity, phaseIDs map[string]bool, adj map[string][]string) []ValidationIssue {
 	var issues []ValidationIssue
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
@@ -349,27 +408,19 @@ func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 				if dfs(next, path) {
 					return true
 				}
-			} else if recStack[next] {
-				cycleStart := -1
-				for i, id := range path {
-					if id == next {
-						cycleStart = i
-						break
-					}
-				}
-				cycle := path[cycleStart:]
-				cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
-				for _, id := range cycle {
-					issues = append(issues, ValidationIssue{
-						Check:    "exec_cycles",
-						Severity: SeverityHigh,
-						Entity:   id,
-						Message:  fmt.Sprintf("circular blocks dependency detected: %s", cycleDesc),
-						Layer:    model.LayerExec,
-					})
-				}
-				return true
+				continue
 			}
+			if !recStack[next] {
+				continue
+			}
+
+			cycle := path[slices.Index(path, next):]
+			cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
+			for _, id := range cycle {
+				issues = append(issues, execIssue("exec_cycles", SeverityHigh, id,
+					fmt.Sprintf("circular blocks dependency detected: %s", cycleDesc)))
+			}
+			return true
 		}
 
 		recStack[node] = false
@@ -394,30 +445,17 @@ func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIss
 func checkInvalidExecEdgesFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{execIssue("invalid_exec_edges", SeverityHigh, "",
+			fmt.Sprintf("could not resolve validation subjects: %v", err))}
 	}
 
-	var entities []model.Entity
-	if subjects.scoped {
-		for id := range subjects.execIDs {
-			entity, err := ef.Get(id)
-			if err == nil {
-				entities = append(entities, entity)
-			}
-		}
-	} else {
-		entities, err = execEntities(ef)
-		if err != nil {
-			return nil
-		}
-	}
+	entities, issues := execEdgeSubjects(subjects, ef)
 
 	seen := make(map[string]bool)
-	var issues []ValidationIssue
-
 	for _, e := range entities {
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, e.ID, "invalid_exec_edges", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
@@ -432,82 +470,124 @@ func checkInvalidExecEdgesFor(opts ValidateOptions, rf RelationFetcher, ef Entit
 			}
 			seen[key] = true
 
-			srcEntity, err := ef.Get(rel.FromID)
-			if err != nil {
-				continue
-			}
-			tgtEntity, err := ef.Get(rel.ToID)
-			if err != nil {
-				continue
-			}
-
-			execLayer := model.LayerExec
-			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, &execLayer) {
-				issueEntity := rel.FromID
-				if subjects.scoped && !subjects.execIDs[issueEntity] {
-					issueEntity = rel.ToID
-				}
-				issues = append(issues, ValidationIssue{
-					Check:    "invalid_exec_edges",
-					Severity: SeverityHigh,
-					Entity:   issueEntity,
-					Message:  fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type),
-					Layer:    model.LayerExec,
-				})
-			}
+			issues = append(issues, execEdgeIssues(rel, subjects, ef)...)
 		}
 	}
 
 	return issues
 }
 
+// execEdgeSubjects returns the entities whose exec edges should be checked.
+func execEdgeSubjects(subjects validationSubjects, ef EntityFetcher) ([]model.Entity, []ValidationIssue) {
+	if !subjects.scoped {
+		entities, err := execEntities(ef)
+		if err != nil {
+			return nil, []ValidationIssue{listFailureIssue("invalid_exec_edges", model.LayerExec, err)}
+		}
+		return entities, nil
+	}
+
+	var entities []model.Entity
+	var issues []ValidationIssue
+	for id := range subjects.execIDs {
+		entity, issue := fetchEntity(ef, id, "invalid_exec_edges", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
+			continue
+		}
+		if entity != nil {
+			entities = append(entities, *entity)
+		}
+	}
+	return entities, issues
+}
+
+// execEdgeIssues reports a relation whose endpoints the exec edge matrix forbids.
+func execEdgeIssues(rel model.Relation, subjects validationSubjects, ef EntityFetcher) []ValidationIssue {
+	srcEntity, issue := fetchEntity(ef, rel.FromID, "invalid_exec_edges", model.LayerExec)
+	if issue != nil {
+		return []ValidationIssue{*issue}
+	}
+	tgtEntity, issue := fetchEntity(ef, rel.ToID, "invalid_exec_edges", model.LayerExec)
+	if issue != nil {
+		return []ValidationIssue{*issue}
+	}
+	if srcEntity == nil || tgtEntity == nil {
+		return nil
+	}
+
+	execLayer := model.LayerExec
+	if model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, &execLayer) {
+		return nil
+	}
+
+	// Attribute the issue to whichever endpoint is in scope, so a scoped run
+	// does not filter out its own finding.
+	issueEntity := rel.FromID
+	if subjects.scoped && !subjects.execIDs[issueEntity] {
+		issueEntity = rel.ToID
+	}
+	return []ValidationIssue{execIssue("invalid_exec_edges", SeverityHigh, issueEntity,
+		fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type))}
+}
+
 // checkOrphanChanges finds CHG entities that have no relation to any non-CHG entity.
 func checkOrphanChanges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
-	changeType := model.EntityTypeChange
-	layer := model.LayerExec
-	changes, err := ef.List(EntityListFilters{Type: &changeType, Layer: &layer})
+	changes, err := execEntitiesOfType(ef, model.EntityTypeChange)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("orphan_changes", model.LayerExec, err)}
 	}
 
 	var issues []ValidationIssue
 	for _, chg := range changes {
-		rels, err := rf.GetByEntity(chg.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, chg.ID, "orphan_changes", model.LayerExec)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
-		hasNonCHGRelation := false
-		for _, r := range rels {
-			otherID := r.ToID
-			if otherID == chg.ID {
-				otherID = r.FromID
-			}
-			other, err := ef.Get(otherID)
-			if err != nil {
-				hasNonCHGRelation = true
-				break
-			}
-			if other.Type != model.EntityTypeChange {
-				hasNonCHGRelation = true
-				break
-			}
+		linked, issue := hasNonChangeRelation(chg.ID, rels, ef)
+		if issue != nil {
+			issues = append(issues, *issue)
+			continue
+		}
+		if linked {
+			continue
 		}
 
-		if !hasNonCHGRelation {
-			severity := SeverityMedium
-			if chg.Status == model.EntityStatusActive || chg.Status == model.EntityStatusResolved || chg.Status == model.EntityStatusDeprecated {
-				severity = SeverityHigh
-			}
-			issues = append(issues, ValidationIssue{
-				Check:    "orphan_changes",
-				Severity: severity,
-				Entity:   chg.ID,
-				Message:  "change has no relations to other entities",
-				Layer:    model.LayerExec,
-			})
-		}
+		issues = append(issues, execIssue("orphan_changes", orphanChangeSeverity(chg.Status), chg.ID,
+			"change has no relations to other entities"))
 	}
 
 	return issues
+}
+
+// hasNonChangeRelation reports whether a change is linked to any entity that is
+// not itself a change. A dangling reference counts as linked: the target is
+// reported by relation validation, not here.
+func hasNonChangeRelation(changeID string, rels []model.Relation, ef EntityFetcher) (bool, *ValidationIssue) {
+	for _, r := range rels {
+		otherID := r.ToID
+		if otherID == changeID {
+			otherID = r.FromID
+		}
+		other, issue := fetchEntity(ef, otherID, "orphan_changes", model.LayerExec)
+		if issue != nil {
+			return false, issue
+		}
+		if other == nil || other.Type != model.EntityTypeChange {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// orphanChangeSeverity escalates an orphaned change once it has left draft.
+func orphanChangeSeverity(status model.EntityStatus) Severity {
+	switch status {
+	case model.EntityStatusActive, model.EntityStatusResolved, model.EntityStatusDeprecated:
+		return SeverityHigh
+	default:
+		return SeverityMedium
+	}
 }

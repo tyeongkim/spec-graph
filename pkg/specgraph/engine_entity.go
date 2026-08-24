@@ -170,9 +170,7 @@ func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 // refreshes the index. The provided context is accepted for forward
 // compatibility and is not yet observed.
 func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (model.Entity, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (model.Entity, error) {
+	return writeLocked(ctx, e, func() (model.Entity, error) {
 		return e.createEntityLocked(req)
 	})
 }
@@ -273,9 +271,7 @@ func (e *Engine) nextEntityID(et model.EntityType) (string, error) {
 // when no such entity exists. The provided context is accepted for forward
 // compatibility and is not yet observed.
 func (e *Engine) GetEntity(ctx context.Context, id string) (model.Entity, error) {
-	_ = ctx
-
-	return readLocked(e, func() (model.Entity, error) {
+	return readLocked(ctx, e, func() (model.Entity, error) {
 		return e.getEntityLocked(id)
 	})
 }
@@ -306,9 +302,7 @@ func (e *Engine) getEntityLocked(id string) (model.Entity, error) {
 // with the total count. The provided context is accepted for forward
 // compatibility and is not yet observed.
 func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]model.Entity, int, error) {
-	_ = ctx
-
-	entities, err := readLocked(e, func() ([]model.Entity, error) {
+	entities, err := readLocked(ctx, e, func() ([]model.Entity, error) {
 		return e.listEntitiesLocked(req)
 	})
 	if err != nil {
@@ -355,12 +349,9 @@ func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, er
 // in req distinguish unchanged from explicitly-set values. When the status
 // changes, the applicable validation gate is enforced: if the gate blocks the
 // transition and Force is false, the entity is left unchanged and the returned
-// result carries a non-nil GateReport. The provided context is accepted for
-// forward compatibility and is not yet observed.
+// result carries a non-nil GateReport.
 func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (UpdateEntityResult, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (UpdateEntityResult, error) {
+	return writeLocked(ctx, e, func() (UpdateEntityResult, error) {
 		return e.updateEntityLocked(req)
 	})
 }
@@ -491,12 +482,9 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 }
 
 // DeprecateEntity sets an entity's status to deprecated, updates its timestamp,
-// writes the change, and refreshes the index. The provided context is accepted
-// for forward compatibility and is not yet observed.
+// writes the change, and refreshes the index.
 func (e *Engine) DeprecateEntity(ctx context.Context, id, reason string) (model.Entity, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (model.Entity, error) {
+	return writeLocked(ctx, e, func() (model.Entity, error) {
 		return e.deprecateEntityLocked(id, reason)
 	})
 }
@@ -560,9 +548,7 @@ func validateTaskEntity(title, description string, metadata json.RawMessage, sta
 // successful delete. The provided context is accepted for forward
 // compatibility and is not yet observed.
 func (e *Engine) DeleteEntity(ctx context.Context, id string) error {
-	_ = ctx
-
-	return writeLockedErr(e, func() error {
+	return writeLockedErr(ctx, e, func() error {
 		return e.deleteEntityLocked(id)
 	})
 }

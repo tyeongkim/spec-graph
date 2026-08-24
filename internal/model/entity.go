@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,8 +47,8 @@ var TypePrefixMap = map[EntityType]string{
 	EntityTypeTask:        "TSK",
 }
 
-// PrefixTypeMap is the reverse of TypePrefixMap: prefix string → EntityType.
-var PrefixTypeMap = func() map[string]EntityType {
+// prefixTypeMap is the reverse of TypePrefixMap: prefix string → EntityType.
+var prefixTypeMap = func() map[string]EntityType {
 	m := make(map[string]EntityType, len(TypePrefixMap))
 	for et, prefix := range TypePrefixMap {
 		m[prefix] = et
@@ -72,6 +74,70 @@ const (
 	EntityStatusResolved   EntityStatus = "resolved"
 	EntityStatusDeleted    EntityStatus = "deleted"
 )
+
+// defaultStatuses are the statuses every entity type accepts.
+var defaultStatuses = []EntityStatus{
+	EntityStatusDraft,
+	EntityStatusActive,
+	EntityStatusDeprecated,
+	EntityStatusResolved,
+	EntityStatusDeleted,
+}
+
+// statusExceptions narrows the accepted statuses for types that cannot reach
+// every state. A question is answered or not, so it is resolved rather than
+// deprecated; there is no separate revision of a question to supersede it.
+var statusExceptions = map[EntityType][]EntityStatus{
+	EntityTypeQuestion: {
+		EntityStatusDraft,
+		EntityStatusActive,
+		EntityStatusResolved,
+		EntityStatusDeleted,
+	},
+}
+
+// AllowedStatuses returns the statuses the given entity type accepts.
+func AllowedStatuses(t EntityType) []EntityStatus {
+	if exceptions, ok := statusExceptions[t]; ok {
+		return exceptions
+	}
+	return defaultStatuses
+}
+
+// IsValidEntityType reports whether t is a recognized entity type.
+func IsValidEntityType(t EntityType) bool {
+	_, ok := TypePrefixMap[t]
+	return ok
+}
+
+// ValidateEntityStatus checks that the entity type is known and that status is
+// one it accepts.
+func ValidateEntityStatus(entityType EntityType, status EntityStatus) error {
+	if !IsValidEntityType(entityType) {
+		return fmt.Errorf("unknown entity type %q", entityType)
+	}
+
+	allowed := AllowedStatuses(entityType)
+	if slices.Contains(allowed, status) {
+		return nil
+	}
+
+	names := make([]string, len(allowed))
+	for i, s := range allowed {
+		names[i] = string(s)
+	}
+	return fmt.Errorf("status %q is not allowed for entity type %q; allowed: %s",
+		status, entityType, strings.Join(names, ", "))
+}
+
+// ValidateEntity checks that an entity's ID matches its type's prefix and that
+// its status is one the type accepts.
+func ValidateEntity(id string, entityType EntityType, status EntityStatus) error {
+	if err := ValidateEntityID(id, entityType); err != nil {
+		return err
+	}
+	return ValidateEntityStatus(entityType, status)
+}
 
 type Entity struct {
 	ID               string          `json:"id"`

@@ -58,12 +58,9 @@ func isValidRelationType(rt model.RelationType) bool {
 // exist, enforces the edge matrix, normalizes symmetric relations to a
 // canonical owner, rejects duplicates, and writes the owning entity's TOML
 // file. When the relation type is "delivers", a draft target entity is
-// auto-activated. The index is refreshed afterward. The provided context is
-// accepted for forward compatibility and is not yet observed.
+// auto-activated. The index is refreshed afterward.
 func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model.Relation, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (model.Relation, error) {
+	return writeLocked(ctx, e, func() (model.Relation, error) {
 		return e.addRelationLocked(req)
 	})
 }
@@ -214,9 +211,7 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 // with the total count. The provided context is accepted for forward
 // compatibility and is not yet observed.
 func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([]model.Relation, int, error) {
-	_ = ctx
-
-	relations, err := readLocked(e, func() ([]model.Relation, error) {
+	relations, err := readLocked(ctx, e, func() ([]model.Relation, error) {
 		return e.listRelationsLocked(req)
 	})
 	if err != nil {
@@ -264,12 +259,9 @@ func (e *Engine) listRelationsLocked(req ListRelationsRequest) ([]model.Relation
 // required fields, normalizes symmetric relations to their canonical owner,
 // reads the owning entity, removes the matching relation entry (returning a
 // not-found error when no match exists), writes the change, and refreshes the
-// index. The provided context is accepted for forward compatibility and is not
-// yet observed.
+// index.
 func (e *Engine) DeleteRelation(ctx context.Context, req DeleteRelationRequest) error {
-	_ = ctx
-
-	return writeLockedErr(e, func() error {
+	return writeLockedErr(ctx, e, func() error {
 		return e.deleteRelationLocked(req)
 	})
 }

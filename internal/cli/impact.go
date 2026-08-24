@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,22 +22,6 @@ var impactCmd = &cobra.Command{
 		layerStr, err := ParseLayerFlagString(cmd)
 		if err != nil {
 			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
-		}
-
-		if minSevStr != "" {
-			switch minSevStr {
-			case "high", "medium", "low":
-			default:
-				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown severity %q; must be high, medium, or low", minSevStr)})
-			}
-		}
-
-		if dimStr != "" {
-			switch dimStr {
-			case "structural", "behavioral", "planning":
-			default:
-				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("unknown dimension %q; must be structural, behavioral, or planning", dimStr)})
-			}
 		}
 
 		for _, src := range args {

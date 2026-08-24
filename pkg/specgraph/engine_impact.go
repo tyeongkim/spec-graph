@@ -29,12 +29,9 @@ type ImpactRequest struct {
 // in req, returning all transitively affected entities with per-dimension
 // scores, severity, and path information. It validates that at least one
 // source is provided, converts the request filters into graph options, and
-// delegates to graph.Impact using index-backed fetchers. The provided context
-// is accepted for forward compatibility and is not yet observed.
+// delegates to graph.Impact using index-backed fetchers.
 func (e *Engine) Impact(ctx context.Context, req ImpactRequest) (*graph.ImpactResult, error) {
-	_ = ctx
-
-	return readLocked(e, func() (*graph.ImpactResult, error) {
+	return readLocked(ctx, e, func() (*graph.ImpactResult, error) {
 		return e.impactLocked(req)
 	})
 }
@@ -52,22 +49,19 @@ func (e *Engine) impactLocked(req ImpactRequest) (*graph.ImpactResult, error) {
 		}
 	}
 
-	var minSeverity *graph.Severity
-	if req.MinSeverity != "" {
-		sev := graph.Severity(req.MinSeverity)
-		minSeverity = &sev
+	minSeverity, err := parseSeverity(req.MinSeverity)
+	if err != nil {
+		return nil, err
 	}
 
-	var dimension *string
-	if req.Dimension != "" {
-		dim := req.Dimension
-		dimension = &dim
+	dimension, err := parseDimension(req.Dimension)
+	if err != nil {
+		return nil, err
 	}
 
-	var layer *model.Layer
-	if req.Layer != "" {
-		l := model.Layer(req.Layer)
-		layer = &l
+	layer, err := parseLayer(req.Layer)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := graph.ImpactOptions{

@@ -3,13 +3,13 @@ package validate
 
 import "github.com/tyeongkim/spec-graph/internal/model"
 
-// Severity represents the severity level of a validation issue.
+// Severity represents the severity level of a validation issue. Every check
+// emits High or Medium; there is no low-severity validation issue.
 type Severity string
 
 const (
 	SeverityHigh   Severity = "high"
 	SeverityMedium Severity = "medium"
-	SeverityLow    Severity = "low"
 )
 
 // RelationFetcher retrieves relations for a given entity.

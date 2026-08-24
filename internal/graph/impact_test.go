@@ -313,7 +313,7 @@ func TestImpact_DimensionFilter(t *testing.T) {
 	}}
 
 	result, err := Impact([]string{"REQ-001"}, ImpactOptions{
-		Dimension: strPtr("structural"),
+		Dimension: dimPtr(DimensionStructural),
 	}, rf, ef)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -610,4 +610,8 @@ func TestCoversReverseImpact(t *testing.T) {
 	if !approx(phase.Impact.Planning, 0.8*ReverseWeakFactor) {
 		t.Errorf("reverse coverage planning impact = %v; want %v", phase.Impact.Planning, 0.8*ReverseWeakFactor)
 	}
+}
+
+func dimPtr(d Dimension) *Dimension {
+	return &d
 }

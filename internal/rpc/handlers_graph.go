@@ -187,7 +187,7 @@ type phaseContextParams struct {
 	ID string `json:"id"`
 }
 
-func (d *Dispatcher) phaseContext(_ context.Context, params json.RawMessage) (any, *rpcError) {
+func (d *Dispatcher) phaseContext(ctx context.Context, params json.RawMessage) (any, *rpcError) {
 	var p phaseContextParams
 	if rerr := decodeParams(params, &p); rerr != nil {
 		return nil, rerr
@@ -199,7 +199,7 @@ func (d *Dispatcher) phaseContext(_ context.Context, params json.RawMessage) (an
 			Data:    errorData{Code: string(specgraph.CodeInvalidInput), ExitCode: 3},
 		}
 	}
-	result, err := d.engine.PhaseContext(p.ID)
+	result, err := d.engine.PhaseContext(ctx, p.ID)
 	if err != nil {
 		return nil, engineError(err)
 	}

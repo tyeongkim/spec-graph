@@ -68,10 +68,30 @@ func archRels(rels []model.Relation) []model.Relation {
 	return out
 }
 
+// archIssue builds an arch-layer issue for the given check.
+func archIssue(check string, severity Severity, entity, message string) ValidationIssue {
+	return ValidationIssue{
+		Check:    check,
+		Severity: severity,
+		Entity:   entity,
+		Message:  message,
+		Layer:    model.LayerArch,
+	}
+}
+
+// archRelationsFor fetches an entity's arch-layer relations for a check.
+func archRelationsFor(rf RelationFetcher, id, check string) ([]model.Relation, *ValidationIssue) {
+	rels, issue := fetchRelations(rf, id, check, model.LayerArch)
+	if issue != nil {
+		return nil, issue
+	}
+	return archRels(rels), nil
+}
+
 func checkOrphans(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("orphans", model.LayerArch, err)}
 	}
 
 	var issues []ValidationIssue
@@ -80,19 +100,14 @@ func checkOrphans(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			continue
 		}
 
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := archRelationsFor(rf, e.ID, "orphans")
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
-		if len(archRels(rels)) == 0 {
-			issues = append(issues, ValidationIssue{
-				Check:    "orphans",
-				Severity: SeverityMedium,
-				Entity:   e.ID,
-				Message:  "entity has no relations",
-				Layer:    model.LayerArch,
-			})
+		if len(rels) == 0 {
+			issues = append(issues, archIssue("orphans", SeverityMedium, e.ID, "entity has no relations"))
 		}
 	}
 
@@ -100,14 +115,10 @@ func checkOrphans(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 }
 
 // checkCoverage verifies that active arch entities have required coverage relations.
-// 1. Active requirement must have at least one "implements" relation (as to_id).
-// 2. Active requirement must have at least one "has_criterion" relation (as from_id).
-// 3. Active criterion must have at least one "verifies" relation (as to_id).
-// 4. Interface with "triggers" relation must have a "verifies" relation from a test.
 func checkCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("coverage", model.LayerArch, err)}
 	}
 
 	var issues []ValidationIssue
@@ -117,110 +128,99 @@ func checkCoverage(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			continue
 		}
 
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := archRelationsFor(rf, e.ID, "coverage")
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
-		rels = archRels(rels)
 
 		switch e.Type {
 		case model.EntityTypeRequirement:
-			hasImplements := false
-			for _, r := range rels {
-				if r.Type == model.RelationImplements && r.ToID == e.ID {
-					hasImplements = true
-					break
-				}
-			}
-			if !hasImplements {
-				issues = append(issues, ValidationIssue{
-					Check:    "coverage",
-					Severity: SeverityHigh,
-					Entity:   e.ID,
-					Message:  "requirement has no implementation",
-					Layer:    model.LayerArch,
-				})
-			}
-
-			hasCriterion := false
-			for _, r := range rels {
-				if r.Type == model.RelationHasCriterion && r.FromID == e.ID {
-					hasCriterion = true
-					break
-				}
-			}
-			if !hasCriterion {
-				issues = append(issues, ValidationIssue{
-					Check:    "coverage",
-					Severity: SeverityHigh,
-					Entity:   e.ID,
-					Message:  "requirement has no acceptance criterion",
-					Layer:    model.LayerArch,
-				})
-			}
-
+			issues = append(issues, requirementCoverage(e, rels)...)
 		case model.EntityTypeCriterion:
-			hasVerifies := false
-			for _, r := range rels {
-				if r.Type == model.RelationVerifies && r.ToID == e.ID {
-					hasVerifies = true
-					break
-				}
-			}
-			if !hasVerifies {
-				issues = append(issues, ValidationIssue{
-					Check:    "coverage",
-					Severity: SeverityHigh,
-					Entity:   e.ID,
-					Message:  "criterion has no verification",
-					Layer:    model.LayerArch,
-				})
-			}
-
+			issues = append(issues, criterionCoverage(e, rels)...)
 		case model.EntityTypeInterface:
-			hasTriggers := false
-			for _, r := range rels {
-				if r.Type == model.RelationTriggers && r.FromID == e.ID {
-					hasTriggers = true
-					break
-				}
-			}
-			if hasTriggers {
-				hasVerifyingTest := false
-				for _, r := range rels {
-					if r.Type == model.RelationVerifies && r.ToID == e.ID {
-						hasVerifyingTest = true
-						break
-					}
-				}
-				if !hasVerifyingTest {
-					issues = append(issues, ValidationIssue{
-						Check:    "coverage",
-						Severity: SeverityHigh,
-						Entity:   e.ID,
-						Message:  "interface triggers state but has no verifying test",
-						Layer:    model.LayerArch,
-					})
-				}
-			}
+			issues = append(issues, interfaceCoverage(e, rels)...)
 		}
 	}
 
 	return issues
 }
 
+// requirementCoverage requires an active requirement to be implemented and to
+// carry at least one acceptance criterion.
+func requirementCoverage(e model.Entity, rels []model.Relation) []ValidationIssue {
+	var issues []ValidationIssue
+	if !hasIncoming(rels, model.RelationImplements, e.ID) {
+		issues = append(issues, archIssue("coverage", SeverityHigh, e.ID, "requirement has no implementation"))
+	}
+	if !hasOutgoing(rels, model.RelationHasCriterion, e.ID) {
+		issues = append(issues, archIssue("coverage", SeverityHigh, e.ID, "requirement has no acceptance criterion"))
+	}
+	return issues
+}
+
+// criterionCoverage requires an active criterion to be verified.
+func criterionCoverage(e model.Entity, rels []model.Relation) []ValidationIssue {
+	if hasIncoming(rels, model.RelationVerifies, e.ID) {
+		return nil
+	}
+	return []ValidationIssue{archIssue("coverage", SeverityHigh, e.ID, "criterion has no verification")}
+}
+
+// interfaceCoverage requires a state-triggering interface to be verified.
+func interfaceCoverage(e model.Entity, rels []model.Relation) []ValidationIssue {
+	if !hasOutgoing(rels, model.RelationTriggers, e.ID) {
+		return nil
+	}
+	if hasIncoming(rels, model.RelationVerifies, e.ID) {
+		return nil
+	}
+	return []ValidationIssue{archIssue("coverage", SeverityHigh, e.ID, "interface triggers state but has no verifying test")}
+}
+
+func hasIncoming(rels []model.Relation, relType model.RelationType, id string) bool {
+	for _, r := range rels {
+		if r.Type == relType && r.ToID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOutgoing(rels []model.Relation, relType model.RelationType, id string) bool {
+	for _, r := range rels {
+		if r.Type == relType && r.FromID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func checkCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("cycles", model.LayerArch, err)}
 	}
 
+	archIDs, adj, issues := buildDependsOnGraph(entities, rf)
+	issues = append(issues, findDependencyCycles(entities, archIDs, adj)...)
+	return issues
+}
+
+// buildDependsOnGraph collects the arch-layer depends_on adjacency for entities.
+// Fetch failures are returned as issues rather than dropping edges silently,
+// since a missing edge would hide a cycle.
+func buildDependsOnGraph(entities []model.Entity, rf RelationFetcher) (map[string]bool, map[string][]string, []ValidationIssue) {
 	archIDs := make(map[string]bool, len(entities))
 	adj := make(map[string][]string)
+	var issues []ValidationIssue
+
 	for _, e := range entities {
 		archIDs[e.ID] = true
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, e.ID, "cycles", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 		for _, r := range rels {
@@ -230,6 +230,11 @@ func checkCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 		}
 	}
 
+	return archIDs, adj, issues
+}
+
+// findDependencyCycles reports every entity participating in a depends_on cycle.
+func findDependencyCycles(entities []model.Entity, archIDs map[string]bool, adj map[string][]string) []ValidationIssue {
 	var issues []ValidationIssue
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
@@ -248,27 +253,19 @@ func checkCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 				if dfs(next, path) {
 					return true
 				}
-			} else if recStack[next] {
-				cycleStart := -1
-				for i, id := range path {
-					if id == next {
-						cycleStart = i
-						break
-					}
-				}
-				cycle := path[cycleStart:]
-				cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
-				for _, id := range cycle {
-					issues = append(issues, ValidationIssue{
-						Check:    "cycles",
-						Severity: SeverityHigh,
-						Entity:   id,
-						Message:  fmt.Sprintf("circular dependency detected: %s", cycleDesc),
-						Layer:    model.LayerArch,
-					})
-				}
-				return true
+				continue
 			}
+			if !recStack[next] {
+				continue
+			}
+
+			cycle := path[slices.Index(path, next):]
+			cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
+			for _, id := range cycle {
+				issues = append(issues, archIssue("cycles", SeverityHigh, id,
+					fmt.Sprintf("circular dependency detected: %s", cycleDesc)))
+			}
+			return true
 		}
 
 		recStack[node] = false
@@ -298,7 +295,7 @@ func formatCyclePath(ids []string) string {
 func checkConflicts(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("conflicts", model.LayerArch, err)}
 	}
 
 	seen := make(map[string]bool)
@@ -309,8 +306,9 @@ func checkConflicts(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			continue
 		}
 
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, e.ID, "conflicts", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
@@ -319,10 +317,7 @@ func checkConflicts(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 				continue
 			}
 
-			key := r.FromID + "|" + r.ToID
-			if r.ToID < r.FromID {
-				key = r.ToID + "|" + r.FromID
-			}
+			key := unorderedPairKey(r.FromID, r.ToID)
 			if seen[key] {
 				continue
 			}
@@ -332,39 +327,46 @@ func checkConflicts(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			if otherID == e.ID {
 				otherID = r.FromID
 			}
-			other, err := ef.Get(otherID)
-			if err != nil {
+			other, issue := fetchEntity(ef, otherID, "conflicts", model.LayerArch)
+			if issue != nil {
+				issues = append(issues, *issue)
 				continue
 			}
-			if other.Status != model.EntityStatusActive || !isArchEntity(other) {
+			if other == nil {
+				continue
+			}
+			if other.Status != model.EntityStatusActive || !isArchEntity(*other) {
 				continue
 			}
 
-			issues = append(issues, ValidationIssue{
-				Check:    "conflicts",
-				Severity: SeverityHigh,
-				Entity:   e.ID,
-				Message:  fmt.Sprintf("active conflict between %s and %s", r.FromID, r.ToID),
-				Layer:    model.LayerArch,
-			})
+			issues = append(issues, archIssue("conflicts", SeverityHigh, e.ID,
+				fmt.Sprintf("active conflict between %s and %s", r.FromID, r.ToID)))
 		}
 	}
 
 	return issues
 }
 
+func unorderedPairKey(a, b string) string {
+	if b < a {
+		a, b = b, a
+	}
+	return a + "|" + b
+}
+
 func checkInvalidEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("invalid_edges", model.LayerArch, err)}
 	}
 
 	seen := make(map[string]bool)
 	var issues []ValidationIssue
 
 	for _, e := range entities {
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, e.ID, "invalid_edges", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 
@@ -379,27 +381,27 @@ func checkInvalidEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 			}
 			seen[key] = true
 
-			srcEntity, err := ef.Get(rel.FromID)
-			if err != nil {
+			srcEntity, issue := fetchEntity(ef, rel.FromID, "invalid_edges", model.LayerArch)
+			if issue != nil {
+				issues = append(issues, *issue)
 				continue
 			}
-			tgtEntity, err := ef.Get(rel.ToID)
-			if err != nil {
+			tgtEntity, issue := fetchEntity(ef, rel.ToID, "invalid_edges", model.LayerArch)
+			if issue != nil {
+				issues = append(issues, *issue)
+				continue
+			}
+			if srcEntity == nil || tgtEntity == nil {
 				continue
 			}
 
-			if !isArchEntity(srcEntity) || !isArchEntity(tgtEntity) {
+			if !isArchEntity(*srcEntity) || !isArchEntity(*tgtEntity) {
 				continue
 			}
 
 			if !model.IsEdgeAllowed(rel.Type, srcEntity.Type, tgtEntity.Type, nil) {
-				issues = append(issues, ValidationIssue{
-					Check:    "invalid_edges",
-					Severity: SeverityHigh,
-					Entity:   rel.FromID,
-					Message:  fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type),
-					Layer:    model.LayerArch,
-				})
+				issues = append(issues, archIssue("invalid_edges", SeverityHigh, rel.FromID,
+					fmt.Sprintf("relation %q not allowed from %q to %q", rel.Type, srcEntity.Type, tgtEntity.Type)))
 			}
 		}
 	}
@@ -410,14 +412,36 @@ func checkInvalidEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 func checkSupersededRefs(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("superseded_refs", model.LayerArch, err)}
 	}
 
+	supersededIDs, issues := collectSupersededIDs(entities, rf)
+	if len(supersededIDs) == 0 {
+		return issues
+	}
+
+	for oldID := range supersededIDs {
+		rels, issue := fetchRelations(rf, oldID, "superseded_refs", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
+			continue
+		}
+		issues = append(issues, referencesToSuperseded(oldID, rels, ef)...)
+	}
+
+	return issues
+}
+
+// collectSupersededIDs returns the set of entities that something supersedes.
+func collectSupersededIDs(entities []model.Entity, rf RelationFetcher) (map[string]bool, []ValidationIssue) {
 	seen := make(map[string]bool)
-	var allRels []model.Relation
+	supersededIDs := make(map[string]bool)
+	var issues []ValidationIssue
+
 	for _, e := range entities {
-		rels, err := rf.GetByEntity(e.ID)
-		if err != nil {
+		rels, issue := fetchRelations(rf, e.ID, "superseded_refs", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
 			continue
 		}
 		for _, r := range rels {
@@ -425,76 +449,53 @@ func checkSupersededRefs(rf RelationFetcher, ef EntityFetcher) []ValidationIssue
 				continue
 			}
 			key := fmt.Sprintf("%d|%s|%s|%s", r.ID, r.FromID, r.ToID, r.Type)
-			if !seen[key] {
-				seen[key] = true
-				allRels = append(allRels, r)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if r.Type == model.RelationSupersedes {
+				supersededIDs[r.ToID] = true
 			}
 		}
 	}
 
-	oldIDs := make(map[string]bool)
-	for _, r := range allRels {
-		if r.Type == model.RelationSupersedes {
-			oldIDs[r.ToID] = true
-		}
-	}
+	return supersededIDs, issues
+}
 
-	if len(oldIDs) == 0 {
-		return nil
-	}
-
+// referencesToSuperseded reports live entities still pointing at a superseded
+// entity through any relation other than supersedes itself.
+func referencesToSuperseded(oldID string, rels []model.Relation, ef EntityFetcher) []ValidationIssue {
 	var issues []ValidationIssue
 
-	for oldID := range oldIDs {
-		rels, err := rf.GetByEntity(oldID)
-		if err != nil {
+	for _, r := range rels {
+		if !isArchRelation(r) || r.Type == model.RelationSupersedes {
 			continue
 		}
 
-		for _, r := range rels {
-			if !isArchRelation(r) {
-				continue
-			}
-			if r.Type == model.RelationSupersedes {
-				continue
-			}
-
-			if r.ToID == oldID {
-				srcEntity, err := ef.Get(r.FromID)
-				if err != nil {
-					continue
-				}
-				if !isArchEntity(srcEntity) {
-					continue
-				}
-				if srcEntity.Status == model.EntityStatusActive || srcEntity.Status == model.EntityStatusDraft {
-					issues = append(issues, ValidationIssue{
-						Check:    "superseded_refs",
-						Severity: SeverityHigh,
-						Entity:   srcEntity.ID,
-						Message:  fmt.Sprintf("entity still references superseded entity %s via %s", oldID, r.Type),
-						Layer:    model.LayerArch,
-					})
-				}
-			} else if r.FromID == oldID {
-				tgtEntity, err := ef.Get(r.ToID)
-				if err != nil {
-					continue
-				}
-				if !isArchEntity(tgtEntity) {
-					continue
-				}
-				if tgtEntity.Status == model.EntityStatusActive || tgtEntity.Status == model.EntityStatusDraft {
-					issues = append(issues, ValidationIssue{
-						Check:    "superseded_refs",
-						Severity: SeverityHigh,
-						Entity:   tgtEntity.ID,
-						Message:  fmt.Sprintf("entity still references superseded entity %s via %s", oldID, r.Type),
-						Layer:    model.LayerArch,
-					})
-				}
-			}
+		var peerID string
+		switch oldID {
+		case r.ToID:
+			peerID = r.FromID
+		case r.FromID:
+			peerID = r.ToID
+		default:
+			continue
 		}
+
+		peer, issue := fetchEntity(ef, peerID, "superseded_refs", model.LayerArch)
+		if issue != nil {
+			issues = append(issues, *issue)
+			continue
+		}
+		if peer == nil || !isArchEntity(*peer) {
+			continue
+		}
+		if peer.Status != model.EntityStatusActive && peer.Status != model.EntityStatusDraft {
+			continue
+		}
+
+		issues = append(issues, archIssue("superseded_refs", SeverityHigh, peer.ID,
+			fmt.Sprintf("entity still references superseded entity %s via %s", oldID, r.Type)))
 	}
 
 	return issues
@@ -507,73 +508,38 @@ func checkSupersededRefs(rf RelationFetcher, ef EntityFetcher) []ValidationIssue
 func checkUnresolved(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	entities, err := archEntities(ef)
 	if err != nil {
-		return nil
+		return []ValidationIssue{listFailureIssue("unresolved", model.LayerArch, err)}
 	}
-
-	activeOrDraft := []model.EntityStatus{model.EntityStatusActive, model.EntityStatusDraft}
 
 	var issues []ValidationIssue
 
 	for _, e := range entities {
-		if !slices.Contains(activeOrDraft, e.Status) {
+		if e.Status != model.EntityStatusActive && e.Status != model.EntityStatusDraft {
 			continue
 		}
 
 		switch e.Type {
 		case model.EntityTypeQuestion:
-			rels, err := rf.GetByEntity(e.ID)
-			if err != nil {
-				continue
-			}
-			hasAnswer := false
-			for _, r := range rels {
-				if r.Type == model.RelationAnswers && r.ToID == e.ID {
-					hasAnswer = true
-					break
-				}
-			}
-			if !hasAnswer {
-				issues = append(issues, ValidationIssue{
-					Check:    "unresolved",
-					Severity: SeverityMedium,
-					Entity:   e.ID,
-					Message:  "question has no answer",
-					Layer:    model.LayerArch,
-				})
-			}
-
+			issues = append(issues, missingIncoming(e, model.RelationAnswers, "question has no answer", rf)...)
 		case model.EntityTypeAssumption:
-			issues = append(issues, ValidationIssue{
-				Check:    "unresolved",
-				Severity: SeverityMedium,
-				Entity:   e.ID,
-				Message:  "assumption needs validation",
-				Layer:    model.LayerArch,
-			})
-
+			issues = append(issues, archIssue("unresolved", SeverityMedium, e.ID, "assumption needs validation"))
 		case model.EntityTypeRisk:
-			rels, err := rf.GetByEntity(e.ID)
-			if err != nil {
-				continue
-			}
-			hasMitigation := false
-			for _, r := range rels {
-				if r.Type == model.RelationMitigates && r.ToID == e.ID {
-					hasMitigation = true
-					break
-				}
-			}
-			if !hasMitigation {
-				issues = append(issues, ValidationIssue{
-					Check:    "unresolved",
-					Severity: SeverityMedium,
-					Entity:   e.ID,
-					Message:  "risk has no mitigation",
-					Layer:    model.LayerArch,
-				})
-			}
+			issues = append(issues, missingIncoming(e, model.RelationMitigates, "risk has no mitigation", rf)...)
 		}
 	}
 
 	return issues
+}
+
+// missingIncoming reports the given message when no relation of relType points
+// at the entity.
+func missingIncoming(e model.Entity, relType model.RelationType, message string, rf RelationFetcher) []ValidationIssue {
+	rels, issue := fetchRelations(rf, e.ID, "unresolved", model.LayerArch)
+	if issue != nil {
+		return []ValidationIssue{*issue}
+	}
+	if hasIncoming(rels, relType, e.ID) {
+		return nil
+	}
+	return []ValidationIssue{archIssue("unresolved", SeverityMedium, e.ID, message)}
 }

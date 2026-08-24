@@ -46,9 +46,7 @@ type ReviseEntityResult struct {
 // because repointing them would attribute delivery of the revision to execution
 // that completed before the revision existed.
 func (e *Engine) ReviseEntity(ctx context.Context, req ReviseEntityRequest) (ReviseEntityResult, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (ReviseEntityResult, error) {
+	return writeLocked(ctx, e, func() (ReviseEntityResult, error) {
 		return e.reviseEntityLocked(req)
 	})
 }

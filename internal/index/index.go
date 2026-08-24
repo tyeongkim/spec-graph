@@ -4,6 +4,7 @@
 package index
 
 import (
+	"context"
 	"database/sql"
 	_ "embed"
 	"fmt"
@@ -13,17 +14,12 @@ import (
 	"strings"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/tyeongkim/spec-graph/internal/db"
 )
 
 //go:embed schema.sql
 var schemaSQL string
-
-var connectionPragmas = []string{
-	"busy_timeout(30000)",
-	"foreign_keys(1)",
-	"synchronous(NORMAL)",
-	"temp_store(2)",
-}
 
 // EntityRecord is the data needed to populate the index.
 type EntityRecord struct {
@@ -163,9 +159,15 @@ func statOrNil(path string) os.FileInfo {
 	return info
 }
 
-// DB returns the underlying *sql.DB for raw read-only queries (e.g. query sql).
-func (idx *Index) DB() *sql.DB {
-	return idx.db
+// QueryRaw runs an arbitrary read-only query against the index. The Index
+// retains ownership of the connection, so callers cannot close it or interfere
+// with Rebuild's close-and-rename. Callers must Close the returned rows.
+func (idx *Index) QueryRaw(ctx context.Context, query string) (*sql.Rows, error) {
+	rows, err := idx.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("raw query: %w", err)
+	}
+	return rows, nil
 }
 
 // Rebuild drops all data and repopulates from the provided entities and
@@ -208,6 +210,13 @@ func (idx *Index) Rebuild(entities []EntityRecord, relations []RelationRecord) e
 	if err := tmpDB.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rebuild close temp db: %w", err)
+	}
+
+	// Flush the finished temp file to disk before it becomes the live index, so
+	// a crash cannot leave the rename durable while the contents are not.
+	if err := syncFile(tmpPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rebuild sync temp db: %w", err)
 	}
 
 	if err := idx.db.Close(); err != nil {
@@ -381,9 +390,19 @@ func (idx *Index) SetMeta(key, value string) error {
 	return nil
 }
 
+// syncFile flushes a closed file's contents to stable storage.
+func syncFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
 func buildDSN(path string) string {
 	q := url.Values{}
-	for _, p := range connectionPragmas {
+	for _, p := range db.ConnectionPragmas {
 		q.Add("_pragma", p)
 	}
 	q.Set("_txlock", "immediate")

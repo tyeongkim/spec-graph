@@ -26,7 +26,7 @@ func TestPhaseContextTransportParity(t *testing.T) {
 		t.Fatalf("open fixture engine: %v", err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
-	want, err := engine.PhaseContext("PHS-001")
+	want, err := engine.PhaseContext(context.Background(), "PHS-001")
 	if err != nil {
 		t.Fatalf("direct PhaseContext: %v", err)
 	}

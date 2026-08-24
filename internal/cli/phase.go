@@ -62,7 +62,7 @@ var phaseContextCmd = &cobra.Command{
 			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
-		result, err := engine.PhaseContext(phaseID)
+		result, err := engine.PhaseContext(cmd.Context(), phaseID)
 		if err != nil {
 			return handleEngineError(cmd, err, phaseID)
 		}

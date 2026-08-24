@@ -38,8 +38,7 @@ func (e *Error) Unwrap() error {
 	return e.Cause
 }
 
-// ExitCode maps the error's code to a process exit code:
-// NotFound→1, Conflict→2, InvalidInput→3, ValidationFailed→2, GateBlocked→2, Runtime→1.
+// ExitCode maps the error's code to a process exit code.
 func (e *Error) ExitCode() int {
 	switch e.Code {
 	case CodeNotFound:
@@ -67,6 +66,12 @@ func newError(code ErrorCode, msg string, cause error) *Error {
 }
 
 // hasCode reports whether err is or wraps an *Error with the given code.
+// cancelled wraps a context cancellation or deadline as a runtime error, so
+// callers see a structured Error like every other engine failure.
+func cancelled(err error) error {
+	return newError(CodeRuntime, "operation cancelled", err)
+}
+
 func hasCode(err error, code ErrorCode) bool {
 	var e *Error
 	if errors.As(err, &e) {

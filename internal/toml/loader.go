@@ -18,6 +18,12 @@ var symmetricRelationTypes = map[model.RelationType]bool{
 	model.RelationConflictsWith: true,
 }
 
+// IsSymmetricRelation reports whether a relation is undirected, and so must be
+// stored in the lexicographically smaller ID's file.
+func IsSymmetricRelation(t model.RelationType) bool {
+	return symmetricRelationTypes[t]
+}
+
 // Store manages TOML file I/O for spec-graph entities.
 type Store struct {
 	root string // .spec-graph/ directory path
@@ -194,8 +200,9 @@ func (s *Store) ListEntities() ([]EntityFile, error) {
 	return results, nil
 }
 
-// enforceSymmetricRelations validates that symmetric relations (conflicts_with,
-// supersedes) are stored in the lexicographically smaller ID's file.
+// enforceSymmetricRelations validates that symmetric relations are stored in
+// the lexicographically smaller ID's file. See symmetricRelationTypes for which
+// relations that covers.
 func (s *Store) enforceSymmetricRelations(ef *EntityFile) error {
 	for _, rel := range ef.Relations {
 		if !symmetricRelationTypes[rel.Type] {
@@ -212,7 +219,8 @@ func (s *Store) enforceSymmetricRelations(ef *EntityFile) error {
 }
 
 // atomicWrite writes data to a temporary file in the same directory as path,
-// then renames it to path. This prevents half-written files.
+// then renames it to path. The temp file is fsynced before the rename so a
+// crash cannot leave the rename durable while the contents are not.
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
@@ -227,6 +235,12 @@ func atomicWrite(path string, data []byte) error {
 		tmp.Close()
 		os.Remove(tmpName)
 		return fmt.Errorf("write temp file for %q: %w", path, err)
+	}
+
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("sync temp file for %q: %w", path, err)
 	}
 
 	if err := tmp.Close(); err != nil {

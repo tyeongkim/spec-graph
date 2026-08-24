@@ -54,12 +54,8 @@ type BootstrapErrorItem struct {
 // entities that already exist. After writing entities the index is rebuilt so
 // relation endpoints can be validated against it; relations with missing
 // endpoints, disallowed edges, or existing duplicates are skipped or reported.
-// The provided context is accepted for forward compatibility and is not yet
-// observed.
 func (e *Engine) BootstrapImport(ctx context.Context, req BootstrapImportRequest) (BootstrapImportResult, error) {
-	_ = ctx
-
-	return writeLocked(e, func() (BootstrapImportResult, error) {
+	return writeLocked(ctx, e, func() (BootstrapImportResult, error) {
 		return e.bootstrapImportLocked(req)
 	})
 }
