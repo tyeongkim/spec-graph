@@ -1,6 +1,7 @@
 package specgraph
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -163,10 +164,14 @@ func (t *txn) rollback(attempted []string, cause error) error {
 }
 
 func (t *txn) restore(entry *stagedFile) error {
+	current, err := t.eng.store.ReadEntityBytes(entry.id, entry.entityType)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(current, entry.preImage) {
+		return nil
+	}
 	if entry.preImage == nil {
-		if !t.eng.store.EntityExists(entry.id, entry.entityType) {
-			return nil
-		}
 		return t.eng.store.DeleteEntity(entry.id, entry.entityType)
 	}
 	return t.eng.store.WriteEntityBytes(entry.id, entry.entityType, entry.preImage)
