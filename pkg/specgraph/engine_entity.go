@@ -364,7 +364,7 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 
 	ef, err := t.read(req.ID, existing.Type)
 	if err != nil {
-		return UpdateEntityResult{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.ID), err)
+		return UpdateEntityResult{}, err
 	}
 	storedEntity, err := ef.ToEntity()
 	if err != nil {
@@ -497,7 +497,7 @@ func (t *txn) deprecateEntity(id, reason string) (model.Entity, error) {
 
 	ef, err := t.read(id, existing.Type)
 	if err != nil {
-		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), err)
+		return model.Entity{}, err
 	}
 
 	ef.Status = model.EntityStatusDeprecated
