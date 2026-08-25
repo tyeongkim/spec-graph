@@ -353,7 +353,7 @@ spec-graph entity add --type requirement --id REQ-001 \
 spec-graph entity get REQ-001
 spec-graph entity list --type requirement --status active
 spec-graph entity update REQ-001 --title "새 제목" --reason "기획 변경"
-spec-graph entity deprecate REQ-001 --reason "REQ-015로 대체"
+spec-graph entity update REQ-001 --status deprecated --reason "REQ-015로 대체"
 spec-graph entity delete REQ-001
 ```
 

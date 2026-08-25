@@ -31,7 +31,6 @@ func NewDispatcher(engine *specgraph.Engine) *Dispatcher {
 		"entity.get":       d.entityGet,
 		"entity.list":      d.entityList,
 		"entity.update":    d.entityUpdate,
-		"entity.deprecate": d.entityDeprecate,
 		"entity.delete":    d.entityDelete,
 		"relation.add":     d.relationAdd,
 		"relation.list":    d.relationList,

@@ -538,6 +538,34 @@ func TestUpdateEntity(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a status the entity type disallows", func(t *testing.T) {
+		t.Parallel()
+		eng := openTestEngine(t)
+		ctx := context.Background()
+
+		if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+			Type:  "question",
+			ID:    "QST-001",
+			Title: "Open question",
+		}); err != nil {
+			t.Fatalf("seed CreateEntity: %v", err)
+		}
+
+		_, err := eng.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
+			ID:     "QST-001",
+			Status: stringPtr("deprecated"),
+		})
+		assertErrorCode(t, err, specgraph.CodeInvalidInput)
+
+		stored, getErr := eng.GetEntity(ctx, "QST-001")
+		if getErr != nil {
+			t.Fatalf("GetEntity: %v", getErr)
+		}
+		if s := string(stored.Status); s != "draft" {
+			t.Errorf("Status = %q, want %q; the rejected status must not be persisted", s, "draft")
+		}
+	})
+
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		eng := openTestEngine(t)
@@ -567,41 +595,6 @@ func TestUpdateEntity(t *testing.T) {
 		if res.Entity.Description != "Original description" {
 			t.Errorf("Description = %q, want %q (should be unchanged)", res.Entity.Description, "Original description")
 		}
-	})
-}
-
-func TestDeprecateEntity(t *testing.T) {
-	t.Parallel()
-
-	t.Run("happy path", func(t *testing.T) {
-		t.Parallel()
-		eng := openTestEngine(t)
-		ctx := context.Background()
-
-		if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
-			Type:  "requirement",
-			ID:    "REQ-001",
-			Title: "To deprecate",
-		}); err != nil {
-			t.Fatalf("CreateEntity: %v", err)
-		}
-
-		got, err := eng.DeprecateEntity(ctx, "REQ-001", "superseded")
-		if err != nil {
-			t.Fatalf("DeprecateEntity: %v", err)
-		}
-		if s := string(got.Status); s != "deprecated" {
-			t.Errorf("Status = %q, want %q", s, "deprecated")
-		}
-	})
-
-	t.Run("not found", func(t *testing.T) {
-		t.Parallel()
-		eng := openTestEngine(t)
-		ctx := context.Background()
-
-		_, err := eng.DeprecateEntity(ctx, "REQ-999", "obsolete")
-		assertNotFound(t, err)
 	})
 }
 

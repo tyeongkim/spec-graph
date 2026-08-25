@@ -147,38 +147,20 @@ func TestTaskLifecycleRejectsTerminalReopen(t *testing.T) {
 }
 
 func TestTaskDeprecationRequiresReason(t *testing.T) {
-	tests := []struct {
-		name      string
-		deprecate func(context.Context, *specgraph.Engine) error
-	}{
-		{
-			name: "deprecate API",
-			deprecate: func(ctx context.Context, engine *specgraph.Engine) error {
-				_, err := engine.DeprecateEntity(ctx, "TSK-001", "")
-				return err
-			},
-		},
-		{
-			name: "status update",
-			deprecate: func(ctx context.Context, engine *specgraph.Engine) error {
-				deprecated := string(model.EntityStatusDeprecated)
-				_, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "TSK-001", Status: &deprecated})
-				return err
-			},
-		},
-	}
+	root, engine := openTaskTestEngine(t)
+	createTask(t, engine, "TSK-001")
+	path := taskEntityPath(root, "TSK-001")
+	before := readTaskBytes(t, path)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			root, engine := openTaskTestEngine(t)
-			createTask(t, engine, "TSK-001")
-			path := taskEntityPath(root, "TSK-001")
-			before := readTaskBytes(t, path)
-			assertErrorCode(t, test.deprecate(context.Background(), engine), specgraph.CodeInvalidInput)
-			if after := readTaskBytes(t, path); !reflect.DeepEqual(after, before) {
-				t.Fatal("task TOML changed after reasonless deprecation")
-			}
-		})
+	deprecated := string(model.EntityStatusDeprecated)
+	_, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
+		ID:     "TSK-001",
+		Status: &deprecated,
+	})
+	assertErrorCode(t, err, specgraph.CodeInvalidInput)
+
+	if after := readTaskBytes(t, path); !reflect.DeepEqual(after, before) {
+		t.Fatal("task TOML changed after reasonless deprecation")
 	}
 }
 
