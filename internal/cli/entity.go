@@ -355,20 +355,14 @@ var entityImportCmd = &cobra.Command{
 			return handleError(cmd, &model.ErrInvalidInput{Message: "parse input file: " + err.Error()})
 		}
 
-		var created []string
-		var skipped []jsoncontract.BootstrapSkippedItem
-		var errItems []jsoncontract.BootstrapErrorItem
-
+		req := specgraph.ImportEntitiesRequest{
+			Entities: make([]specgraph.CreateEntityRequest, 0, len(items)),
+		}
 		for _, item := range items {
 			if item.ID == "" || item.Type == "" || item.Title == "" {
-				errItems = append(errItems, jsoncontract.BootstrapErrorItem{
-					ID:    item.ID,
-					Error: "id, type, and title are required",
-				})
-				continue
+				return handleError(cmd, &model.ErrInvalidInput{Message: "id, type, and title are required"})
 			}
-
-			_, err := engine.CreateEntity(cmd.Context(), specgraph.CreateEntityRequest{
+			req.Entities = append(req.Entities, specgraph.CreateEntityRequest{
 				Type:        item.Type,
 				ID:          item.ID,
 				Title:       item.Title,
@@ -376,29 +370,14 @@ var entityImportCmd = &cobra.Command{
 				Status:      item.Status,
 				Metadata:    item.Metadata,
 			})
-			if err != nil {
-				if specgraph.IsConflict(err) {
-					skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
-						ID:     item.ID,
-						Reason: "already exists",
-					})
-					continue
-				}
-				errItems = append(errItems, jsoncontract.BootstrapErrorItem{
-					ID:    item.ID,
-					Error: err.Error(),
-				})
-				continue
-			}
-
-			created = append(created, item.ID)
 		}
 
-		return writeJSON(cmd, jsoncontract.BootstrapImportResponse{
-			Created: created,
-			Skipped: skipped,
-			Errors:  errItems,
-		})
+		result, err := engine.ImportEntities(cmd.Context(), req)
+		if err != nil {
+			return handleError(cmd, err)
+		}
+
+		return writeJSON(cmd, toImportResponse(result.Created, result.Skipped))
 	},
 }
 

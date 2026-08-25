@@ -527,6 +527,49 @@ func validateTaskEntity(title, description string, metadata json.RawMessage, sta
 	return nil
 }
 
+// ImportEntitiesRequest describes a bulk entity creation.
+type ImportEntitiesRequest struct {
+	Entities []CreateEntityRequest
+}
+
+// ImportEntitiesResult reports which entities were created and which were
+// skipped because they already existed.
+type ImportEntitiesResult struct {
+	Created []string
+	Skipped []BootstrapSkippedItem
+}
+
+// ImportEntities creates every entity in req as one unit. An entity that
+// already exists is skipped, keeping a re-run of the same input idempotent; any
+// other problem aborts the import and leaves the graph untouched.
+func (e *Engine) ImportEntities(ctx context.Context, req ImportEntitiesRequest) (ImportEntitiesResult, error) {
+	return writeLocked(ctx, e, func() (ImportEntitiesResult, error) {
+		return transact(e, func(tx *txn) (ImportEntitiesResult, error) {
+			return tx.importEntities(req)
+		})
+	})
+}
+
+func (t *txn) importEntities(req ImportEntitiesRequest) (ImportEntitiesResult, error) {
+	var result ImportEntitiesResult
+
+	for _, item := range req.Entities {
+		created, err := t.createEntity(item)
+		if err != nil {
+			if IsConflict(err) {
+				result.Skipped = append(result.Skipped, BootstrapSkippedItem{
+					ID: item.ID, Reason: "already exists",
+				})
+				continue
+			}
+			return ImportEntitiesResult{}, err
+		}
+		result.Created = append(result.Created, created.ID)
+	}
+
+	return result, nil
+}
+
 // DeleteEntity removes an entity from the graph. It refuses to delete an entity
 // that is still referenced by any relation, and refreshes the index after a
 // successful delete. The provided context is accepted for forward

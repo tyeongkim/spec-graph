@@ -385,9 +385,6 @@ func TestBootstrapImportResponseJSON(t *testing.T) {
 		Skipped: []BootstrapSkippedItem{
 			{ID: "REQ-002", Reason: "already exists"},
 		},
-		Errors: []BootstrapErrorItem{
-			{ID: "REQ-003", Error: "invalid type"},
-		},
 	}
 
 	data, err := json.Marshal(resp)
@@ -400,10 +397,13 @@ func TestBootstrapImportResponseJSON(t *testing.T) {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	for _, key := range []string{"created", "skipped", "errors"} {
+	for _, key := range []string{"created", "skipped"} {
 		if _, ok := out[key]; !ok {
 			t.Errorf("expected top-level %q key", key)
 		}
+	}
+	if _, ok := out["errors"]; ok {
+		t.Error("unexpected top-level \"errors\" key")
 	}
 
 	var skipped []map[string]json.RawMessage
@@ -413,16 +413,6 @@ func TestBootstrapImportResponseJSON(t *testing.T) {
 	for _, key := range []string{"id", "reason"} {
 		if _, ok := skipped[0][key]; !ok {
 			t.Errorf("expected skipped[0] %q key", key)
-		}
-	}
-
-	var errors []map[string]json.RawMessage
-	if err := json.Unmarshal(out["errors"], &errors); err != nil {
-		t.Fatalf("Unmarshal errors failed: %v", err)
-	}
-	for _, key := range []string{"id", "error"} {
-		if _, ok := errors[0][key]; !ok {
-			t.Errorf("expected errors[0] %q key", key)
 		}
 	}
 }

@@ -244,10 +244,24 @@ To deprecate *and* replace an arch entity, use `entity revise` instead.
 spec-graph entity import --input <PATH>
 ```
 
-Bulk-creates entities from a JSON array. Each item requires `id`, `type`, and `title`; `description`,
-`status`, and `metadata` are optional. Because `id` is required here, this command is for
-round-tripping known IDs, not for creating new entities. Existing IDs are skipped rather than
-overwritten, and per-item failures are reported without failing the batch.
+Bulk-creates entities from a JSON array in one transaction and one index refresh. Each item requires
+`id`, `type`, and `title`; `description`, `status`, and `metadata` are optional. Because `id` is
+required here, this command is for round-tripping known IDs, not for creating new entities. Existing
+IDs are skipped rather than overwritten, keeping a re-run of the same input idempotent. No other
+process can interleave items.
+
+Response:
+```json
+{
+  "created": ["REQ-1752239482-k3f"],
+  "skipped": [
+    {"id": "DEC-1752239490-b2x", "reason": "already exists"}
+  ]
+}
+```
+
+Any non-duplicate failure, including an unknown entity type, malformed entity ID, missing required
+field, or write failure, aborts the entire import without writing and exits non-zero.
 
 ### entity delete
 
@@ -560,11 +574,24 @@ and an inferred type based on the ID prefix.
 ```bash
 spec-graph bootstrap import --input extracted.json --mode review
 ```
-- `--mode review` (default): presents candidates for approval before committing.
-- Low-confidence items are never auto-imported.
-- Each candidate's `id` and `type` are validated before any file is written: the type must be a
-  known entity type and the ID must match its prefix. Rejected candidates are reported
-  individually rather than failing the whole batch.
+- `--mode review` (default): presents candidates for approval and does not write.
+- `--mode apply`: imports candidates as one transaction.
+
+Response for `--mode apply`:
+```json
+{
+  "created": ["REQ-1752239482-k3f"],
+  "skipped": [
+    {"id": "API-1752239500-t7n:REQ-1752239482-k3f:implements", "reason": "invalid edge"}
+  ]
+}
+```
+
+- `skipped` contains candidates below `0.5` confidence, entities or relations that already exist,
+  and relation candidates whose endpoint types fail the edge matrix.
+- An unknown entity or relation type, a malformed entity ID, a missing relation endpoint, or a
+  write failure aborts the entire import without writing and exits non-zero. Malformed input is
+  rejected regardless of its confidence.
 
 ---
 

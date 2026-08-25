@@ -58,15 +58,11 @@ func TestBootstrapImport_RejectsPathTraversalCandidates(t *testing.T) {
 					Confidence: 0.9,
 				}},
 			})
-			if err != nil {
-				t.Fatalf("BootstrapImport returned a transport error: %v", err)
+			if err == nil {
+				t.Fatal("BootstrapImport error = nil; want the invalid candidate rejected")
 			}
-
 			if len(result.Created) != 0 {
 				t.Errorf("Created = %v; want no created entities", result.Created)
-			}
-			if len(result.Errors) == 0 {
-				t.Error("Errors is empty; want the invalid candidate reported")
 			}
 
 			assertGraphRootConfined(t, sandbox, root)
@@ -89,9 +85,6 @@ func TestBootstrapImport_AcceptsValidCandidate(t *testing.T) {
 		t.Fatalf("BootstrapImport: %v", err)
 	}
 
-	if len(result.Errors) != 0 {
-		t.Fatalf("Errors = %v; want none", result.Errors)
-	}
 	if len(result.Created) != 1 || result.Created[0] != "REQ-001" {
 		t.Fatalf("Created = %v; want [REQ-001]", result.Created)
 	}

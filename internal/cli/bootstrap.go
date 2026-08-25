@@ -95,16 +95,7 @@ var bootstrapImportCmd = &cobra.Command{
 			if err != nil {
 				return handleError(cmd, err)
 			}
-			result := bootstrap.ApplyResult{
-				Created: importResult.Created,
-			}
-			for _, s := range importResult.Skipped {
-				result.Skipped = append(result.Skipped, bootstrap.SkippedItem{ID: s.ID, Reason: s.Reason})
-			}
-			for _, e := range importResult.Errors {
-				result.Errors = append(result.Errors, bootstrap.ErrorItem{ID: e.ID, Error: e.Error})
-			}
-			return writeJSON(cmd, toImportResponse(result))
+			return writeJSON(cmd, toImportResponse(importResult.Created, importResult.Skipped))
 		}
 
 		return nil
@@ -141,32 +132,22 @@ func toScanResponse(sr bootstrap.ScanResult) jsoncontract.BootstrapScanResponse 
 	}
 }
 
-func toImportResponse(ar bootstrap.ApplyResult) jsoncontract.BootstrapImportResponse {
-	created := ar.Created
+func toImportResponse(created []string, skippedItems []specgraph.BootstrapSkippedItem) jsoncontract.BootstrapImportResponse {
 	if created == nil {
 		created = make([]string, 0)
 	}
 
-	skipped := make([]jsoncontract.BootstrapSkippedItem, 0, len(ar.Skipped))
-	for _, s := range ar.Skipped {
+	skipped := make([]jsoncontract.BootstrapSkippedItem, 0, len(skippedItems))
+	for _, s := range skippedItems {
 		skipped = append(skipped, jsoncontract.BootstrapSkippedItem{
 			ID:     s.ID,
 			Reason: s.Reason,
 		})
 	}
 
-	errs := make([]jsoncontract.BootstrapErrorItem, 0, len(ar.Errors))
-	for _, e := range ar.Errors {
-		errs = append(errs, jsoncontract.BootstrapErrorItem{
-			ID:    e.ID,
-			Error: e.Error,
-		})
-	}
-
 	return jsoncontract.BootstrapImportResponse{
 		Created: created,
 		Skipped: skipped,
-		Errors:  errs,
 	}
 }
 
