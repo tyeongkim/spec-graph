@@ -153,6 +153,36 @@ func (s *Store) DeleteEntity(id string, entityType model.EntityType) error {
 	return nil
 }
 
+// ReadEntityBytes returns the raw contents of an entity file, or nil when the
+// file does not exist.
+func (s *Store) ReadEntityBytes(id string, entityType model.EntityType) ([]byte, error) {
+	path, err := s.safeEntityPath(id, entityType)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read entity bytes %q: %w", id, err)
+	}
+	return data, nil
+}
+
+// WriteEntityBytes replaces an entity file with exact bytes, bypassing
+// canonical serialization so contents captured earlier restore byte-identically.
+func (s *Store) WriteEntityBytes(id string, entityType model.EntityType, data []byte) error {
+	path, err := s.safeEntityPath(id, entityType)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create entity dir for %q: %w", id, err)
+	}
+	return atomicWrite(path, data)
+}
+
 // EntityExists reports whether the entity file exists on disk. An id or type
 // that cannot form a safe path is reported as non-existent.
 func (s *Store) EntityExists(id string, entityType model.EntityType) bool {

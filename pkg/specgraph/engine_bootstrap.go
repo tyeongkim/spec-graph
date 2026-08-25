@@ -49,18 +49,20 @@ type BootstrapErrorItem struct {
 	Error string
 }
 
-// BootstrapImport imports entity and relation candidates into the graph via the
-// TOML store. Candidates below a confidence threshold are skipped, as are
-// entities that already exist. After writing entities the index is rebuilt so
-// relation endpoints can be validated against it; relations with missing
-// endpoints, disallowed edges, or existing duplicates are skipped or reported.
+// BootstrapImport imports entity and relation candidates into the graph.
+// Candidates below a confidence threshold are skipped, as are entities that
+// already exist. Relation endpoints resolve against entities created earlier in
+// the same import; relations with missing endpoints, disallowed edges, or
+// existing duplicates are skipped or reported.
 func (e *Engine) BootstrapImport(ctx context.Context, req BootstrapImportRequest) (BootstrapImportResult, error) {
 	return writeLocked(ctx, e, func() (BootstrapImportResult, error) {
-		return e.bootstrapImportLocked(req)
+		return transact(e, func(tx *txn) (BootstrapImportResult, error) {
+			return tx.bootstrapImport(req)
+		})
 	})
 }
 
-func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImportResult, error) {
+func (t *txn) bootstrapImport(req BootstrapImportRequest) (BootstrapImportResult, error) {
 	var result BootstrapImportResult
 
 	for _, c := range req.Entities {
@@ -85,7 +87,7 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 			continue
 		}
 
-		if e.store.EntityExists(c.ID, et) {
+		if t.exists(c.ID, et) {
 			result.Skipped = append(result.Skipped, BootstrapSkippedItem{
 				ID: c.ID, Reason: "already exists",
 			})
@@ -100,7 +102,7 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 			Status: model.EntityStatusDraft,
 		}
 
-		if err := e.store.WriteEntity(ef); err != nil {
+		if err := t.write(ef); err != nil {
 			result.Errors = append(result.Errors, BootstrapErrorItem{
 				ID: c.ID, Error: err.Error(),
 			})
@@ -110,12 +112,7 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 		result.Created = append(result.Created, c.ID)
 	}
 
-	if err := e.syncer.ForceRebuild(); err != nil {
-		result.Errors = append(result.Errors, BootstrapErrorItem{
-			ID: "_rebuild", Error: fmt.Sprintf("index rebuild after entities: %s", err.Error()),
-		})
-		return result, nil
-	}
+	entities := &stagedEntityFetcher{tx: t}
 
 	for _, c := range req.Relations {
 		key := fmt.Sprintf("%s:%s:%s", c.From, c.To, c.Type)
@@ -129,24 +126,22 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 
 		rt := model.RelationType(c.Type)
 
-		fromRec, err := e.idx.GetEntity(c.From)
-		if err != nil || fromRec == nil {
+		from, err := entities.Get(c.From)
+		if err != nil {
 			result.Errors = append(result.Errors, BootstrapErrorItem{
 				ID: key, Error: fmt.Sprintf("from entity %q not found", c.From),
 			})
 			continue
 		}
-		toRec, err := e.idx.GetEntity(c.To)
-		if err != nil || toRec == nil {
+		to, err := entities.Get(c.To)
+		if err != nil {
 			result.Errors = append(result.Errors, BootstrapErrorItem{
 				ID: key, Error: fmt.Sprintf("to entity %q not found", c.To),
 			})
 			continue
 		}
 
-		fromType := model.EntityType(fromRec.Type)
-		toType := model.EntityType(toRec.Type)
-		if !model.IsEdgeAllowed(rt, fromType, toType, nil) {
+		if !model.IsEdgeAllowed(rt, from.Type, to.Type, nil) {
 			result.Skipped = append(result.Skipped, BootstrapSkippedItem{
 				ID: key, Reason: "invalid edge",
 			})
@@ -154,15 +149,15 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 		}
 
 		ownerID := c.From
-		ownerType := fromType
+		ownerType := from.Type
 		targetID := c.To
 		if spectoml.IsSymmetricRelation(rt) && c.From > c.To {
 			ownerID = c.To
-			ownerType = toType
+			ownerType = to.Type
 			targetID = c.From
 		}
 
-		ownerEF, err := e.store.ReadEntity(ownerID, ownerType)
+		owner, err := t.read(ownerID, ownerType)
 		if err != nil {
 			result.Errors = append(result.Errors, BootstrapErrorItem{
 				ID: key, Error: fmt.Sprintf("read owner entity: %v", err),
@@ -171,7 +166,7 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 		}
 
 		duplicate := false
-		for _, existing := range ownerEF.Relations {
+		for _, existing := range owner.Relations {
 			if existing.To == targetID && existing.Type == rt {
 				duplicate = true
 				break
@@ -184,12 +179,12 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 			continue
 		}
 
-		ownerEF.Relations = append(ownerEF.Relations, spectoml.RelationEntry{
+		owner.Relations = append(owner.Relations, spectoml.RelationEntry{
 			To:   targetID,
 			Type: rt,
 		})
 
-		if err := e.store.WriteEntity(ownerEF); err != nil {
+		if err := t.write(owner); err != nil {
 			result.Errors = append(result.Errors, BootstrapErrorItem{
 				ID: key, Error: err.Error(),
 			})

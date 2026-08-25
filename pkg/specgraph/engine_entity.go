@@ -171,11 +171,13 @@ func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 // compatibility and is not yet observed.
 func (e *Engine) CreateEntity(ctx context.Context, req CreateEntityRequest) (model.Entity, error) {
 	return writeLocked(ctx, e, func() (model.Entity, error) {
-		return e.createEntityLocked(req)
+		return transact(e, func(tx *txn) (model.Entity, error) {
+			return tx.createEntity(req)
+		})
 	})
 }
 
-func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, error) {
+func (t *txn) createEntity(req CreateEntityRequest) (model.Entity, error) {
 	if req.Type == "" || req.Title == "" {
 		return model.Entity{}, newError(CodeInvalidInput, "type and title are required", nil)
 	}
@@ -184,7 +186,7 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 
 	id := req.ID
 	if id == "" {
-		generated, err := e.nextEntityID(et)
+		generated, err := t.nextEntityID(et)
 		if err != nil {
 			return model.Entity{}, err
 		}
@@ -193,7 +195,7 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 		return model.Entity{}, newError(CodeInvalidInput, err.Error(), err)
 	}
 
-	if e.store.EntityExists(id, et) {
+	if t.exists(id, et) {
 		return model.Entity{}, newError(CodeConflict, fmt.Sprintf("entity %q already exists", id), nil)
 	}
 
@@ -235,12 +237,8 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 		Metadata:    meta,
 	}
 
-	if err := e.store.WriteEntity(ef); err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", id), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return model.Entity{}, newError(CodeRuntime, "sync index after create", err)
+	if err := t.write(ef); err != nil {
+		return model.Entity{}, err
 	}
 
 	entity, err := ef.ToEntity()
@@ -252,15 +250,15 @@ func (e *Engine) createEntityLocked(req CreateEntityRequest) (model.Entity, erro
 
 // nextEntityID generates a decentralized, sortable entity ID for et via
 // model.GenerateEntityID (PREFIX-<unixSeconds>-<rand3>). It retries on the rare
-// event that a freshly generated ID already exists on disk, giving a second
-// layer of collision protection on top of the create-time existence check.
-func (e *Engine) nextEntityID(et model.EntityType) (string, error) {
+// event that a freshly generated ID already exists, giving a second layer of
+// collision protection on top of the create-time existence check.
+func (t *txn) nextEntityID(et model.EntityType) (string, error) {
 	for i := 0; i < 8; i++ {
 		id, err := model.GenerateEntityID(et)
 		if err != nil {
 			return "", newError(CodeInvalidInput, err.Error(), err)
 		}
-		if !e.store.EntityExists(id, et) {
+		if !t.exists(id, et) {
 			return id, nil
 		}
 	}
@@ -352,21 +350,19 @@ func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, er
 // result carries a non-nil GateReport.
 func (e *Engine) UpdateEntity(ctx context.Context, req UpdateEntityRequest) (UpdateEntityResult, error) {
 	return writeLocked(ctx, e, func() (UpdateEntityResult, error) {
-		return e.updateEntityLocked(req)
+		return transact(e, func(tx *txn) (UpdateEntityResult, error) {
+			return tx.updateEntity(req)
+		})
 	})
 }
 
-func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult, error) {
-	rec, err := e.idx.GetEntity(req.ID)
+func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) {
+	existing, err := (&stagedEntityFetcher{tx: t}).Get(req.ID)
 	if err != nil {
-		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", req.ID), err)
-	}
-	if rec == nil {
-		return UpdateEntityResult{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.ID), nil)
+		return UpdateEntityResult{}, lookupError(fmt.Sprintf("get entity %q", req.ID), req.ID, err)
 	}
 
-	et := model.EntityType(rec.Type)
-	ef, err := e.store.ReadEntity(req.ID, et)
+	ef, err := t.read(req.ID, existing.Type)
 	if err != nil {
 		return UpdateEntityResult{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.ID), err)
 	}
@@ -434,13 +430,10 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 			FromStatus: oldStatus,
 			ToStatus:   ef.Status,
 			Candidate:  candidate,
-			RepoRoot:   filepath.Dir(e.root),
+			RepoRoot:   filepath.Dir(t.eng.root),
 		}
 		if policy := gate.LookupPolicy(target); policy != nil {
-			efAdapter := &engineEntityFetcher{idx: e.idx}
-			rfAdapter := &engineRelationFetcher{idx: e.idx}
-
-			report, err := gate.Enforce(target, rfAdapter, efAdapter)
+			report, err := gate.Enforce(target, &stagedRelationFetcher{tx: t}, &stagedEntityFetcher{tx: t})
 			if err != nil {
 				return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("gate enforce %q", req.ID), err)
 			}
@@ -466,12 +459,8 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 
 	ef.UpdatedAt = time.Now()
 
-	if err := e.store.WriteEntity(ef); err != nil {
-		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", req.ID), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return UpdateEntityResult{}, newError(CodeRuntime, "sync index after update", err)
+	if err := t.write(ef); err != nil {
+		return UpdateEntityResult{}, err
 	}
 
 	entity, err := ef.ToEntity()
@@ -485,42 +474,37 @@ func (e *Engine) updateEntityLocked(req UpdateEntityRequest) (UpdateEntityResult
 // writes the change, and refreshes the index.
 func (e *Engine) DeprecateEntity(ctx context.Context, id, reason string) (model.Entity, error) {
 	return writeLocked(ctx, e, func() (model.Entity, error) {
-		return e.deprecateEntityLocked(id, reason)
+		return transact(e, func(tx *txn) (model.Entity, error) {
+			return tx.deprecateEntity(id, reason)
+		})
 	})
 }
 
-func (e *Engine) deprecateEntityLocked(id, reason string) (model.Entity, error) {
-	rec, err := e.idx.GetEntity(id)
+func (t *txn) deprecateEntity(id, reason string) (model.Entity, error) {
+	existing, err := (&stagedEntityFetcher{tx: t}).Get(id)
 	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
-	}
-	if rec == nil {
-		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), nil)
+		return model.Entity{}, lookupError(fmt.Sprintf("get entity %q", id), id, err)
 	}
 
-	et := model.EntityType(rec.Type)
-	ef, err := e.store.ReadEntity(id, et)
-	if err != nil {
-		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), err)
-	}
-	if ef.Type == model.EntityTypeTask {
+	if existing.Type == model.EntityTypeTask {
 		status := string(model.EntityStatusDeprecated)
-		result, updateErr := e.updateEntityLocked(UpdateEntityRequest{ID: id, Status: &status, Reason: reason})
+		result, updateErr := t.updateEntity(UpdateEntityRequest{ID: id, Status: &status, Reason: reason})
 		if updateErr != nil {
 			return model.Entity{}, updateErr
 		}
 		return result.Entity, nil
 	}
 
+	ef, err := t.read(id, existing.Type)
+	if err != nil {
+		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), err)
+	}
+
 	ef.Status = model.EntityStatusDeprecated
 	ef.UpdatedAt = time.Now()
 
-	if err := e.store.WriteEntity(ef); err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", id), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return model.Entity{}, newError(CodeRuntime, "sync index after deprecate", err)
+	if err := t.write(ef); err != nil {
+		return model.Entity{}, err
 	}
 
 	entity, err := ef.ToEntity()
@@ -549,12 +533,14 @@ func validateTaskEntity(title, description string, metadata json.RawMessage, sta
 // compatibility and is not yet observed.
 func (e *Engine) DeleteEntity(ctx context.Context, id string) error {
 	return writeLockedErr(ctx, e, func() error {
-		return e.deleteEntityLocked(id)
+		return transactErr(e, func(tx *txn) error {
+			return tx.deleteEntity(id)
+		})
 	})
 }
 
-func (e *Engine) deleteEntityLocked(id string) error {
-	relations, err := e.idx.GetRelationsByEntity(id)
+func (t *txn) deleteEntity(id string) error {
+	relations, err := (&stagedRelationFetcher{tx: t}).GetByEntity(id)
 	if err != nil {
 		return newError(CodeRuntime, fmt.Sprintf("check relations for %q", id), err)
 	}
@@ -566,22 +552,10 @@ func (e *Engine) deleteEntityLocked(id string) error {
 		)
 	}
 
-	rec, err := e.idx.GetEntity(id)
+	entity, err := (&stagedEntityFetcher{tx: t}).Get(id)
 	if err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("get entity %q", id), err)
-	}
-	if rec == nil {
-		return newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), nil)
+		return lookupError(fmt.Sprintf("get entity %q", id), id, err)
 	}
 
-	et := model.EntityType(rec.Type)
-	if err := e.store.DeleteEntity(id, et); err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("delete entity %q", id), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return newError(CodeRuntime, "sync index after delete", err)
-	}
-
-	return nil
+	return t.remove(id, entity.Type)
 }

@@ -34,6 +34,47 @@ type RelationEntry struct {
 	Metadata map[string]any     `toml:"metadata,omitempty"`
 }
 
+// Clone returns a deep copy, so a caller mutating the result cannot reach the
+// metadata maps or relation slice of the original.
+func (ef *EntityFile) Clone() *EntityFile {
+	copied := *ef
+	copied.Metadata = cloneAnyMap(ef.Metadata)
+	if ef.Relations != nil {
+		copied.Relations = make([]RelationEntry, len(ef.Relations))
+		for i, entry := range ef.Relations {
+			copied.Relations[i] = entry
+			copied.Relations[i].Metadata = cloneAnyMap(entry.Metadata)
+		}
+	}
+	return &copied
+}
+
+func cloneAnyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	copied := make(map[string]any, len(m))
+	for k, v := range m {
+		copied[k] = cloneAnyValue(v)
+	}
+	return copied
+}
+
+func cloneAnyValue(v any) any {
+	switch value := v.(type) {
+	case map[string]any:
+		return cloneAnyMap(value)
+	case []any:
+		copied := make([]any, len(value))
+		for i, item := range value {
+			copied[i] = cloneAnyValue(item)
+		}
+		return copied
+	default:
+		return v
+	}
+}
+
 // ToEntity converts an EntityFile to a model.Entity.
 // Layer is derived from the entity type. Timestamps are formatted as RFC3339.
 func (ef *EntityFile) ToEntity() (model.Entity, error) {
