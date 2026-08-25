@@ -11,16 +11,18 @@ import (
 
 // BatchEntity is one entity to create within a batch. Ref names the entity for
 // the duration of the batch so relations in the same request can reference an ID
-// that does not exist yet; it is not persisted. Ref is optional, and an entity
-// declared without one cannot be referenced.
+// the engine has yet to generate; it is not persisted. Ref is optional: an entity
+// created with a caller-supplied ID is already addressable by that ID, so only a
+// generated ID needs a ref to be reachable within the request.
 type BatchEntity struct {
 	Ref string
 	CreateEntityRequest
 }
 
 // BatchRelation is one relation to add within a batch. From and To each hold
-// either a ref declared by an entity in the same request or the ID of an entity
-// that already exists in the graph.
+// either a ref declared by an entity in the same request, the caller-supplied ID
+// of an entity the same request creates, or the ID of an entity that already
+// exists in the graph.
 type BatchRelation struct {
 	From     string
 	To       string
@@ -124,7 +126,27 @@ func (t *txn) applyBatch(req BatchRequest) (BatchResult, error) {
 		result.Relations = append(result.Relations, relation)
 	}
 
+	if err := t.refreshBatchEntities(result.Entities); err != nil {
+		return BatchResult{}, err
+	}
+
 	return result, nil
+}
+
+// refreshBatchEntities re-reads each created entity from staged state, because a
+// relation added later in the same batch can change an entity the entity loop
+// already captured: delivers activates a draft target.
+func (t *txn) refreshBatchEntities(created []BatchEntityResult) error {
+	entities := &stagedEntityFetcher{tx: t}
+	for i := range created {
+		id := created[i].Entity.ID
+		entity, err := entities.Get(id)
+		if err != nil {
+			return newError(CodeRuntime, fmt.Sprintf("re-read entity %q", id), err)
+		}
+		created[i].Entity = entity
+	}
+	return nil
 }
 
 // validateRef rejects a ref shaped like an entity ID, which is what keeps refs

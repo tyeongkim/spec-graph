@@ -213,10 +213,15 @@ func TestApplyBatchActivatesDeliveredTarget(t *testing.T) {
 	}
 
 	var requirementID string
+	var reported model.Entity
 	for _, item := range result.Entities {
 		if item.Ref == "req" {
 			requirementID = item.Entity.ID
+			reported = item.Entity
 		}
+	}
+	if reported.Status != model.EntityStatusActive {
+		t.Errorf("reported requirement status = %q, want %q", reported.Status, model.EntityStatusActive)
 	}
 
 	delivered, err := eng.GetEntity(context.Background(), requirementID)
@@ -225,6 +230,38 @@ func TestApplyBatchActivatesDeliveredTarget(t *testing.T) {
 	}
 	if delivered.Status != model.EntityStatusActive {
 		t.Errorf("delivered requirement status = %q, want %q", delivered.Status, model.EntityStatusActive)
+	}
+}
+
+func TestApplyBatchReportsDefaultWeightAsStored(t *testing.T) {
+	t.Parallel()
+
+	eng := openTestEngine(t)
+	ctx := context.Background()
+
+	result, err := eng.ApplyBatch(ctx, BatchRequest{
+		Entities: []BatchEntity{
+			{Ref: "plan", CreateEntityRequest: CreateEntityRequest{Type: "plan", Title: "Plan", Status: "active"}},
+			{Ref: "phase", CreateEntityRequest: CreateEntityRequest{Type: "phase", Title: "Phase"}},
+		},
+		Relations: []BatchRelation{
+			{From: "phase", To: "plan", Type: "belongs_to"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyBatch: %v", err)
+	}
+
+	if got := result.Relations[0].Weight; got != 1.0 {
+		t.Errorf("reported weight = %v, want 1.0", got)
+	}
+
+	persisted, _, err := eng.ListRelations(ctx, ListRelationsRequest{})
+	if err != nil {
+		t.Fatalf("ListRelations: %v", err)
+	}
+	if persisted[0].Weight != result.Relations[0].Weight {
+		t.Errorf("persisted weight = %v, reported %v; want them equal", persisted[0].Weight, result.Relations[0].Weight)
 	}
 }
 
