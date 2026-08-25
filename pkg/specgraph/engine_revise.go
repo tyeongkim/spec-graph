@@ -3,6 +3,7 @@ package specgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,11 +48,13 @@ type ReviseEntityResult struct {
 // that completed before the revision existed.
 func (e *Engine) ReviseEntity(ctx context.Context, req ReviseEntityRequest) (ReviseEntityResult, error) {
 	return writeLocked(ctx, e, func() (ReviseEntityResult, error) {
-		return e.reviseEntityLocked(req)
+		return transact(e, func(tx *txn) (ReviseEntityResult, error) {
+			return tx.reviseEntity(req)
+		})
 	})
 }
 
-func (e *Engine) reviseEntityLocked(req ReviseEntityRequest) (ReviseEntityResult, error) {
+func (t *txn) reviseEntity(req ReviseEntityRequest) (ReviseEntityResult, error) {
 	if req.ID == "" {
 		return ReviseEntityResult{}, newError(CodeInvalidInput, "id is required", nil)
 	}
@@ -59,25 +62,22 @@ func (e *Engine) reviseEntityLocked(req ReviseEntityRequest) (ReviseEntityResult
 		return ReviseEntityResult{}, newError(CodeInvalidInput, "reason is required", nil)
 	}
 
-	priorRec, err := e.idx.GetEntity(req.ID)
+	priorEntity, err := (&stagedEntityFetcher{tx: t}).Get(req.ID)
 	if err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("lookup entity %q", req.ID), err)
-	}
-	if priorRec == nil {
-		return ReviseEntityResult{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.ID), nil)
+		return ReviseEntityResult{}, lookupError(fmt.Sprintf("lookup entity %q", req.ID), req.ID, err)
 	}
 
-	entityType := model.EntityType(priorRec.Type)
+	entityType := priorEntity.Type
 	if model.LayerForEntityType(entityType) != model.LayerArch {
 		return ReviseEntityResult{}, newError(CodeInvalidInput, fmt.Sprintf("entity %q is not an arch entity; only arch entities form revision chains", req.ID), nil)
 	}
 
-	prior, err := e.store.ReadEntity(req.ID, entityType)
+	prior, err := t.read(req.ID, entityType)
 	if err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("read entity %q", req.ID), err)
+		return ReviseEntityResult{}, err
 	}
 
-	inbound, err := e.inboundRelations(req.ID)
+	inbound, err := t.inboundRelations(req.ID)
 	if err != nil {
 		return ReviseEntityResult{}, err
 	}
@@ -88,12 +88,12 @@ func (e *Engine) reviseEntityLocked(req ReviseEntityRequest) (ReviseEntityResult
 		return ReviseEntityResult{}, newError(CodeInvalidInput, fmt.Sprintf("entity %q is deprecated; revision chains start from a live entity", req.ID), nil)
 	}
 
-	revisionID, err := e.nextEntityID(entityType)
+	revisionID, err := t.nextEntityID(entityType)
 	if err != nil {
 		return ReviseEntityResult{}, err
 	}
 
-	carried, retained, err := e.partitionInbound(inbound)
+	carried, retained, err := t.partitionInbound(inbound)
 	if err != nil {
 		return ReviseEntityResult{}, err
 	}
@@ -102,42 +102,40 @@ func (e *Engine) reviseEntityLocked(req ReviseEntityRequest) (ReviseEntityResult
 	if err != nil {
 		return ReviseEntityResult{}, err
 	}
-	if err := e.store.WriteEntity(revision); err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("write revision %q", revisionID), err)
-	}
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, "sync index after writing revision", err)
-	}
-
-	if err := e.moveRelations(prior, carried, revisionID); err != nil {
+	if err := t.write(revision); err != nil {
 		return ReviseEntityResult{}, err
 	}
 
-	prior, err = e.store.ReadEntity(req.ID, entityType)
-	if err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("reread entity %q", req.ID), err)
-	}
-	prior.Status = model.EntityStatusDeprecated
-	prior.UpdatedAt = time.Now()
-	if err := e.store.WriteEntity(prior); err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("deprecate entity %q", req.ID), err)
-	}
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return ReviseEntityResult{}, newError(CodeRuntime, "sync index after revise", err)
+	if err := t.moveRelations(prior, carried, revisionID); err != nil {
+		return ReviseEntityResult{}, err
 	}
 
-	revisionEntity, err := e.entityByID(revisionID)
+	superseded, err := t.read(req.ID, entityType)
 	if err != nil {
 		return ReviseEntityResult{}, err
 	}
-	priorEntity, err := prior.ToEntity()
+	superseded.Status = model.EntityStatusDeprecated
+	superseded.UpdatedAt = time.Now()
+	if err := t.write(superseded); err != nil {
+		return ReviseEntityResult{}, err
+	}
+
+	revisionFile, err := t.read(revisionID, entityType)
+	if err != nil {
+		return ReviseEntityResult{}, err
+	}
+	revisionEntity, err := revisionFile.ToEntity()
+	if err != nil {
+		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", revisionID), err)
+	}
+	supersededEntity, err := superseded.ToEntity()
 	if err != nil {
 		return ReviseEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), err)
 	}
 
 	return ReviseEntityResult{
 		Revision:          revisionEntity,
-		Superseded:        priorEntity,
+		Superseded:        supersededEntity,
 		CarriedRelations:  carried,
 		RetainedRelations: retained,
 	}, nil
@@ -148,7 +146,9 @@ func (e *Engine) reviseEntityLocked(req ReviseEntityRequest) (ReviseEntityResult
 // Symmetric relations are excluded because their owning file depends on the new
 // ID; moveRelations re-adds them through the normalizing relation path.
 func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEntityRequest) (*spectoml.EntityFile, error) {
-	metadata := prior.Metadata
+	carried := prior.Clone()
+
+	metadata := carried.Metadata
 	if req.Metadata != nil {
 		if !json.Valid(*req.Metadata) {
 			return nil, newError(CodeInvalidInput, "metadata must be valid JSON", nil)
@@ -160,11 +160,11 @@ func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEnti
 		metadata = replacement
 	}
 
-	title := prior.Title
+	title := carried.Title
 	if req.Title != nil {
 		title = *req.Title
 	}
-	description := prior.Description
+	description := carried.Description
 	if req.Description != nil {
 		description = *req.Description
 	}
@@ -176,7 +176,7 @@ func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEnti
 	}
 
 	relations := []spectoml.RelationEntry{supersedes}
-	for _, entry := range prior.Relations {
+	for _, entry := range carried.Relations {
 		if spectoml.IsSymmetricRelation(entry.Type) {
 			continue
 		}
@@ -200,14 +200,14 @@ func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEnti
 
 // moveRelations repoints carried inbound relations onto the revision and re-adds
 // the prior entity's symmetric relations from the revision. Both go through
-// addRelationLocked and deleteRelationLocked so edge-matrix validation and
-// symmetric-owner normalization stay in one place.
-func (e *Engine) moveRelations(prior *spectoml.EntityFile, carried []model.Relation, revisionID string) error {
+// addRelation and deleteRelation so edge-matrix validation and symmetric-owner
+// normalization stay in one place.
+func (t *txn) moveRelations(prior *spectoml.EntityFile, carried []model.Relation, revisionID string) error {
 	for _, entry := range prior.Relations {
 		if !spectoml.IsSymmetricRelation(entry.Type) {
 			continue
 		}
-		if err := e.transferRelation(prior.ID, entry.To, revisionID, entry.To, entry.Type, entry.Weight, entry.Metadata); err != nil {
+		if err := t.transferRelation(prior.ID, entry.To, revisionID, entry.To, entry.Type, entry.Weight, entry.Metadata); err != nil {
 			return err
 		}
 	}
@@ -225,7 +225,7 @@ func (e *Engine) moveRelations(prior *spectoml.EntityFile, carried []model.Relat
 				return newError(CodeRuntime, fmt.Sprintf("decode metadata of %q relation from %q", relation.Type, relation.FromID), err)
 			}
 		}
-		if err := e.transferRelation(relation.FromID, prior.ID, from, to, relation.Type, relation.Weight, metadata); err != nil {
+		if err := t.transferRelation(relation.FromID, prior.ID, from, to, relation.Type, relation.Weight, metadata); err != nil {
 			return err
 		}
 	}
@@ -233,7 +233,7 @@ func (e *Engine) moveRelations(prior *spectoml.EntityFile, carried []model.Relat
 	return nil
 }
 
-func (e *Engine) transferRelation(oldFrom, oldTo, newFrom, newTo string, relationType model.RelationType, weight float64, metadata map[string]any) error {
+func (t *txn) transferRelation(oldFrom, oldTo, newFrom, newTo string, relationType model.RelationType, weight float64, metadata map[string]any) error {
 	var metadataJSON json.RawMessage
 	if len(metadata) > 0 {
 		encoded, err := json.Marshal(metadata)
@@ -243,7 +243,7 @@ func (e *Engine) transferRelation(oldFrom, oldTo, newFrom, newTo string, relatio
 		metadataJSON = encoded
 	}
 
-	if _, err := e.addRelationLocked(AddRelationRequest{
+	if _, err := t.addRelation(AddRelationRequest{
 		From:     newFrom,
 		To:       newTo,
 		Type:     string(relationType),
@@ -253,33 +253,25 @@ func (e *Engine) transferRelation(oldFrom, oldTo, newFrom, newTo string, relatio
 		return err
 	}
 
-	return e.deleteRelationLocked(DeleteRelationRequest{
+	return t.deleteRelation(DeleteRelationRequest{
 		From: oldFrom,
 		To:   oldTo,
 		Type: string(relationType),
 	})
 }
 
-func (e *Engine) inboundRelations(id string) ([]model.Relation, error) {
-	records, err := e.idx.GetRelationsByEntity(id)
+func (t *txn) inboundRelations(id string) ([]model.Relation, error) {
+	relations, err := (&stagedRelationFetcher{tx: t}).GetByEntity(id)
 	if err != nil {
 		return nil, newError(CodeRuntime, fmt.Sprintf("lookup relations for %q", id), err)
 	}
 
 	var inbound []model.Relation
-	for _, record := range records {
-		if record.ToID != id {
+	for _, relation := range relations {
+		if relation.ToID != id {
 			continue
 		}
-		relationType := model.RelationType(record.Type)
-		inbound = append(inbound, model.Relation{
-			FromID:   record.FromID,
-			ToID:     record.ToID,
-			Type:     relationType,
-			Layer:    model.LayerForRelationType(relationType),
-			Weight:   record.Weight,
-			Metadata: json.RawMessage(record.Metadata),
-		})
+		inbound = append(inbound, relation)
 	}
 	return inbound, nil
 }
@@ -298,12 +290,12 @@ func findSuccessor(inbound []model.Relation) string {
 // partitionInbound splits relations pointing at the revised entity into those
 // that move onto the revision and those that stay as a record of completed
 // execution.
-func (e *Engine) partitionInbound(inbound []model.Relation) (carried, retained []model.Relation, err error) {
+func (t *txn) partitionInbound(inbound []model.Relation) (carried, retained []model.Relation, err error) {
 	for _, relation := range inbound {
 		if relation.Type == model.RelationSupersedes {
 			continue
 		}
-		completed, completedErr := e.recordsCompletedExecution(relation)
+		completed, completedErr := t.recordsCompletedExecution(relation)
 		if completedErr != nil {
 			return nil, nil, completedErr
 		}
@@ -316,36 +308,17 @@ func (e *Engine) partitionInbound(inbound []model.Relation) (carried, retained [
 	return carried, retained, nil
 }
 
-func (e *Engine) recordsCompletedExecution(relation model.Relation) (bool, error) {
+func (t *txn) recordsCompletedExecution(relation model.Relation) (bool, error) {
 	if relation.Layer != model.LayerMapping {
 		return false, nil
 	}
-	source, err := e.idx.GetEntity(relation.FromID)
+	source, err := (&stagedEntityFetcher{tx: t}).Get(relation.FromID)
 	if err != nil {
+		var missing *model.ErrEntityNotFound
+		if errors.As(err, &missing) {
+			return false, nil
+		}
 		return false, newError(CodeRuntime, fmt.Sprintf("lookup entity %q", relation.FromID), err)
 	}
-	if source == nil {
-		return false, nil
-	}
-	return model.EntityStatus(source.Status) == model.EntityStatusResolved, nil
-}
-
-func (e *Engine) entityByID(id string) (model.Entity, error) {
-	record, err := e.idx.GetEntity(id)
-	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("lookup entity %q", id), err)
-	}
-	if record == nil {
-		return model.Entity{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), nil)
-	}
-
-	ef, err := e.store.ReadEntity(id, model.EntityType(record.Type))
-	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("read entity %q", id), err)
-	}
-	entity, err := ef.ToEntity()
-	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", id), err)
-	}
-	return entity, nil
+	return source.Status == model.EntityStatusResolved, nil
 }

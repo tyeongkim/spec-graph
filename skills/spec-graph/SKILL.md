@@ -249,6 +249,12 @@ spec-graph entity delete <ID>
 spec-graph entity import --input <PATH>
 ```
 
+`entity import` requires `id`, `type`, and `title` in every item. It writes accepted items in one
+transaction and one index refresh, so another process cannot interleave items. Existing IDs are
+skipped; any other failure, including an unknown type, malformed ID, missing required field, or
+write failure, aborts the import without changing the graph and exits non-zero. Its response
+contains only `created` and `skipped`.
+
 ### Relation CRUD
 ```bash
 spec-graph relation add --from <ID> --to <ID> --type <RELATION_TYPE>
@@ -638,12 +644,19 @@ spec-graph bootstrap scan --input ./docs/ --format json
 # 2. Review — filter low-confidence items
 cat extracted.json | jq '.entities[] | select(.confidence >= 0.7)'
 
-# 3. Import in review mode
+# 3. Preview candidates in review mode (the default; does not write)
 spec-graph bootstrap import --input extracted.json --mode review
+
+# 4. Apply the reviewed candidates atomically
+spec-graph bootstrap import --input extracted.json --mode apply
 ```
 
-Low-confidence relations are never auto-imported. A human must confirm, or the agent must
-cross-reference against the source document before deciding.
+`--mode apply` writes the batch as one transaction and returns only `created` and `skipped`.
+Candidates below `0.5` confidence, candidates that already exist, and relation candidates whose
+endpoint types fail the edge matrix are skipped. An unknown entity or relation type, a malformed
+entity ID, a missing relation endpoint, or a write failure aborts the batch without changing the
+graph and exits non-zero. Malformed input is rejected regardless of its confidence. A human must
+confirm, or the agent must cross-reference against the source document before applying candidates.
 
 ### Pattern 7: Revising an Arch Entity
 
@@ -816,7 +829,8 @@ Key fields in `impact` JSON output:
 
 ## Caveats
 
-- `bootstrap import` defaults to `--mode review`. Never use `--mode auto`.
+- `bootstrap import` defaults to `--mode review`, which does not write. Use `--mode apply` only
+  after review.
 - `supersedes` requires both entities to be the same type. It is directional: stored in the `from` entity's file, so `revision supersedes prior` means the `from` entity is newer. Prefer `entity revise` over adding this edge by hand — it wires the edge, moves relations, and deprecates the prior entity in one operation.
 - `conflicts_with` does not allow self-loops. It is symmetric: stored in the lexicographically smaller entity's file. Both directions are queryable via the index.
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.

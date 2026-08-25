@@ -35,14 +35,8 @@ func (f *overlayEntityFetcher) List(filters validate.EntityListFilters) ([]model
 			result = append(result, entity)
 		}
 	}
-	if matchesFilters(f.candidate, filters) {
+	if validate.MatchesEntityFilters(f.candidate, filters) {
 		result = append(result, f.candidate)
 	}
 	return result, nil
-}
-
-func matchesFilters(entity model.Entity, filters validate.EntityListFilters) bool {
-	return (filters.Type == nil || entity.Type == *filters.Type) &&
-		(filters.Status == nil || entity.Status == *filters.Status) &&
-		(filters.Layer == nil || entity.Layer == *filters.Layer)
 }

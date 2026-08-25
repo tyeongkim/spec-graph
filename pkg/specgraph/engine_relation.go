@@ -3,6 +3,7 @@ package specgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,16 +50,18 @@ func isValidRelationType(rt model.RelationType) bool {
 // AddRelation registers a new relation between two existing entities. It
 // validates the relation type, rejects self-loops, verifies both endpoints
 // exist, enforces the edge matrix, normalizes symmetric relations to a
-// canonical owner, rejects duplicates, and writes the owning entity's TOML
-// file. When the relation type is "delivers", a draft target entity is
-// auto-activated. The index is refreshed afterward.
+// canonical owner, and rejects duplicates. When the relation type is
+// "delivers", a draft target entity is auto-activated; the relation and that
+// activation are committed together or not at all.
 func (e *Engine) AddRelation(ctx context.Context, req AddRelationRequest) (model.Relation, error) {
 	return writeLocked(ctx, e, func() (model.Relation, error) {
-		return e.addRelationLocked(req)
+		return transact(e, func(tx *txn) (model.Relation, error) {
+			return tx.addRelation(req)
+		})
 	})
 }
 
-func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, error) {
+func (t *txn) addRelation(req AddRelationRequest) (model.Relation, error) {
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return model.Relation{}, newError(CodeInvalidInput, "from, to, and type are required", nil)
 	}
@@ -72,24 +75,18 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 		return model.Relation{}, newError(CodeInvalidInput, "self-loop not allowed", nil)
 	}
 
-	fromRec, err := e.idx.GetEntity(req.From)
+	entities := &stagedEntityFetcher{tx: t}
+	from, err := entities.Get(req.From)
 	if err != nil {
-		return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("lookup from entity %q", req.From), err)
+		return model.Relation{}, lookupError(fmt.Sprintf("lookup from entity %q", req.From), req.From, err)
 	}
-	if fromRec == nil {
-		return model.Relation{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.From), nil)
+	to, err := entities.Get(req.To)
+	if err != nil {
+		return model.Relation{}, lookupError(fmt.Sprintf("lookup to entity %q", req.To), req.To, err)
 	}
 
-	toRec, err := e.idx.GetEntity(req.To)
-	if err != nil {
-		return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("lookup to entity %q", req.To), err)
-	}
-	if toRec == nil {
-		return model.Relation{}, newError(CodeNotFound, fmt.Sprintf("entity %q not found", req.To), nil)
-	}
-
-	fromType := model.EntityType(fromRec.Type)
-	toType := model.EntityType(toRec.Type)
+	fromType := from.Type
+	toType := to.Type
 	if !model.IsEdgeAllowed(rt, fromType, toType, nil) {
 		return model.Relation{}, newError(
 			CodeInvalidInput,
@@ -97,8 +94,10 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 			&model.ErrInvalidEdge{FromType: fromType, ToType: toType, RelationType: rt},
 		)
 	}
+
+	relations := &stagedRelationFetcher{tx: t}
 	if fromType == model.EntityTypePhase && (rt == model.RelationCovers || rt == model.RelationDelivers) {
-		scope, scopeErr := graph.EffectivePhaseScope(req.From, &engineRelationFetcher{idx: e.idx})
+		scope, scopeErr := graph.EffectivePhaseScope(req.From, relations)
 		if scopeErr != nil {
 			return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("derive phase scope for %q", req.From), scopeErr)
 		}
@@ -107,12 +106,12 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 		}
 	}
 	if fromType == model.EntityTypeTask && toType == model.EntityTypePhase && rt == model.RelationBelongsTo {
-		phaseRelations, phaseErr := e.idx.GetRelationsByEntity(req.To)
+		phaseRelations, phaseErr := relations.GetByEntity(req.To)
 		if phaseErr != nil {
 			return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("lookup phase mappings for %q", req.To), phaseErr)
 		}
 		for _, relation := range phaseRelations {
-			if relation.FromID == req.To && (relation.Type == string(model.RelationCovers) || relation.Type == string(model.RelationDelivers)) {
+			if relation.FromID == req.To && (relation.Type == model.RelationCovers || relation.Type == model.RelationDelivers) {
 				return model.Relation{}, newError(CodeInvalidInput, fmt.Sprintf("phase %q has direct mappings; remove them before adding tasks", req.To), nil)
 			}
 		}
@@ -137,12 +136,12 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 		targetID = req.From
 	}
 
-	ef, err := e.store.ReadEntity(ownerID, ownerType)
+	owner, err := t.read(ownerID, ownerType)
 	if err != nil {
-		return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("read owner entity %q", ownerID), err)
+		return model.Relation{}, err
 	}
 
-	for _, existing := range ef.Relations {
+	for _, existing := range owner.Relations {
 		if fromType == model.EntityTypeTask && rt == model.RelationBelongsTo && existing.Type == model.RelationBelongsTo && existing.To != targetID {
 			return model.Relation{}, newError(
 				CodeInvalidInput,
@@ -164,25 +163,21 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 		relWeight = 0
 	}
 
-	ef.Relations = append(ef.Relations, spectoml.RelationEntry{
+	owner.Relations = append(owner.Relations, spectoml.RelationEntry{
 		To:       targetID,
 		Type:     rt,
 		Weight:   relWeight,
 		Metadata: relMeta,
 	})
 
-	if err := e.store.WriteEntity(ef); err != nil {
-		return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("write entity %q", ownerID), err)
+	if err := t.write(owner); err != nil {
+		return model.Relation{}, err
 	}
 
 	if rt == model.RelationDelivers {
-		if err := e.autoActivateOnDelivers(req.To, toType); err != nil {
-			return model.Relation{}, newError(CodeRuntime, fmt.Sprintf("auto-activate %q", req.To), err)
+		if err := t.activateDeliveredTarget(req.To, toType); err != nil {
+			return model.Relation{}, err
 		}
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return model.Relation{}, newError(CodeRuntime, "sync index after add relation", err)
 	}
 
 	var metaJSON json.RawMessage
@@ -198,6 +193,16 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 		Weight:   req.Weight,
 		Metadata: metaJSON,
 	}, nil
+}
+
+// lookupError preserves the not-found distinction that callers rely on for exit
+// codes, falling back to a runtime failure described by context.
+func lookupError(context, id string, err error) error {
+	var missing *model.ErrEntityNotFound
+	if errors.As(err, &missing) {
+		return newError(CodeNotFound, fmt.Sprintf("entity %q not found", id), nil)
+	}
+	return newError(CodeRuntime, context, err)
 }
 
 // ListRelations returns relations matching the optional filters in req, along
@@ -255,11 +260,13 @@ func (e *Engine) listRelationsLocked(req ListRelationsRequest) ([]model.Relation
 // index.
 func (e *Engine) DeleteRelation(ctx context.Context, req DeleteRelationRequest) error {
 	return writeLockedErr(ctx, e, func() error {
-		return e.deleteRelationLocked(req)
+		return transactErr(e, func(tx *txn) error {
+			return tx.deleteRelation(req)
+		})
 	})
 }
 
-func (e *Engine) deleteRelationLocked(req DeleteRelationRequest) error {
+func (t *txn) deleteRelation(req DeleteRelationRequest) error {
 	if req.From == "" || req.To == "" || req.Type == "" {
 		return newError(CodeInvalidInput, "from, to, and type are required", nil)
 	}
@@ -273,23 +280,19 @@ func (e *Engine) deleteRelationLocked(req DeleteRelationRequest) error {
 		targetID = req.From
 	}
 
-	ownerRec, err := e.idx.GetEntity(ownerID)
+	owner, err := (&stagedEntityFetcher{tx: t}).Get(ownerID)
 	if err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("lookup owner entity %q", ownerID), err)
-	}
-	if ownerRec == nil {
-		return newError(CodeNotFound, fmt.Sprintf("entity %q not found", ownerID), nil)
+		return lookupError(fmt.Sprintf("lookup owner entity %q", ownerID), ownerID, err)
 	}
 
-	ownerType := model.EntityType(ownerRec.Type)
-	ef, err := e.store.ReadEntity(ownerID, ownerType)
+	current, err := t.read(ownerID, owner.Type)
 	if err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("read owner entity %q", ownerID), err)
+		return err
 	}
 
 	found := false
-	filtered := make([]spectoml.RelationEntry, 0, len(ef.Relations))
-	for _, rel := range ef.Relations {
+	filtered := make([]spectoml.RelationEntry, 0, len(current.Relations))
+	for _, rel := range current.Relations {
 		if rel.To == targetID && rel.Type == rt {
 			found = true
 			continue
@@ -305,34 +308,23 @@ func (e *Engine) deleteRelationLocked(req DeleteRelationRequest) error {
 		)
 	}
 
-	ef.Relations = filtered
+	current.Relations = filtered
 
-	if err := e.store.WriteEntity(ef); err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("write entity %q", ownerID), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return newError(CodeRuntime, "sync index after delete relation", err)
-	}
-
-	return nil
+	return t.write(current)
 }
 
-// autoActivateOnDelivers transitions a draft target entity to active when a
+// activateDeliveredTarget transitions a draft target entity to active when a
 // "delivers" relation is added to it. Non-draft targets are left unchanged.
-func (e *Engine) autoActivateOnDelivers(entityID string, entityType model.EntityType) error {
-	targetEF, err := e.store.ReadEntity(entityID, entityType)
+func (t *txn) activateDeliveredTarget(entityID string, entityType model.EntityType) error {
+	target, err := t.read(entityID, entityType)
 	if err != nil {
-		return fmt.Errorf("read target entity %q: %w", entityID, err)
+		return err
 	}
-	if targetEF.Status != model.EntityStatusDraft {
+	if target.Status != model.EntityStatusDraft {
 		return nil
 	}
 
-	targetEF.Status = model.EntityStatusActive
-	targetEF.UpdatedAt = time.Now()
-	if err := e.store.WriteEntity(targetEF); err != nil {
-		return fmt.Errorf("write target entity %q: %w", entityID, err)
-	}
-	return nil
+	target.Status = model.EntityStatusActive
+	target.UpdatedAt = time.Now()
+	return t.write(target)
 }

@@ -12,25 +12,6 @@ type ReviewResult struct {
 	Relations []RelationCandidate `json:"relations"`
 }
 
-// SkippedItem records a candidate that was skipped during apply.
-type SkippedItem struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason"`
-}
-
-// ErrorItem records a candidate that failed during apply.
-type ErrorItem struct {
-	ID    string `json:"id"`
-	Error string `json:"error"`
-}
-
-// ApplyResult summarises the outcome of an import, as reported by the engine.
-type ApplyResult struct {
-	Created []string      `json:"created"`
-	Skipped []SkippedItem `json:"skipped"`
-	Errors  []ErrorItem   `json:"errors"`
-}
-
 // ReviewCandidates returns the scan result as-is for human review.
 func ReviewCandidates(input ScanResult) ReviewResult {
 	return ReviewResult{

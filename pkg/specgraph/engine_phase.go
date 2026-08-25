@@ -56,11 +56,15 @@ type enginePhaseInfo struct {
 // in draft, it is transitioned to active.
 func (e *Engine) PhaseNext(ctx context.Context, req PhaseNextRequest) (PhaseNextResult, error) {
 	return writeLocked(ctx, e, func() (PhaseNextResult, error) {
-		return e.phaseNextLocked(req)
+		return transact(e, func(tx *txn) (PhaseNextResult, error) {
+			return tx.phaseNext(req)
+		})
 	})
 }
 
-func (e *Engine) phaseNextLocked(req PhaseNextRequest) (PhaseNextResult, error) {
+func (t *txn) phaseNext(req PhaseNextRequest) (PhaseNextResult, error) {
+	e := t.eng
+
 	activePlanID, err := e.findActivePlan()
 	if err != nil {
 		return PhaseNextResult{}, err
@@ -95,7 +99,7 @@ func (e *Engine) phaseNextLocked(req PhaseNextRequest) (PhaseNextResult, error) 
 	activated := false
 	finalStatus := string(nextPhase.status)
 	if req.Activate && nextPhase.status == model.EntityStatusDraft {
-		if err := e.activatePhase(nextID); err != nil {
+		if err := t.activatePhase(nextID); err != nil {
 			return PhaseNextResult{}, err
 		}
 		activated = true
@@ -271,22 +275,14 @@ func (e *Engine) computePhaseScope(phaseID string) (PhaseNextScope, error) {
 	}, nil
 }
 
-func (e *Engine) activatePhase(phaseID string) error {
-	ef, err := e.store.ReadEntity(phaseID, model.EntityTypePhase)
+func (t *txn) activatePhase(phaseID string) error {
+	ef, err := t.read(phaseID, model.EntityTypePhase)
 	if err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("read phase entity %q", phaseID), err)
+		return err
 	}
 	ef.Status = model.EntityStatusActive
 	ef.UpdatedAt = time.Now()
-	if err := e.store.WriteEntity(ef); err != nil {
-		return newError(CodeRuntime, fmt.Sprintf("write phase entity %q", phaseID), err)
-	}
-
-	if _, err := e.syncer.EnsureFresh(); err != nil {
-		return newError(CodeRuntime, "sync index after activate phase", err)
-	}
-
-	return nil
+	return t.write(ef)
 }
 
 func extractPhaseGoal(metadata string) string {

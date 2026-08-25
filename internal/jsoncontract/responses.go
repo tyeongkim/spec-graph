@@ -191,15 +191,9 @@ type BootstrapSkippedItem struct {
 	Reason string `json:"reason"`
 }
 
-type BootstrapErrorItem struct {
-	ID    string `json:"id"`
-	Error string `json:"error"`
-}
-
 type BootstrapImportResponse struct {
 	Created []string               `json:"created"`
 	Skipped []BootstrapSkippedItem `json:"skipped"`
-	Errors  []BootstrapErrorItem   `json:"errors"`
 }
 
 // EntitySummary is a lightweight entity representation used in query responses.

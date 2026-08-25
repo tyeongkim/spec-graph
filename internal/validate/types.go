@@ -24,6 +24,13 @@ type EntityListFilters struct {
 	Layer  *model.Layer
 }
 
+// MatchesEntityFilters reports whether entity satisfies every non-nil filter.
+func MatchesEntityFilters(entity model.Entity, filters EntityListFilters) bool {
+	return (filters.Type == nil || entity.Type == *filters.Type) &&
+		(filters.Status == nil || entity.Status == *filters.Status) &&
+		(filters.Layer == nil || entity.Layer == *filters.Layer)
+}
+
 // EntityFetcher retrieves entities by ID or filtered list.
 type EntityFetcher interface {
 	Get(id string) (model.Entity, error)
