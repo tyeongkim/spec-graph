@@ -135,10 +135,6 @@ var relationDeleteCmd = &cobra.Command{
 	},
 }
 
-func isSymmetricRelation(rt model.RelationType) bool {
-	return rt == model.RelationConflictsWith
-}
-
 func init() {
 	relationAddCmd.Flags().String("from", "", "source entity ID (required)")
 	relationAddCmd.Flags().String("to", "", "target entity ID (required)")

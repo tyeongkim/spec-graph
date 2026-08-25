@@ -36,13 +36,6 @@ type DeleteRelationRequest struct {
 	Type string // relation type (required)
 }
 
-// isSymmetricRelation reports whether the relation type is symmetric, meaning
-// the relation is owned by the lexicographically smaller endpoint regardless of
-// the requested direction.
-func isSymmetricRelation(rt model.RelationType) bool {
-	return rt == model.RelationConflictsWith
-}
-
 // isValidRelationType reports whether rt is one of the known relation types.
 func isValidRelationType(rt model.RelationType) bool {
 	for _, valid := range model.ValidRelationTypes {
@@ -138,7 +131,7 @@ func (e *Engine) addRelationLocked(req AddRelationRequest) (model.Relation, erro
 	ownerID := req.From
 	ownerType := fromType
 	targetID := req.To
-	if isSymmetricRelation(rt) && req.From > req.To {
+	if spectoml.IsSymmetricRelation(rt) && req.From > req.To {
 		ownerID = req.To
 		ownerType = toType
 		targetID = req.From
@@ -275,7 +268,7 @@ func (e *Engine) deleteRelationLocked(req DeleteRelationRequest) error {
 
 	ownerID := req.From
 	targetID := req.To
-	if isSymmetricRelation(rt) && req.From > req.To {
+	if spectoml.IsSymmetricRelation(rt) && req.From > req.To {
 		ownerID = req.To
 		targetID = req.From
 	}

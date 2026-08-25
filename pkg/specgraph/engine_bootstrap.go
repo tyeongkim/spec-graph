@@ -156,7 +156,7 @@ func (e *Engine) bootstrapImportLocked(req BootstrapImportRequest) (BootstrapImp
 		ownerID := c.From
 		ownerType := fromType
 		targetID := c.To
-		if isSymmetricRelation(rt) && c.From > c.To {
+		if spectoml.IsSymmetricRelation(rt) && c.From > c.To {
 			ownerID = c.To
 			ownerType = toType
 			targetID = c.From

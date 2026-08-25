@@ -384,7 +384,7 @@ func checkSymmetricRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
 			continue
 		}
 		for _, rel := range f.parsed.Relations {
-			if rel.Type != model.RelationConflictsWith && rel.Type != model.RelationSupersedes {
+			if !spectoml.IsSymmetricRelation(rel.Type) {
 				continue
 			}
 			if f.parsed.ID > rel.To {

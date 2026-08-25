@@ -177,7 +177,7 @@ func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEnti
 
 	relations := []spectoml.RelationEntry{supersedes}
 	for _, entry := range prior.Relations {
-		if isSymmetricRelation(entry.Type) {
+		if spectoml.IsSymmetricRelation(entry.Type) {
 			continue
 		}
 		relations = append(relations, entry)
@@ -204,7 +204,7 @@ func buildRevision(prior *spectoml.EntityFile, revisionID string, req ReviseEnti
 // symmetric-owner normalization stay in one place.
 func (e *Engine) moveRelations(prior *spectoml.EntityFile, carried []model.Relation, revisionID string) error {
 	for _, entry := range prior.Relations {
-		if !isSymmetricRelation(entry.Type) {
+		if !spectoml.IsSymmetricRelation(entry.Type) {
 			continue
 		}
 		if err := e.transferRelation(prior.ID, entry.To, revisionID, entry.To, entry.Type, entry.Weight, entry.Metadata); err != nil {
@@ -215,7 +215,7 @@ func (e *Engine) moveRelations(prior *spectoml.EntityFile, carried []model.Relat
 	for _, relation := range carried {
 		from := relation.FromID
 		to := revisionID
-		if isSymmetricRelation(relation.Type) {
+		if spectoml.IsSymmetricRelation(relation.Type) {
 			from = revisionID
 			to = relation.FromID
 		}
