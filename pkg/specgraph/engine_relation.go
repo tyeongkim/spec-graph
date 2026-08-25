@@ -22,6 +22,8 @@ type AddRelationRequest struct {
 	Metadata json.RawMessage // optional metadata JSON
 }
 
+const defaultRelationWeight = 1.0
+
 // ListRelationsRequest describes filters for listing relations.
 type ListRelationsRequest struct {
 	From  string // filter by source entity ID
@@ -158,15 +160,19 @@ func (t *txn) addRelation(req AddRelationRequest) (model.Relation, error) {
 		}
 	}
 
-	relWeight := req.Weight
-	if relWeight == 1.0 {
-		relWeight = 0
+	weight := req.Weight
+	if weight == 0 {
+		weight = defaultRelationWeight
+	}
+	storedWeight := weight
+	if storedWeight == defaultRelationWeight {
+		storedWeight = 0
 	}
 
 	owner.Relations = append(owner.Relations, spectoml.RelationEntry{
 		To:       targetID,
 		Type:     rt,
-		Weight:   relWeight,
+		Weight:   storedWeight,
 		Metadata: relMeta,
 	})
 
@@ -190,7 +196,7 @@ func (t *txn) addRelation(req AddRelationRequest) (model.Relation, error) {
 		ToID:     req.To,
 		Type:     rt,
 		Layer:    model.LayerForRelationType(rt),
-		Weight:   req.Weight,
+		Weight:   weight,
 		Metadata: metaJSON,
 	}, nil
 }

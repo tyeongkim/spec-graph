@@ -36,6 +36,7 @@ func NewDispatcher(engine *specgraph.Engine) *Dispatcher {
 		"relation.add":     d.relationAdd,
 		"relation.list":    d.relationList,
 		"relation.delete":  d.relationDelete,
+		"batch.apply":      d.batchApply,
 		"query.scope":      d.queryScope,
 		"query.neighbors":  d.queryNeighbors,
 		"query.path":       d.queryPath,
