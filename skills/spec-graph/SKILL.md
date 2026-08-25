@@ -710,6 +710,49 @@ Constraints:
 
 `revise` is CLI-only. It is not exposed over RPC or MCP.
 
+### Pattern 8: Atomic Batch (RPC only)
+
+Pattern 1 wires a plan with one command per entity and per relation. Each command commits on its
+own, so a failure partway through leaves a half-built plan that must be unwound by hand. The
+`batch.apply` RPC method commits an entire graph shape as one transaction instead.
+
+Because IDs are generated, a relation cannot name an entity the same request is still creating.
+Each entity may therefore declare a `ref`, a name valid only inside that request, and relations
+address endpoints by ref. The response reports the generated ID next to each ref.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"batch.apply","params":{
+  "entities":[
+    {"ref":"plan","type":"plan","title":"v1 Delivery Plan","status":"active"},
+    {"ref":"phase","type":"phase","title":"Phase 1 - Auth",
+     "metadata":{"goal":"Build authentication","order":1,"exit_criteria":["Auth API complete"]}}
+  ],
+  "relations":[
+    {"from":"phase","to":"plan","type":"belongs_to"},
+    {"from":"phase","to":"REQ-1752239482-k3f","type":"covers"}
+  ]
+}}
+```
+
+The response is `{entities,relations}`, where each entity entry is `{ref,entity}`. Capture the
+generated IDs from it; a ref has no meaning after the call returns.
+
+Rules:
+- an endpoint is resolved as a ref when one was declared in the same request, and otherwise as the
+  ID of an entity that already exists. The `covers` relation above mixes both forms.
+- `ref` is optional, and it is what makes a *generated* ID reachable. An entity declared without a
+  ref is still created, and relations can address it by an ID the caller supplied itself; only an
+  ID the engine generated is unreachable within the same request.
+- a ref must not be shaped like an entity ID, which is what keeps the two namespaces apart.
+- every entity is created before any relation, so ordering matters only among relations.
+- nothing is skipped. Any rejected item aborts the batch and leaves the graph untouched, unlike
+  `entity import` and `bootstrap import`, which skip already-existing items. Errors name the
+  position of the offending item, as in `relation 0: ...`.
+- each item faces the same validation as its single-item counterpart: the edge matrix, symmetric
+  relation ownership, phase scope, and `delivers`-driven activation of a draft target all apply.
+
+`batch.apply` is RPC-only. There is no CLI command and no MCP tool for it.
+
 ---
 
 ## Validation Checks Guide
