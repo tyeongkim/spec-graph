@@ -310,6 +310,11 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 }
 
 func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, error) {
+	layer, err := parseLayerString(req.Layer)
+	if err != nil {
+		return nil, err
+	}
+
 	var filters index.EntityFilters
 	if req.Type != "" {
 		filters.Type = req.Type
@@ -317,8 +322,8 @@ func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, er
 	if req.Status != "" {
 		filters.Status = req.Status
 	}
-	if req.Layer != "" {
-		filters.Layer = req.Layer
+	if layer != "" {
+		filters.Layer = layer
 	}
 
 	records, err := e.idx.ListEntities(filters)

@@ -362,6 +362,19 @@ func TestListEntities(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects an invalid layer", func(t *testing.T) {
+		t.Parallel()
+		eng := openTestEngine(t)
+
+		_, _, err := eng.ListEntities(context.Background(), specgraph.ListEntitiesRequest{Layer: "bogus"})
+		if err == nil {
+			t.Fatal("ListEntities accepted layer \"bogus\"; an unknown layer must not read as an empty result")
+		}
+		if !specgraph.IsInvalidInput(err) {
+			t.Errorf("error code is not invalid_input: %v", err)
+		}
+	})
+
 	t.Run("filter by type", func(t *testing.T) {
 		t.Parallel()
 		eng := openTestEngine(t)
