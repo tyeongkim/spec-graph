@@ -243,23 +243,6 @@ var entityUpdateCmd = &cobra.Command{
 	},
 }
 
-var entityDeprecateCmd = &cobra.Command{
-	Use:   "deprecate [id]",
-	Short: "Deprecate an entity",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		reason, _ := cmd.Flags().GetString("reason")
-
-		entity, err := engine.DeprecateEntity(cmd.Context(), id, reason)
-		if err != nil {
-			return handleEngineError(cmd, err, id)
-		}
-
-		return writeJSON(cmd, jsoncontract.EntityResponse{Entity: entity})
-	},
-}
-
 var entityReviseCmd = &cobra.Command{
 	Use:   "revise [id]",
 	Short: "Supersede an arch entity with a new revision",
@@ -400,7 +383,6 @@ func init() {
 	entityUpdateCmd.Flags().String("metadata-file", "", "path to JSON file containing metadata (mutually exclusive with --metadata)")
 	entityUpdateCmd.Flags().Bool("force", false, "bypass gate checks")
 	entityUpdateCmd.Flags().String("reason", "", "audit note for the change")
-	entityDeprecateCmd.Flags().String("reason", "", "reason for deprecation")
 
 	entityReviseCmd.Flags().String("title", "", "title for the new revision (carried forward when omitted)")
 	entityReviseCmd.Flags().String("description", "", "description for the new revision (carried forward when omitted)")
@@ -414,7 +396,6 @@ func init() {
 	entityCmd.AddCommand(entityGetCmd)
 	entityCmd.AddCommand(entityListCmd)
 	entityCmd.AddCommand(entityUpdateCmd)
-	entityCmd.AddCommand(entityDeprecateCmd)
 	entityCmd.AddCommand(entityReviseCmd)
 	entityCmd.AddCommand(entityDeleteCmd)
 	entityCmd.AddCommand(entityImportCmd)

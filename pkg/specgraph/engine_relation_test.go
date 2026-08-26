@@ -359,6 +359,18 @@ func TestAddRelation(t *testing.T) {
 func TestListRelations(t *testing.T) {
 	t.Parallel()
 
+	t.Run("rejects an invalid layer", func(t *testing.T) {
+		eng := openTestEngine(t)
+
+		_, _, err := eng.ListRelations(context.Background(), specgraph.ListRelationsRequest{Layer: "bogus"})
+		if err == nil {
+			t.Fatal("ListRelations accepted layer \"bogus\"; an unknown layer must not read as an empty result")
+		}
+		if !specgraph.IsInvalidInput(err) {
+			t.Errorf("error code is not invalid_input: %v", err)
+		}
+	})
+
 	t.Run("empty result", func(t *testing.T) {
 		eng := openTestEngine(t)
 		ctx := context.Background()

@@ -48,8 +48,9 @@ func TestDoctorAcceptsSupersedesOwnedByLexicographicallyLargerRevision(t *testin
 		t.Fatalf("relation add supersedes: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	if r := runCLI(t, dir, "--db", dbFile, "entity", "deprecate", "REQ-001"); r.exitCode != 0 {
-		t.Fatalf("entity deprecate REQ-001: exit=%d stderr=%s", r.exitCode, r.stderr)
+	if r := runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+		"--status", "deprecated", "--reason", "superseded by REQ-002"); r.exitCode != 0 {
+		t.Fatalf("entity update REQ-001 --status deprecated: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	owner := filepath.Join(filepath.Dir(dbFile), "entities", "requirement", "REQ-002.toml")

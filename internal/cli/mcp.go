@@ -12,9 +12,9 @@ import (
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start the MCP server (stdio transport)",
-	Long:  `Starts a Model Context Protocol server over stdio, exposing spec-graph read-only tools.`,
+	Long:  `Starts a Model Context Protocol server over stdio, exposing spec-graph query and write tools.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mcpServer := specmcp.NewSpecGraphServer(engine)
+		mcpServer := specmcp.NewSpecGraphServer(engine, Version)
 		if err := server.ServeStdio(mcpServer); err != nil {
 			fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
 			return err

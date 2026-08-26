@@ -225,6 +225,11 @@ func (e *Engine) ListRelations(ctx context.Context, req ListRelationsRequest) ([
 }
 
 func (e *Engine) listRelationsLocked(req ListRelationsRequest) ([]model.Relation, error) {
+	layer, err := parseLayerString(req.Layer)
+	if err != nil {
+		return nil, err
+	}
+
 	var filters index.RelationFilters
 	if req.From != "" {
 		filters.FromID = req.From
@@ -235,8 +240,8 @@ func (e *Engine) listRelationsLocked(req ListRelationsRequest) ([]model.Relation
 	if req.Type != "" {
 		filters.Type = req.Type
 	}
-	if req.Layer != "" {
-		filters.Layer = req.Layer
+	if layer != "" {
+		filters.Layer = layer
 	}
 
 	records, err := e.idx.ListRelations(filters)

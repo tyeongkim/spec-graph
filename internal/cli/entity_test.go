@@ -492,23 +492,45 @@ func TestEntityUpdateNotFound(t *testing.T) {
 	}
 }
 
-func TestEntityDeprecate(t *testing.T) {
+func TestEntityUpdateStatusDeprecated(t *testing.T) {
 	dbFile := initTestProject(t)
 
 	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "To Deprecate")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "deprecate", "REQ-001")
+	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-001",
+		"--status", "deprecated", "--reason", "superseded by REQ-015")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
 
-	var resp jsoncontract.EntityResponse
+	var resp jsoncontract.EntityUpdateSuccessResponse
 	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if resp.Entity.Status != model.EntityStatusDeprecated {
 		t.Errorf("status = %q; want deprecated", resp.Entity.Status)
+	}
+}
+
+func TestEntityUpdateRejectsDeprecatedQuestion(t *testing.T) {
+	dbFile := initTestProject(t)
+
+	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+		"--type", "question", "--id", "QST-001", "--title", "Open Question")
+
+	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "QST-001",
+		"--status", "deprecated")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stdout: %s", r.exitCode, r.stdout)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v", err)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
 	}
 }
 
@@ -580,7 +602,8 @@ func TestEntityFullLifecycle(t *testing.T) {
 		t.Fatalf("update failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "deprecate", "REQ-001")
+	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+		"--status", "deprecated", "--reason", "end of lifecycle")
 	if r.exitCode != 0 {
 		t.Fatalf("deprecate failed: %s", r.stderr)
 	}

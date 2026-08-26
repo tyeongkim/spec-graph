@@ -244,7 +244,6 @@ spec-graph entity list --type <TYPE> [--status <STATUS>] [--layer arch|exec|mapp
 spec-graph entity update <ID> --title "..."
 spec-graph entity update <ID> --status resolved [--force] [--reason "..."]
 spec-graph entity revise <ID> --reason "..." [--title "..."] [--description "..."] [--metadata '{}']
-spec-graph entity deprecate <ID> [--reason "..."]
 spec-graph entity delete <ID>
 spec-graph entity import --input <PATH>
 ```
@@ -390,7 +389,7 @@ PHS:  draft → active (gated: predecessors resolved)
 | PLN: draft → active | spec-planner | Only one active plan allowed |
 | PHS: draft → active | spec-executor | Predecessor phases resolved (blocking) |
 | PHS: active → resolved | spec-verifier | All deliverables verified, gate passes |
-| Any → deprecated | User (manual) | Reason recommended; no `--force` needed |
+| Any → deprecated | User (manual) | No `--force` needed; `--reason` required for TSK only |
 
 #### Rules
 
@@ -402,8 +401,12 @@ PHS:  draft → active (gated: predecessors resolved)
    `delivery_completeness` + `gates`. Blocked (exit 2) if issues exist.
 4. **PLN resolution is gated**: requires `plan_coverage` — all active arch entities must be covered.
 5. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
-6. **deprecated is terminal**: no transitions out of `deprecated`. Deprecating does not require
-   `--force`; `entity deprecate <ID> --reason "..."` is enough. Task deprecation requires a reason.
+6. **deprecated is terminal for PLN/PHS/TSK**: the lifecycle gate rejects any transition out of a
+   terminal status, but it only runs on transitions into `active`/`resolved` for plan, phase, and
+   task. Arch entities reach no policy, so `deprecated → active` is accepted there — terminal is a
+   convention for them, not an enforced invariant. Deprecating never needs `--force`;
+   `entity update <ID> --status deprecated` is enough. Task deprecation requires `--reason`.
+   `question` entities cannot be deprecated — resolve them instead.
 
 ### Relation Types (18)
 

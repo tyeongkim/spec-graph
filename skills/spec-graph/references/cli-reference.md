@@ -176,8 +176,14 @@ Transitions to `resolved` on a phase or plan are gated. The response carries an 
 `applied`, `applied_with_force`, or `blocked`; `blocked` exits 2 and leaves the TOML unchanged.
 `--force --reason "..."` accepts completion findings but cannot bypass structural ones.
 
+To deprecate, pass `--status deprecated`. Run `validate --check superseded_refs` afterward to clean
+up references. Task deprecation requires `--reason`; elsewhere `--reason` is optional and is only
+persisted (as `completion_reason`) when it accompanies a `--force` bypass, so a reason given on an
+arch deprecation is accepted but not recorded. `question` entities do not accept `deprecated`
+(INVALID_INPUT, exit 3) — resolve them instead.
+
 For a change in what an arch entity *means*, use `entity revise` instead — `update` discards the
-prior wording.
+prior wording. To deprecate *and* replace an arch entity, `entity revise` does both atomically.
 
 ### entity revise
 
@@ -228,15 +234,6 @@ Errors:
 | target does not exist | ENTITY_NOT_FOUND | 1 |
 
 CLI-only; not exposed over RPC or MCP.
-
-### entity deprecate
-
-```bash
-spec-graph entity deprecate <ID> [--reason "..."]
-```
-
-Sets status to `deprecated`. Run `validate --check superseded_refs` afterward to clean up references.
-To deprecate *and* replace an arch entity, use `entity revise` instead.
 
 ### entity import
 

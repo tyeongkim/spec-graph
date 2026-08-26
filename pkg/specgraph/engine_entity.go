@@ -310,6 +310,11 @@ func (e *Engine) ListEntities(ctx context.Context, req ListEntitiesRequest) ([]m
 }
 
 func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, error) {
+	layer, err := parseLayerString(req.Layer)
+	if err != nil {
+		return nil, err
+	}
+
 	var filters index.EntityFilters
 	if req.Type != "" {
 		filters.Type = req.Type
@@ -317,8 +322,8 @@ func (e *Engine) listEntitiesLocked(req ListEntitiesRequest) ([]model.Entity, er
 	if req.Status != "" {
 		filters.Status = req.Status
 	}
-	if req.Layer != "" {
-		filters.Layer = req.Layer
+	if layer != "" {
+		filters.Layer = layer
 	}
 
 	records, err := e.idx.ListEntities(filters)
@@ -468,50 +473,6 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 		return UpdateEntityResult{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", req.ID), err)
 	}
 	return UpdateEntityResult{Entity: entity, Outcome: outcome, GateReport: gateReport}, nil
-}
-
-// DeprecateEntity sets an entity's status to deprecated, updates its timestamp,
-// writes the change, and refreshes the index.
-func (e *Engine) DeprecateEntity(ctx context.Context, id, reason string) (model.Entity, error) {
-	return writeLocked(ctx, e, func() (model.Entity, error) {
-		return transact(e, func(tx *txn) (model.Entity, error) {
-			return tx.deprecateEntity(id, reason)
-		})
-	})
-}
-
-func (t *txn) deprecateEntity(id, reason string) (model.Entity, error) {
-	existing, err := (&stagedEntityFetcher{tx: t}).Get(id)
-	if err != nil {
-		return model.Entity{}, lookupError(fmt.Sprintf("get entity %q", id), id, err)
-	}
-
-	if existing.Type == model.EntityTypeTask {
-		status := string(model.EntityStatusDeprecated)
-		result, updateErr := t.updateEntity(UpdateEntityRequest{ID: id, Status: &status, Reason: reason})
-		if updateErr != nil {
-			return model.Entity{}, updateErr
-		}
-		return result.Entity, nil
-	}
-
-	ef, err := t.read(id, existing.Type)
-	if err != nil {
-		return model.Entity{}, err
-	}
-
-	ef.Status = model.EntityStatusDeprecated
-	ef.UpdatedAt = time.Now()
-
-	if err := t.write(ef); err != nil {
-		return model.Entity{}, err
-	}
-
-	entity, err := ef.ToEntity()
-	if err != nil {
-		return model.Entity{}, newError(CodeRuntime, fmt.Sprintf("convert entity %q", id), err)
-	}
-	return entity, nil
 }
 
 func validateTaskEntity(title, description string, metadata json.RawMessage, status model.EntityStatus) error {

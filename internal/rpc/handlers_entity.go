@@ -121,21 +121,6 @@ func (d *Dispatcher) entityUpdate(ctx context.Context, params json.RawMessage) (
 	}, nil
 }
 
-func (d *Dispatcher) entityDeprecate(ctx context.Context, params json.RawMessage) (any, *rpcError) {
-	var p struct {
-		ID     string `json:"id"`
-		Reason string `json:"reason"`
-	}
-	if rerr := decodeParams(params, &p); rerr != nil {
-		return nil, rerr
-	}
-	entity, err := d.engine.DeprecateEntity(ctx, p.ID, p.Reason)
-	if err != nil {
-		return nil, engineError(err)
-	}
-	return jsoncontract.EntityResponse{Entity: entity}, nil
-}
-
 func (d *Dispatcher) entityDelete(ctx context.Context, params json.RawMessage) (any, *rpcError) {
 	var p entityGetParams
 	if rerr := decodeParams(params, &p); rerr != nil {
