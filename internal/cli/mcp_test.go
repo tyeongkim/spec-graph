@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -119,7 +118,6 @@ func TestMCPToolsList(t *testing.T) {
 		t.Fatalf("expected at least 2 responses, got %d", len(responses))
 	}
 
-	// Second response is tools/list.
 	resp := responses[1]
 
 	var result struct {
@@ -131,40 +129,39 @@ func TestMCPToolsList(t *testing.T) {
 		t.Fatalf("unmarshal tools/list result: %v\nraw: %s", err, resp.Result)
 	}
 
-	if len(result.Tools) != 7 {
-		t.Errorf("len(tools) = %d; want 7", len(result.Tools))
-		for _, tool := range result.Tools {
-			t.Logf("  tool: %s", tool.Name)
+	advertised := make(map[string]bool, len(result.Tools))
+	for _, tool := range result.Tools {
+		advertised[tool.Name] = true
+	}
+
+	for _, name := range []string{
+		"plan_status", "phase_brief", "phase_gate", "change_impact",
+		"get_entity", "list_entities", "list_relations", "query_path",
+		"apply_batch", "update_entity", "delete_entity", "delete_relation", "next_phase",
+	} {
+		if !advertised[name] {
+			t.Errorf("tool %q is not advertised over stdio", name)
 		}
 	}
 
-	expectedTools := map[string]bool{
-		"query_scope":      false,
-		"query_path":       false,
-		"query_unresolved": false,
-		"impact":           false,
-		"validate":         false,
-		"export":           false,
-		"phase_context":    false,
-	}
-	for _, tool := range result.Tools {
-		if _, ok := expectedTools[tool.Name]; ok {
-			expectedTools[tool.Name] = true
-		}
-	}
-	for name, found := range expectedTools {
-		if !found {
-			t.Errorf("missing tool: %s", name)
+	// export stays a CLI and RPC surface: an agent has no use for a diagram string.
+	for _, name := range []string{"export", "import_entities", "bootstrap_import"} {
+		if advertised[name] {
+			t.Errorf("tool %q is advertised but was excluded from the MCP surface", name)
 		}
 	}
 }
 
-func TestMCPToolCallQueryScope(t *testing.T) {
+func TestMCPToolCallPhaseBrief(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	// Set up test data: phase + entities + relations.
 	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "plan", "--id", "PLN-001", "--title", "Plan", "--status", "active")
+	if r.exitCode != 0 {
+		t.Fatalf("add plan: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add phase: exit=%d stderr=%s", r.exitCode, r.stderr)
@@ -175,22 +172,52 @@ func TestMCPToolCallQueryScope(t *testing.T) {
 		t.Fatalf("add req: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+		"--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to")
+	if r.exitCode != 0 {
+		t.Fatalf("add belongs_to: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
 		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
-		t.Fatalf("add relation: exit=%d stderr=%s", r.exitCode, r.stderr)
+		t.Fatalf("add covers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	responses := runMCP(t, dbFile,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query_scope","arguments":{"phase_id":"PHS-001"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"phase_brief","arguments":{"phase_id":"PHS-001"}}}`,
 	)
 
 	if len(responses) < 2 {
 		t.Fatalf("expected at least 2 responses, got %d", len(responses))
 	}
 
-	resp := responses[1]
+	result := decodeToolCall(t, responses[1])
+	if result.IsError {
+		t.Fatalf("unexpected error result: %s", result.Content[0].Text)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("expected non-empty content")
+	}
+
+	text := result.Content[0].Text
+	if !strings.Contains(text, "REQ-001") {
+		t.Errorf("brief should carry the covered REQ-001; got: %s", text)
+	}
+	if !strings.Contains(text, "PHS-001") {
+		t.Errorf("brief should carry PHS-001; got: %s", text)
+	}
+}
+
+// decodeToolCall unwraps the tools/call envelope shared by the assertions below.
+func decodeToolCall(t *testing.T, resp jsonrpcResponse) struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	IsError bool `json:"isError"`
+} {
+	t.Helper()
 	var result struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -201,67 +228,7 @@ func TestMCPToolCallQueryScope(t *testing.T) {
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		t.Fatalf("unmarshal tools/call result: %v\nraw: %s", err, resp.Result)
 	}
-
-	if result.IsError {
-		t.Fatalf("unexpected error result: %s", result.Content[0].Text)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected non-empty content")
-	}
-
-	text := result.Content[0].Text
-	if !strings.Contains(text, "REQ-001") {
-		t.Errorf("result text should contain REQ-001; got: %s", text)
-	}
-	if !strings.Contains(text, "PHS-001") {
-		t.Errorf("result text should contain PHS-001; got: %s", text)
-	}
-}
-
-func TestMCPToolCallExport(t *testing.T) {
-	dbFile := initTestProject(t)
-	dir := t.TempDir()
-
-	// Add at least one entity so export has content.
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
-		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	if r.exitCode != 0 {
-		t.Fatalf("add entity: exit=%d stderr=%s", r.exitCode, r.stderr)
-	}
-
-	responses := runMCP(t, dbFile,
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`,
-		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"export","arguments":{"format":"dot"}}}`,
-	)
-
-	if len(responses) < 2 {
-		t.Fatalf("expected at least 2 responses, got %d", len(responses))
-	}
-
-	resp := responses[1]
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("unmarshal export result: %v\nraw: %s", err, resp.Result)
-	}
-
-	if result.IsError {
-		t.Fatalf("unexpected error result: %s", result.Content[0].Text)
-	}
-	if len(result.Content) == 0 {
-		t.Fatal("expected non-empty content")
-	}
-
-	text := result.Content[0].Text
-	if !strings.Contains(text, "digraph") {
-		t.Errorf("expected DOT output containing 'digraph'; got: %s", text)
-	}
+	return result
 }
 
 func TestMCPToolCallError(t *testing.T) {
@@ -270,49 +237,21 @@ func TestMCPToolCallError(t *testing.T) {
 	responses := runMCP(t, dbFile,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query_scope","arguments":{"phase_id":"NONEXISTENT"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"phase_brief","arguments":{"phase_id":"PHS-999"}}}`,
 	)
 
 	if len(responses) < 2 {
 		t.Fatalf("expected at least 2 responses, got %d", len(responses))
 	}
 
-	resp := responses[1]
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("unmarshal error result: %v\nraw: %s", err, resp.Result)
-	}
-
-	// The MCP server returns isError:true for tool errors.
+	result := decodeToolCall(t, responses[1])
 	if !result.IsError {
-		// Some MCP implementations return the error in content text instead.
-		if len(result.Content) > 0 {
-			text := result.Content[0].Text
-			if !strings.Contains(strings.ToLower(text), "not found") &&
-				!strings.Contains(strings.ToLower(text), "error") &&
-				!strings.Contains(strings.ToLower(text), "no entity") {
-				t.Errorf("expected isError=true or error text; got isError=%v text=%s", result.IsError, text)
-			}
-		} else {
-			t.Error("expected isError=true or error content")
-		}
-		return
+		t.Fatalf("expected isError=true for a missing phase; got content: %+v", result.Content)
 	}
-
 	if len(result.Content) == 0 {
 		t.Fatal("expected error content")
 	}
-
-	// Verify error message mentions the nonexistent entity.
-	text := result.Content[0].Text
-	fmt.Printf("error text: %s\n", text) // debug output
-	if text == "" {
-		t.Error("expected non-empty error text")
+	if !strings.Contains(strings.ToLower(result.Content[0].Text), "not found") {
+		t.Errorf("error should say the phase was not found; got: %s", result.Content[0].Text)
 	}
 }
