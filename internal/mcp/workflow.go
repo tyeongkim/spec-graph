@@ -156,13 +156,10 @@ func changeImpact(ctx context.Context, engine *specgraph.Engine, req specgraph.I
 	return result, nil
 }
 
-// phaseScopedChecks omits Checks on the mapping request so it runs every default
-// mapping check, which already covers task_scope; task_graph is an exec-layer
-// check and needs its own request.
 func phaseScopedChecks(phaseID string) []specgraph.ValidateRequest {
 	return []specgraph.ValidateRequest{
 		{Layer: string(model.LayerMapping), Phase: phaseID},
-		{Layer: string(model.LayerExec), Checks: []string{"task_graph"}},
+		{Layer: string(model.LayerExec), Phase: phaseID, Checks: []string{"task_graph"}},
 	}
 }
 

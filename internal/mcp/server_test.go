@@ -315,6 +315,45 @@ func TestPhaseBriefCarriesContextAndPhaseScopedIssues(t *testing.T) {
 	}
 }
 
+func TestPhaseBriefExcludesTaskGraphIssuesFromOtherPhases(t *testing.T) {
+	t.Parallel()
+	engine := newTestEngine(t)
+	seedPhase(t, engine)
+
+	_, err := engine.ApplyBatch(context.Background(), specgraph.BatchRequest{
+		Entities: []specgraph.BatchEntity{
+			{CreateEntityRequest: specgraph.CreateEntityRequest{
+				Type: "phase", ID: "PHS-002", Title: "Second phase",
+			}},
+			{CreateEntityRequest: specgraph.CreateEntityRequest{
+				Type: "task", ID: "TSK-002", Title: "Implement the second phase",
+				Description: "Implement the second phase.",
+				Metadata:    taskContract(1, "Implement the second phase."),
+			}},
+		},
+		Relations: []specgraph.BatchRelation{
+			{From: "PHS-002", To: "PLN-001", Type: "belongs_to"},
+			{From: "TSK-002", To: "PHS-002", Type: "belongs_to"},
+			{From: "TSK-002", To: "TSK-001", Type: "task_depends_on"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed second phase: %v", err)
+	}
+
+	text := callToolExpectingSuccess(t, engine, "phase_brief", map[string]any{"phase_id": "PHS-001"})
+
+	var brief phaseBriefResult
+	if err := json.Unmarshal([]byte(text), &brief); err != nil {
+		t.Fatalf("decode phase brief: %v", err)
+	}
+	for _, issue := range brief.Issues {
+		if issue.Check == "task_graph" && issue.Entity == "TSK-002" {
+			t.Errorf("phase brief included an issue from PHS-002: %+v", issue)
+		}
+	}
+}
+
 func TestPhaseToolsRejectANonPhaseID(t *testing.T) {
 	t.Parallel()
 	engine := newTestEngine(t)

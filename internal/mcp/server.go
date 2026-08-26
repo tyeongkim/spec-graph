@@ -371,6 +371,7 @@ func applyBatchTool() mcp.Tool {
 				"required": []string{"from", "to", "type"},
 			}),
 		),
+		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
 }
@@ -471,6 +472,7 @@ func updateEntityTool() mcp.Tool {
 		mcp.WithString("reason",
 			mcp.Description("Why the change is being made. Required when deprecating a task, and when force accepts gate findings."),
 		),
+		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
 }
@@ -505,6 +507,7 @@ func deleteEntityTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("Entity ID to delete"),
 		),
+		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
 }
@@ -540,6 +543,7 @@ func deleteRelationTool() mcp.Tool {
 			mcp.Description("Relation type"),
 			mcp.Enum(relationTypeNames()...),
 		),
+		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 	)
 }
@@ -564,6 +568,7 @@ func nextPhaseTool() mcp.Tool {
 		mcp.WithBoolean("activate",
 			mcp.Description("Transition the selected phase from draft to active"),
 		),
+		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
 }
