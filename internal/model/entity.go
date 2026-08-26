@@ -104,6 +104,12 @@ func AllowedStatuses(t EntityType) []EntityStatus {
 	return defaultStatuses
 }
 
+// ValidEntityStatuses returns every status the model recognizes, across all
+// entity types. A specific type may accept a narrower set; see AllowedStatuses.
+func ValidEntityStatuses() []EntityStatus {
+	return slices.Clone(defaultStatuses)
+}
+
 // IsValidEntityType reports whether t is a recognized entity type.
 func IsValidEntityType(t EntityType) bool {
 	_, ok := TypePrefixMap[t]
