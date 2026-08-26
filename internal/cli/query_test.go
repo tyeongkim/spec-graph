@@ -447,6 +447,39 @@ func TestQuerySQLSelectRows(t *testing.T) {
 	}
 }
 
+func TestQuerySQLAllowsSemicolonsWithinOneStatement(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	for _, test := range []struct {
+		name  string
+		query string
+	}{
+		{name: "string literal", query: "SELECT ';'"},
+		{name: "double quoted identifier", query: `SELECT 1 AS "value;name"`},
+		{name: "backtick quoted identifier", query: "SELECT 1 AS `value;name`"},
+		{name: "bracketed identifier", query: "SELECT 1 AS [value;name]"},
+		{name: "line comment", query: "SELECT 1 -- ;"},
+		{name: "block comment", query: "SELECT 1 /* ; */"},
+		{name: "trailing separator", query: "SELECT 1; /* trailing comment */"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := runCLI(t, dir, "--db", dbFile, "query", "sql", test.query)
+			if r.exitCode != 0 {
+				t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
+			}
+
+			var response jsoncontract.QuerySQLResponse
+			if err := json.Unmarshal([]byte(r.stdout), &response); err != nil {
+				t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+			}
+			if response.Count != 1 {
+				t.Errorf("count = %d; want 1", response.Count)
+			}
+		})
+	}
+}
+
 func TestQuerySQLRejectsDelete(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
@@ -462,6 +495,35 @@ func TestQuerySQLRejectsDelete(t *testing.T) {
 	}
 	if errResp.Error.Code != "INVALID_INPUT" {
 		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestQuerySQLRejectsMultipleStatementsWithoutDeleting(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+
+	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
+	if r.exitCode != 0 {
+		t.Fatalf("add entity: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "query", "sql", "SELECT id FROM entities; DELETE FROM entities")
+	if r.exitCode != 3 {
+		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
+	}
+
+	var errResp jsoncontract.ErrorResponse
+	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
+		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
+	}
+	if errResp.Error.Code != "INVALID_INPUT" {
+		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	if r.exitCode != 0 {
+		t.Fatalf("seeded entity was deleted: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 }
 

@@ -7,23 +7,23 @@ import (
 	"testing"
 )
 
-func TestReviewCandidates(t *testing.T) {
+func TestReviewOutputPreservesCandidates(t *testing.T) {
 	input := ScanResult{
 		Entities: []EntityCandidate{
-			{ID: "REQ-001", Type: "requirement", Title: "Auth", Confidence: 0.9},
+			{ID: "REQ-001", Type: "requirement", Layer: "arch", Title: "Auth", Confidence: 0.9, Source: "spec.md#L1"},
 		},
 		Relations: []RelationCandidate{
-			{From: "REQ-001", To: "DEC-001", Type: "depends_on", Confidence: 0.8},
+			{From: "REQ-001", To: "DEC-001", Type: "depends_on", Confidence: 0.8, Source: "spec.md#L2"},
 		},
 	}
 
-	got := ReviewCandidates(input)
-
-	if len(got.Entities) != 1 || got.Entities[0].ID != "REQ-001" {
-		t.Errorf("entities mismatch: got %+v", got.Entities)
+	data, err := json.Marshal(ReviewCandidates(input))
+	if err != nil {
+		t.Fatalf("marshal review output: %v", err)
 	}
-	if len(got.Relations) != 1 || got.Relations[0].From != "REQ-001" {
-		t.Errorf("relations mismatch: got %+v", got.Relations)
+	const want = `{"entities":[{"id":"REQ-001","type":"requirement","layer":"arch","title":"Auth","confidence":0.9,"source":"spec.md#L1"}],"relations":[{"from":"REQ-001","to":"DEC-001","type":"depends_on","confidence":0.8,"source":"spec.md#L2"}]}`
+	if string(data) != want {
+		t.Errorf("review JSON = %s; want %s", data, want)
 	}
 }
 

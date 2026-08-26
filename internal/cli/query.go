@@ -257,9 +257,7 @@ var querySQLCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		query := strings.TrimSpace(args[0])
-		upper := strings.ToUpper(query)
-
-		if !strings.HasPrefix(upper, "SELECT") {
+		if !isSingleSelectStatement(query) {
 			return handleError(cmd, &model.ErrInvalidInput{Message: "only SELECT statements are allowed"})
 		}
 
@@ -274,4 +272,89 @@ var querySQLCmd = &cobra.Command{
 			Count:   len(res.Rows),
 		})
 	},
+}
+
+func isSingleSelectStatement(query string) bool {
+	if !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
+		return false
+	}
+
+	terminated := false
+	for i := 0; i < len(query); i++ {
+		if terminated {
+			switch query[i] {
+			case ' ', '\t', '\n', '\r', '\f':
+				continue
+			}
+			if end, ok := skipSQLComment(query, i); ok {
+				i = end
+				continue
+			}
+			return false
+		}
+
+		if end, ok := skipSQLComment(query, i); ok {
+			i = end
+			continue
+		}
+
+		switch quote := query[i]; quote {
+		case '\'', '"', '`':
+			i = skipSQLQuoted(query, i, quote)
+		case '[':
+			i = skipSQLBracketedIdentifier(query, i)
+		case ';':
+			terminated = true
+		}
+	}
+
+	return true
+}
+
+func skipSQLComment(query string, start int) (int, bool) {
+	if start+1 >= len(query) {
+		return start, false
+	}
+
+	if query[start] == '-' && query[start+1] == '-' {
+		for i := start + 2; i < len(query); i++ {
+			if query[i] == '\n' || query[i] == '\r' {
+				return i, true
+			}
+		}
+		return len(query), true
+	}
+	if query[start] != '/' || query[start+1] != '*' {
+		return start, false
+	}
+
+	for i := start + 2; i+1 < len(query); i++ {
+		if query[i] == '*' && query[i+1] == '/' {
+			return i + 1, true
+		}
+	}
+	return len(query), true
+}
+
+func skipSQLQuoted(query string, start int, quote byte) int {
+	for i := start + 1; i < len(query); i++ {
+		if query[i] != quote {
+			continue
+		}
+		if i+1 < len(query) && query[i+1] == quote {
+			i++
+			continue
+		}
+		return i
+	}
+	return len(query)
+}
+
+func skipSQLBracketedIdentifier(query string, start int) int {
+	for i := start + 1; i < len(query); i++ {
+		if query[i] == ']' {
+			return i
+		}
+	}
+	return len(query)
 }

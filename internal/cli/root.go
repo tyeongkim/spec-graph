@@ -47,6 +47,14 @@ var rootCmd = &cobra.Command{
 		if _, err := os.Stat(specRoot); os.IsNotExist(err) {
 			return handleError(cmd, &model.ErrNotInitialized{})
 		}
+		if cmd.Name() == "doctor" {
+			entitiesDir := filepath.Join(specRoot, "entities")
+			info, err := os.Stat(entitiesDir)
+			if err != nil || !info.IsDir() {
+				return handleError(cmd, &model.ErrNotInitialized{})
+			}
+			return nil
+		}
 
 		eng, err := specgraph.Open(cmd.Context(), specgraph.Options{Root: specRoot})
 		if err != nil {

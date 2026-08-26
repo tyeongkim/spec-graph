@@ -197,8 +197,21 @@ func TestImpactWithDimension(t *testing.T) {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
 	}
 
-	if !json.Valid([]byte(r.stdout)) {
-		t.Error("output is not valid JSON")
+	var api *jsoncontract.ImpactAffected
+	for i := range resp.Affected {
+		if resp.Affected[i].ID == "API-005" {
+			api = &resp.Affected[i]
+			break
+		}
+	}
+	if api == nil {
+		t.Fatal("expected API-005 in structural impact results")
+	}
+	if api.Impact.Structural != "high" {
+		t.Errorf("structural impact = %q; want high", api.Impact.Structural)
+	}
+	if api.Impact.Behavioral != "" || api.Impact.Planning != "" {
+		t.Errorf("non-structural impacts = behavioral %q, planning %q; want empty", api.Impact.Behavioral, api.Impact.Planning)
 	}
 }
 

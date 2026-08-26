@@ -69,17 +69,14 @@ func TestValidate_LayerDispatch(t *testing.T) {
 				}
 			}
 
-			if tt.wantArch && !hasArch {
-				t.Log("note: no arch issues found (may be expected if graph is clean for arch)")
+			if hasArch != tt.wantArch {
+				t.Errorf("arch issues present = %v; want %v", hasArch, tt.wantArch)
 			}
-			if !tt.wantExec && hasExec {
-				t.Error("got exec issues but layer should have excluded exec")
+			if hasExec != tt.wantExec {
+				t.Errorf("exec issues present = %v; want %v", hasExec, tt.wantExec)
 			}
-			if !tt.wantArch && hasArch {
-				t.Error("got arch issues but layer should have excluded arch")
-			}
-			if !tt.wantMap && hasMapping {
-				t.Error("got mapping issues but layer should have excluded mapping")
+			if hasMapping != tt.wantMap {
+				t.Errorf("mapping issues present = %v; want %v", hasMapping, tt.wantMap)
 			}
 		})
 	}
@@ -253,11 +250,18 @@ func TestValidate_PhaseScoping(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if tt.wantFiltered {
+			if !tt.wantFiltered {
 				for _, iss := range result.Issues {
-					if !tt.wantEntityIDs[iss.Entity] {
-						t.Errorf("got issue for entity %q; not in phase scope %v", iss.Entity, tt.wantEntityIDs)
+					if iss.Entity == "REQ-2" {
+						return
 					}
+				}
+				t.Fatal("unscoped validation did not report the uncovered REQ-2")
+			}
+
+			for _, iss := range result.Issues {
+				if !tt.wantEntityIDs[iss.Entity] {
+					t.Errorf("got issue for entity %q; not in phase scope %v", iss.Entity, tt.wantEntityIDs)
 				}
 			}
 		})

@@ -106,6 +106,49 @@ func TestForceCompletionReturnsGateReport(t *testing.T) {
 	}
 }
 
+func TestForceCanResolveTaskAfterForcedParentCompletion(t *testing.T) {
+	root, engine := openTaskTestEngine(t)
+	setupTaskLifecycle(t, engine, "TSK-001", true)
+	ctx := context.Background()
+	resolved := string(model.EntityStatusResolved)
+
+	if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
+		ID: "PHS-001", Status: &resolved, Force: true, Reason: "Accept unfinished task",
+	}); err != nil {
+		t.Fatalf("force phase completion: %v", err)
+	}
+
+	contract := validTaskContract()
+	contract.QA[0].Evidence = writeTaskEvidence(t, root, "forced-task-evidence.txt")
+	metadata := marshalTaskContract(t, contract)
+	result, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
+		ID: "TSK-001", Status: &resolved, Metadata: &metadata,
+		Force: true, Reason: "Complete task after parent phase",
+	})
+	if err != nil {
+		t.Fatalf("force task completion: %v", err)
+	}
+	if result.Outcome != specgraph.UpdateOutcomeAppliedWithForce {
+		t.Fatalf("outcome = %q; want applied_with_force", result.Outcome)
+	}
+	if result.GateReport == nil || !result.GateReport.Blocked || result.GateReport.StructuralBlocked {
+		t.Fatalf("gate report = %+v; want forceable completion issue", result.GateReport)
+	}
+	found := false
+	for _, issue := range result.GateReport.BlockingIssues {
+		if issue.Check == "task_parent_status" && issue.Entity == "TSK-001" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("missing task_parent_status issue in %+v", result.GateReport.BlockingIssues)
+	}
+	if result.Entity.Status != model.EntityStatusResolved {
+		t.Fatalf("status = %q; want resolved", result.Entity.Status)
+	}
+}
+
 func TestTaskResolveRejectsInvalidEvidencePaths(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -125,6 +168,13 @@ func TestTaskResolveRejectsInvalidEvidencePaths(t *testing.T) {
 				t.Fatalf("write outside evidence: %v", err)
 			}
 			return filepath.Join("..", filepath.Base(outside))
+		}},
+		{name: "absolute path", evidence: func(t *testing.T, root string) string {
+			path := filepath.Join(filepath.Dir(root), "absolute-evidence.txt")
+			if err := os.WriteFile(path, []byte("absolute"), 0o600); err != nil {
+				t.Fatalf("write absolute evidence: %v", err)
+			}
+			return path
 		}},
 	}
 
@@ -148,10 +198,64 @@ func TestTaskResolveRejectsInvalidEvidencePaths(t *testing.T) {
 			if result.GateReport == nil || !result.GateReport.Blocked {
 				t.Fatal("invalid evidence path did not block resolution")
 			}
+			found := false
+			for _, issue := range result.GateReport.BlockingIssues {
+				if issue.Check == "task_evidence" && issue.Entity == "TSK-001" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("missing task_evidence gate issue in %+v", result.GateReport.BlockingIssues)
+			}
 			if after := readTaskBytes(t, path); !reflect.DeepEqual(after, before) {
 				t.Fatal("task TOML changed after invalid evidence was rejected")
 			}
 		})
+	}
+}
+
+func TestTaskResolveRequiresResolvedPrerequisite(t *testing.T) {
+	root, engine := openTaskTestEngine(t)
+	setupTaskLifecycle(t, engine, "TSK-001", true)
+	createTask(t, engine, "TSK-002")
+
+	ctx := context.Background()
+	for _, request := range []specgraph.AddRelationRequest{
+		{From: "TSK-002", To: "PHS-001", Type: "belongs_to"},
+		{From: "TSK-001", To: "TSK-002", Type: "task_depends_on"},
+	} {
+		if _, err := engine.AddRelation(ctx, request); err != nil {
+			t.Fatalf("add %s relation: %v", request.Type, err)
+		}
+	}
+
+	contract := validTaskContract()
+	contract.QA[0].Evidence = writeTaskEvidence(t, root, "prerequisite-evidence.txt")
+	metadata := marshalTaskContract(t, contract)
+	resolved := string(model.EntityStatusResolved)
+	result, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
+		ID: "TSK-001", Status: &resolved, Metadata: &metadata,
+	})
+	if err != nil {
+		t.Fatalf("resolve task: %v", err)
+	}
+	if result.Outcome != specgraph.UpdateOutcomeBlocked {
+		t.Fatalf("outcome = %q; want blocked", result.Outcome)
+	}
+	if result.GateReport == nil || !result.GateReport.Blocked {
+		t.Fatal("unresolved prerequisite did not block resolution")
+	}
+
+	found := false
+	for _, issue := range result.GateReport.BlockingIssues {
+		if issue.Check == "task_prerequisites" && issue.Entity == "TSK-001" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("missing task_prerequisites gate issue in %+v", result.GateReport.BlockingIssues)
 	}
 }
 
@@ -208,6 +312,87 @@ func TestForceCannotBypassLifecycle(t *testing.T) {
 	}
 	if entity.Status != model.EntityStatusResolved {
 		t.Fatalf("status = %q; want resolved", entity.Status)
+	}
+}
+
+func TestForceCannotActivateTaskWithoutStructuralInvariants(t *testing.T) {
+	tests := []struct {
+		name             string
+		parentStatus     string
+		withPrerequisite bool
+		wantCheck        string
+	}{
+		{
+			name:         "inactive parent",
+			parentStatus: string(model.EntityStatusDraft),
+			wantCheck:    "task_parent_status",
+		},
+		{
+			name:             "unresolved prerequisite",
+			parentStatus:     string(model.EntityStatusActive),
+			withPrerequisite: true,
+			wantCheck:        "task_prerequisites",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, engine := openTaskTestEngine(t)
+			ctx := context.Background()
+			if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{
+				Type: "phase", ID: "PHS-001", Title: "Phase", Status: test.parentStatus,
+			}); err != nil {
+				t.Fatalf("create parent phase: %v", err)
+			}
+			createTask(t, engine, "TSK-001")
+			if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: "TSK-001", To: "PHS-001", Type: "belongs_to"}); err != nil {
+				t.Fatalf("add task parent: %v", err)
+			}
+			if test.withPrerequisite {
+				createTask(t, engine, "TSK-002")
+				for _, request := range []specgraph.AddRelationRequest{
+					{From: "TSK-002", To: "PHS-001", Type: "belongs_to"},
+					{From: "TSK-001", To: "TSK-002", Type: "task_depends_on"},
+				} {
+					if _, err := engine.AddRelation(ctx, request); err != nil {
+						t.Fatalf("add %s relation: %v", request.Type, err)
+					}
+				}
+			}
+
+			active := string(model.EntityStatusActive)
+			result, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
+				ID: "TSK-001", Status: &active, Force: true, Reason: "Attempt forced activation",
+			})
+			if err != nil {
+				t.Fatalf("force activate task: %v", err)
+			}
+			if result.Outcome != specgraph.UpdateOutcomeBlocked {
+				t.Fatalf("outcome = %q; want blocked", result.Outcome)
+			}
+			if result.GateReport == nil || !result.GateReport.StructuralBlocked {
+				t.Fatal("forced activation did not return a structural gate report")
+			}
+
+			found := false
+			for _, issue := range result.GateReport.BlockingIssues {
+				if issue.Check == test.wantCheck && issue.Entity == "TSK-001" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("missing structural check %q in %+v", test.wantCheck, result.GateReport.BlockingIssues)
+			}
+
+			stored, err := engine.GetEntity(ctx, "TSK-001")
+			if err != nil {
+				t.Fatalf("get task: %v", err)
+			}
+			if stored.Status != model.EntityStatusDraft {
+				t.Fatalf("stored status = %q; want draft", stored.Status)
+			}
+		})
 	}
 }
 

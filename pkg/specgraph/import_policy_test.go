@@ -2,10 +2,7 @@ package specgraph
 
 import (
 	"context"
-	"os"
 	"testing"
-
-	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
 func TestImportEntitiesCommitsAsOneUnit(t *testing.T) {
@@ -64,9 +61,9 @@ func TestImportEntitiesSkipsExistingAndAbortsOnInvalid(t *testing.T) {
 			t.Errorf("Created = %v, want [REQ-002]", result.Created)
 		}
 
-		existing, err := eng.store.ReadEntity("REQ-001", model.EntityTypeRequirement)
+		existing, err := eng.GetEntity(ctx, "REQ-001")
 		if err != nil {
-			t.Fatalf("read existing entity: %v", err)
+			t.Fatalf("GetEntity existing entity: %v", err)
 		}
 		if existing.Title != "Existing" {
 			t.Errorf("existing entity title = %q, want %q", existing.Title, "Existing")
@@ -142,8 +139,8 @@ func TestBootstrapImportSkipDecisionsDoNotAbort(t *testing.T) {
 	if !created["API-001:REQ-001:implements"] {
 		t.Errorf("Created = %v, want the valid relation", result.Created)
 	}
-	if _, err := os.Stat(eng.store.EntityPath("REQ-002", model.EntityTypeRequirement)); !os.IsNotExist(err) {
-		t.Errorf("low-confidence candidate was written: %v", err)
+	if _, err := eng.GetEntity(ctx, "REQ-002"); !IsNotFound(err) {
+		t.Errorf("GetEntity low-confidence candidate error = %v; want not found", err)
 	}
 }
 

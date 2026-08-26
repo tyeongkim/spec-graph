@@ -510,7 +510,13 @@ func TestValidateMultipleChecks(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans,coverage")
+	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		"--type", "requirement", "--id", "REQ-003", "--title", "Active orphan", "--status", "active")
+	if r.exitCode != 0 {
+		t.Fatalf("seed active orphan: exit=%d stderr=%s", r.exitCode, r.stderr)
+	}
+
+	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans,coverage")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -529,6 +535,9 @@ func TestValidateMultipleChecks(t *testing.T) {
 	}
 	if !checks["orphans"] {
 		t.Error("expected orphan issues from --check orphans,coverage")
+	}
+	if !checks["coverage"] {
+		t.Error("expected coverage issues from --check orphans,coverage")
 	}
 }
 

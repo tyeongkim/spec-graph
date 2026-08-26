@@ -28,6 +28,14 @@ func TestTxnCommitFailureRestoresModifiedFiles(t *testing.T) {
 			t.Fatalf("CreateEntity %q: %v", req.ID, err)
 		}
 	}
+	path := eng.store.EntityPath("REQ-001", model.EntityTypeRequirement)
+	canonical, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read entity file %q: %v", path, err)
+	}
+	if err := os.WriteFile(path, append([]byte("# noncanonical TOML\n"), canonical...), 0o644); err != nil {
+		t.Fatalf("make entity file %q noncanonical: %v", path, err)
+	}
 	before := entityFileSnapshot(t, eng.Root())
 
 	dir := filepath.Join(eng.Root(), "entities", "decision")
@@ -39,7 +47,7 @@ func TestTxnCommitFailureRestoresModifiedFiles(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
-	_, err := transact(eng, func(tx *txn) (struct{}, error) {
+	_, err = transact(eng, func(tx *txn) (struct{}, error) {
 		entity, err := tx.read("REQ-001", model.EntityTypeRequirement)
 		if err != nil {
 			return struct{}{}, err

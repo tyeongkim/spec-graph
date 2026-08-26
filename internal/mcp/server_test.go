@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tyeongkim/spec-graph/internal/graph"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
@@ -516,6 +517,88 @@ func TestDeleteEntityIsRefusedWhileRelationsReferenceIt(t *testing.T) {
 	}
 }
 
+func TestEntityAndRelationToolLifecycle(t *testing.T) {
+	t.Parallel()
+	engine := newTestEngine(t)
+	ctx := context.Background()
+
+	for _, request := range []specgraph.CreateEntityRequest{
+		{Type: "requirement", ID: "REQ-001", Title: "Authenticate requests"},
+		{Type: "interface", ID: "API-001", Title: "Authentication API"},
+		{Type: "decision", ID: "DEC-001", Title: "Use session tokens"},
+	} {
+		if _, err := engine.CreateEntity(ctx, request); err != nil {
+			t.Fatalf("create %s: %v", request.ID, err)
+		}
+	}
+	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{
+		From: "API-001", To: "REQ-001", Type: "implements",
+	}); err != nil {
+		t.Fatalf("create implements relation: %v", err)
+	}
+
+	text := callToolExpectingSuccess(t, engine, "get_entity", map[string]any{"id": "REQ-001"})
+	var entityResult jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(text), &entityResult); err != nil {
+		t.Fatalf("decode entity result: %v", err)
+	}
+	if entityResult.Entity.ID != "REQ-001" {
+		t.Errorf("entity ID = %q, want REQ-001", entityResult.Entity.ID)
+	}
+	if entityResult.Entity.Type != "requirement" {
+		t.Errorf("entity type = %q, want requirement", entityResult.Entity.Type)
+	}
+	if entityResult.Entity.Title != "Authenticate requests" {
+		t.Errorf("entity title = %q, want Authenticate requests", entityResult.Entity.Title)
+	}
+
+	relationArgs := map[string]any{"from": "API-001", "to": "REQ-001", "type": "implements"}
+	text = callToolExpectingSuccess(t, engine, "list_relations", relationArgs)
+	var relationResult jsoncontract.RelationListResponse
+	if err := json.Unmarshal([]byte(text), &relationResult); err != nil {
+		t.Fatalf("decode relation list: %v", err)
+	}
+	if relationResult.Count != 1 {
+		t.Errorf("relation count = %d, want 1", relationResult.Count)
+	}
+	if len(relationResult.Relations) != 1 {
+		t.Fatalf("listed %d relations, want 1", len(relationResult.Relations))
+	}
+	relation := relationResult.Relations[0]
+	if relation.FromID != "API-001" || relation.ToID != "REQ-001" || relation.Type != "implements" {
+		t.Errorf("relation = %s->%s[%s], want API-001->REQ-001[implements]", relation.FromID, relation.ToID, relation.Type)
+	}
+
+	text = callToolExpectingSuccess(t, engine, "delete_relation", relationArgs)
+	var deletedRelation jsoncontract.DeleteResponse
+	if err := json.Unmarshal([]byte(text), &deletedRelation); err != nil {
+		t.Fatalf("decode relation deletion: %v", err)
+	}
+	if deletedRelation.Deleted != "API-001->REQ-001[implements]" {
+		t.Errorf("deleted relation = %q, want API-001->REQ-001[implements]", deletedRelation.Deleted)
+	}
+
+	text = callToolExpectingSuccess(t, engine, "list_relations", relationArgs)
+	if err := json.Unmarshal([]byte(text), &relationResult); err != nil {
+		t.Fatalf("decode remaining relations: %v", err)
+	}
+	if relationResult.Count != 0 || len(relationResult.Relations) != 0 {
+		t.Errorf("remaining relations = count %d, relations %+v; want none", relationResult.Count, relationResult.Relations)
+	}
+
+	text = callToolExpectingSuccess(t, engine, "delete_entity", map[string]any{"id": "DEC-001"})
+	var deletedEntity jsoncontract.DeleteResponse
+	if err := json.Unmarshal([]byte(text), &deletedEntity); err != nil {
+		t.Fatalf("decode entity deletion: %v", err)
+	}
+	if deletedEntity.Deleted != "DEC-001" {
+		t.Errorf("deleted entity = %q, want DEC-001", deletedEntity.Deleted)
+	}
+	if _, err := engine.GetEntity(ctx, "DEC-001"); !specgraph.IsNotFound(err) {
+		t.Errorf("DEC-001 lookup error = %v, want not found", err)
+	}
+}
+
 func TestNextPhaseActivatesTheSelectedPhase(t *testing.T) {
 	t.Parallel()
 	engine := newTestEngine(t)
@@ -549,8 +632,22 @@ func TestQueryPathFindsTheRelationChain(t *testing.T) {
 		"from_id": "TSK-001",
 		"to_id":   "REQ-001",
 	})
-	if !strings.Contains(text, "REQ-001") {
-		t.Errorf("path result %q does not reach the target", text)
+
+	var result graph.QueryPathResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("decode query path: %v", err)
+	}
+	if !result.Found {
+		t.Fatal("query path did not find the direct covers relation")
+	}
+	if len(result.Path) != 2 {
+		t.Fatalf("path length = %d; want 2", len(result.Path))
+	}
+	if result.Path[0].EntityID != "TSK-001" || result.Path[1].EntityID != "REQ-001" {
+		t.Errorf("path = %+v; want TSK-001 to REQ-001", result.Path)
+	}
+	if result.Path[1].Relation != "covers" {
+		t.Errorf("path relation = %q; want covers", result.Path[1].Relation)
 	}
 }
 

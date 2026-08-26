@@ -505,8 +505,19 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
-		if !json.Valid([]byte(r.stdout)) {
-			t.Errorf("output is not valid JSON: %s", r.stdout)
+		var resp jsoncontract.ImpactResponse
+		if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
+			t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+		}
+		api := findAffected(resp.Affected, "API-005")
+		if api == nil {
+			t.Fatal("expected API-005 in structural impact results")
+		}
+		if api.Impact.Structural != "high" {
+			t.Errorf("structural impact = %q; want high", api.Impact.Structural)
+		}
+		if api.Impact.Behavioral != "" || api.Impact.Planning != "" {
+			t.Errorf("non-structural impacts = behavioral %q, planning %q; want empty", api.Impact.Behavioral, api.Impact.Planning)
 		}
 	})
 

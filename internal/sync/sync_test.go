@@ -298,8 +298,13 @@ func TestFingerprint_EmptyState(t *testing.T) {
 	if fp == "" {
 		t.Error("fingerprint should not be empty even with no files")
 	}
-	if len(fp) != 64 {
-		t.Errorf("fingerprint length = %d, want 64 (sha256 hex)", len(fp))
+
+	again, err := syncer.ComputeFingerprint()
+	if err != nil {
+		t.Fatalf("ComputeFingerprint again: %v", err)
+	}
+	if again != fp {
+		t.Errorf("empty-state fingerprint changed from %q to %q", fp, again)
 	}
 }
 

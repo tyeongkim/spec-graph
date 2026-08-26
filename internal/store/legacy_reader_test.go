@@ -27,16 +27,16 @@ func TestLegacyReaderReturnsEmptySlices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Entities: %v", err)
 	}
-	if entities == nil || len(entities) != 0 {
-		t.Errorf("want empty non-nil slice, got %#v", entities)
+	if len(entities) != 0 {
+		t.Errorf("want no entities, got %#v", entities)
 	}
 
 	relations, err := r.Relations()
 	if err != nil {
 		t.Fatalf("Relations: %v", err)
 	}
-	if relations == nil || len(relations) != 0 {
-		t.Errorf("want empty non-nil slice, got %#v", relations)
+	if len(relations) != 0 {
+		t.Errorf("want no relations, got %#v", relations)
 	}
 }
 

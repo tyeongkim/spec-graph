@@ -97,14 +97,13 @@ func TestLockUnlock(t *testing.T) {
 	}
 }
 
-func TestMultipleLocks(t *testing.T) {
+func TestConcurrentLockAttemptsAllComplete(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "test.lock")
 
 	const numGoroutines = 5
 	var wg sync.WaitGroup
-	var counter int32
-	var mu sync.Mutex
+	var completed atomic.Int32
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
@@ -117,18 +116,14 @@ func TestMultipleLocks(t *testing.T) {
 			}
 			defer unlock()
 
-			mu.Lock()
-			counter++
-			mu.Unlock()
-
-			time.Sleep(10 * time.Millisecond)
+			completed.Add(1)
 		}()
 	}
 
 	wg.Wait()
 
-	if counter != numGoroutines {
-		t.Errorf("expected %d successful locks, got %d", numGoroutines, counter)
+	if got := completed.Load(); got != numGoroutines {
+		t.Errorf("completed lock attempts = %d; want %d", got, numGoroutines)
 	}
 }
 

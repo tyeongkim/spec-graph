@@ -1,10 +1,130 @@
 package graph
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
+
+func TestQueryScope_RejectsExistingNonPhaseID(t *testing.T) {
+	rf := &mockRF{relations: map[string][]model.Relation{}}
+	ef := &mockEF{entities: map[string]model.Entity{
+		"REQ-001": entity("REQ-001", model.EntityTypeRequirement),
+	}}
+
+	_, err := QueryScope(QueryScopeOptions{PhaseID: "REQ-001"}, rf, ef)
+	if err == nil {
+		t.Fatal("expected error for a non-phase entity")
+	}
+
+	var inputErr *model.ErrInvalidInput
+	if !errors.As(err, &inputErr) {
+		t.Errorf("error = %T (%v); want ErrInvalidInput", err, err)
+	}
+}
+
+func TestQueryScope_DeduplicatesCoveredAndDeliveredEntity(t *testing.T) {
+	covered := rel("PHS-001", "REQ-001", model.RelationCovers, 1.0)
+	delivered := rel("PHS-001", "REQ-001", model.RelationDelivers, 1.0)
+	rf := &mockRF{relations: map[string][]model.Relation{
+		"PHS-001": {covered, delivered},
+	}}
+	ef := &mockEF{entities: map[string]model.Entity{
+		"PHS-001": entity("PHS-001", model.EntityTypePhase),
+		"REQ-001": entity("REQ-001", model.EntityTypeRequirement),
+	}}
+
+	result, err := QueryScope(QueryScopeOptions{PhaseID: "PHS-001"}, rf, ef)
+	if err != nil {
+		t.Fatalf("QueryScope: %v", err)
+	}
+
+	if len(result.Relations) != 2 {
+		t.Fatalf("len(relations) = %d; want 2", len(result.Relations))
+	}
+	if len(result.Entities) != 1 {
+		t.Fatalf("len(entities) = %d; want 1", len(result.Entities))
+	}
+	if result.Entities[0].ID != "REQ-001" {
+		t.Errorf("entities[0].id = %q; want REQ-001", result.Entities[0].ID)
+	}
+}
+
+func TestQueryPath_PathSemantics(t *testing.T) {
+	longStart := rel("API-001", "REQ-001", model.RelationImplements, 1.0)
+	longMiddle := rel("TST-001", "API-001", model.RelationVerifies, 1.0)
+	longEnd := rel("TST-001", "DEC-001", model.RelationVerifies, 1.0)
+	shortStart := rel("REQ-001", "XCT-001", model.RelationConstrainedBy, 1.0)
+	shortEnd := rel("XCT-001", "DEC-001", model.RelationReferences, 1.0)
+	mappingOnly := rel("PHS-001", "REQ-001", model.RelationCovers, 1.0)
+
+	rf := &mockRF{relations: map[string][]model.Relation{
+		"REQ-001": {longStart, shortStart, mappingOnly},
+		"API-001": {longStart, longMiddle},
+		"TST-001": {longMiddle, longEnd},
+		"XCT-001": {shortStart, shortEnd},
+		"DEC-001": {longEnd, shortEnd},
+		"PHS-001": {mappingOnly},
+	}}
+	ef := &mockEF{entities: map[string]model.Entity{
+		"REQ-001": entity("REQ-001", model.EntityTypeRequirement),
+		"API-001": entity("API-001", model.EntityTypeInterface),
+		"TST-001": entity("TST-001", model.EntityTypeTest),
+		"XCT-001": entity("XCT-001", model.EntityTypeCrosscut),
+		"DEC-001": entity("DEC-001", model.EntityTypeDecision),
+		"PHS-001": entity("PHS-001", model.EntityTypePhase),
+	}}
+
+	result, err := QueryPath(QueryPathOptions{FromID: "REQ-001", ToID: "DEC-001"}, rf, ef)
+	if err != nil {
+		t.Fatalf("QueryPath: %v", err)
+	}
+	if !result.Found {
+		t.Fatal("Found = false; want true")
+	}
+
+	wantPath := []PathNode{
+		{EntityID: "REQ-001", Relation: ""},
+		{EntityID: "XCT-001", Relation: model.RelationConstrainedBy},
+		{EntityID: "DEC-001", Relation: model.RelationReferences},
+	}
+	if len(result.Path) != len(wantPath) {
+		t.Fatalf("len(path) = %d; want %d", len(result.Path), len(wantPath))
+	}
+	for i, want := range wantPath {
+		if result.Path[i].EntityID != want.EntityID {
+			t.Errorf("path[%d].entity_id = %q; want %q", i, result.Path[i].EntityID, want.EntityID)
+		}
+		if result.Path[i].Relation != want.Relation {
+			t.Errorf("path[%d].relation = %q; want %q", i, result.Path[i].Relation, want.Relation)
+		}
+	}
+
+	mappingPath, err := QueryPath(QueryPathOptions{FromID: "PHS-001", ToID: "REQ-001"}, rf, ef)
+	if err != nil {
+		t.Fatalf("QueryPath mapping path: %v", err)
+	}
+	if !mappingPath.Found {
+		t.Fatal("unrestricted mapping path not found")
+	}
+
+	arch := model.LayerArch
+	filteredPath, err := QueryPath(QueryPathOptions{
+		FromID: "PHS-001",
+		ToID:   "REQ-001",
+		Layer:  &arch,
+	}, rf, ef)
+	if err != nil {
+		t.Fatalf("QueryPath arch layer: %v", err)
+	}
+	if filteredPath.Found {
+		t.Error("arch-layer path found through a mapping relation")
+	}
+	if len(filteredPath.Path) != 0 {
+		t.Errorf("len(filtered path) = %d; want 0", len(filteredPath.Path))
+	}
+}
 
 func TestNeighbors_Depth0_CenterOnly(t *testing.T) {
 	rf := &mockRF{relations: map[string][]model.Relation{

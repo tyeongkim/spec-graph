@@ -40,18 +40,24 @@ func evaluateTask(target Target, rf validate.RelationFetcher, ef validate.Entity
 	prerequisites := relationTargets(relations, target.EntityID, model.RelationTaskDependsOn)
 
 	var activation []validate.ValidationIssue
+	var completion []validate.ValidationIssue
 	if len(parents) != 1 {
 		activation = append(activation, gateIssue("task_parent", target.EntityID, fmt.Sprintf("task requires exactly one parent phase, found %d", len(parents)), model.LayerExec))
 	} else if parent, getErr := ef.Get(parents[0]); getErr != nil || parent.Type != model.EntityTypePhase {
 		activation = append(activation, gateIssue("task_parent", target.EntityID, "task parent must be a phase", model.LayerExec))
 	} else if parent.Status != model.EntityStatusActive {
-		return activation, []validate.ValidationIssue{gateIssue("task_parent_status", target.EntityID, "task parent phase must be active", model.LayerExec)}
+		issue := gateIssue("task_parent_status", target.EntityID, "task parent phase must be active", model.LayerExec)
+		if target.ToStatus == model.EntityStatusActive {
+			activation = append(activation, issue)
+		} else {
+			completion = append(completion, issue)
+		}
 	}
 	if target.ToStatus == model.EntityStatusActive {
-		return activation, unresolvedEntities("task_prerequisites", target.EntityID, prerequisites, ef)
+		activation = append(activation, unresolvedEntities("task_prerequisites", target.EntityID, prerequisites, ef)...)
+		return activation, nil
 	}
 
-	var completion []validate.ValidationIssue
 	completion = append(completion, unresolvedEntities("task_prerequisites", target.EntityID, prerequisites, ef)...)
 	for index, qa := range contract.QA {
 		if err := validateEvidencePath(target.RepoRoot, qa.Evidence); err != nil {
@@ -59,7 +65,7 @@ func evaluateTask(target Target, rf validate.RelationFetcher, ef validate.Entity
 		}
 	}
 	completion = append(completion, missingTaskDeliveries(target.EntityID, relations, ef)...)
-	return nil, completion
+	return activation, completion
 }
 
 func evaluatePhase(target Target, rf validate.RelationFetcher, ef validate.EntityFetcher) ([]validate.ValidationIssue, []validate.ValidationIssue) {

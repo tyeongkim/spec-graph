@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/model"
@@ -65,7 +66,7 @@ func TestScoreToSeverity(t *testing.T) {
 		{0.0, ""},
 	}
 	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
+		t.Run(fmt.Sprintf("score_%g", tt.score), func(t *testing.T) {
 			got := ScoreToSeverity(tt.score)
 			if got != tt.want {
 				t.Errorf("ScoreToSeverity(%v) = %q; want %q", tt.score, got, tt.want)
@@ -85,7 +86,7 @@ func TestOverallSeverity(t *testing.T) {
 		{DimensionScores{0.0, 0.0, 0.0}, ""},
 	}
 	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
+		t.Run(fmt.Sprintf("scores_%g_%g_%g", tt.scores.Structural, tt.scores.Behavioral, tt.scores.Planning), func(t *testing.T) {
 			got := OverallSeverity(tt.scores)
 			if got != tt.want {
 				t.Errorf("OverallSeverity(%+v) = %q; want %q", tt.scores, got, tt.want)

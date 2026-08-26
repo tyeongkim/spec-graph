@@ -310,6 +310,37 @@ func TestMetaGetSet(t *testing.T) {
 	}
 }
 
+func TestReadMeta(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "graph.db")
+	idx, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer idx.Close()
+	if err := idx.SetMeta("fingerprint", "abc123"); err != nil {
+		t.Fatalf("SetMeta: %v", err)
+	}
+
+	value, err := ReadMeta(path, "fingerprint")
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if value != "abc123" {
+		t.Errorf("value = %q; want abc123", value)
+	}
+}
+
+func TestReadMetaMissingIndexDoesNotCreateIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.db")
+	if _, err := ReadMeta(path, "fingerprint"); err == nil {
+		t.Fatal("ReadMeta succeeded for a missing index")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("index exists after ReadMeta: %v", err)
+	}
+}
+
 func TestRelationWeightDefault(t *testing.T) {
 	idx := openTestIndex(t)
 

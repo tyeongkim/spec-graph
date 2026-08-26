@@ -149,9 +149,14 @@ func (s *Syncer) ForceRebuild() error {
 	return nil
 }
 
-// ComputeFingerprint walks TOML entity files and returns a content-based hash.
+// ComputeFingerprint returns the fingerprint for this Syncer's TOML source.
 func (s *Syncer) ComputeFingerprint() (string, error) {
-	entitiesDir := filepath.Join(s.root, "entities")
+	return ComputeFingerprint(s.root)
+}
+
+// ComputeFingerprint walks TOML entity files and returns a content-based hash.
+func ComputeFingerprint(root string) (string, error) {
+	entitiesDir := filepath.Join(root, "entities")
 
 	if _, err := os.Stat(entitiesDir); os.IsNotExist(err) {
 		h := sha256.Sum256(nil)

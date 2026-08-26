@@ -182,7 +182,6 @@ func TestEnforce(t *testing.T) {
 		wantBlocked       bool
 		wantBlockingCount int
 		wantWarningCount  int
-		wantErr           bool
 	}{
 		{
 			name: "phase activation with active parent returns empty report",
@@ -303,7 +302,7 @@ func TestEnforce(t *testing.T) {
 			wantWarningCount:  0,
 		},
 		{
-			name: "phase with low severity issues not blocked",
+			name: "phase with resolved requirement is not blocked",
 			target: Target{
 				EntityID:   "PHS-001",
 				EntityType: model.EntityTypePhase,
@@ -377,13 +376,6 @@ func TestEnforce(t *testing.T) {
 
 			report, err := Enforce(tt.target, rf, ef)
 
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				return
-			}
-
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -421,6 +413,103 @@ func TestEnforce(t *testing.T) {
 			}
 			if report.ToStatus != tt.target.ToStatus {
 				t.Errorf("ToStatus: got %q, want %q", report.ToStatus, tt.target.ToStatus)
+			}
+		})
+	}
+}
+
+func TestTaskActivationLifecycle(t *testing.T) {
+	candidate := execEntity("TSK-001", model.EntityTypeTask, model.EntityStatusActive)
+	candidate.Metadata = []byte(`{"order":1,"instructions":["work"],"acceptance":["done"],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}`)
+
+	tests := []struct {
+		name      string
+		entities  map[string]model.Entity
+		relations map[string][]model.Relation
+		wantCheck string
+	}{
+		{
+			name:      "no parent phase",
+			entities:  map[string]model.Entity{},
+			relations: map[string][]model.Relation{"TSK-001": {}},
+			wantCheck: "task_parent",
+		},
+		{
+			name: "multiple parent phases",
+			entities: map[string]model.Entity{
+				"PHS-001": execEntity("PHS-001", model.EntityTypePhase, model.EntityStatusActive),
+				"PHS-002": execEntity("PHS-002", model.EntityTypePhase, model.EntityStatusActive),
+			},
+			relations: map[string][]model.Relation{
+				"TSK-001": {
+					rel("TSK-001", "PHS-001", model.RelationBelongsTo),
+					rel("TSK-001", "PHS-002", model.RelationBelongsTo),
+				},
+			},
+			wantCheck: "task_parent",
+		},
+		{
+			name: "parent is not a phase",
+			entities: map[string]model.Entity{
+				"PLN-001": execEntity("PLN-001", model.EntityTypePlan, model.EntityStatusActive),
+			},
+			relations: map[string][]model.Relation{
+				"TSK-001": {rel("TSK-001", "PLN-001", model.RelationBelongsTo)},
+			},
+			wantCheck: "task_parent",
+		},
+		{
+			name: "parent phase is inactive",
+			entities: map[string]model.Entity{
+				"PHS-001": execEntity("PHS-001", model.EntityTypePhase, model.EntityStatusDraft),
+			},
+			relations: map[string][]model.Relation{
+				"TSK-001": {rel("TSK-001", "PHS-001", model.RelationBelongsTo)},
+			},
+			wantCheck: "task_parent_status",
+		},
+		{
+			name: "unresolved prerequisite",
+			entities: map[string]model.Entity{
+				"PHS-001": execEntity("PHS-001", model.EntityTypePhase, model.EntityStatusActive),
+				"TSK-002": execEntity("TSK-002", model.EntityTypeTask, model.EntityStatusDraft),
+			},
+			relations: map[string][]model.Relation{
+				"TSK-001": {
+					rel("TSK-001", "PHS-001", model.RelationBelongsTo),
+					rel("TSK-001", "TSK-002", model.RelationTaskDependsOn),
+				},
+				"TSK-002": {rel("TSK-002", "PHS-001", model.RelationBelongsTo)},
+			},
+			wantCheck: "task_prerequisites",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report, err := Enforce(Target{
+				EntityID:   "TSK-001",
+				EntityType: model.EntityTypeTask,
+				FromStatus: model.EntityStatusDraft,
+				ToStatus:   model.EntityStatusActive,
+				Candidate:  candidate,
+			}, &mockRelationFetcher{relations: test.relations}, &mockEntityFetcher{entities: test.entities})
+			if err != nil {
+				t.Fatalf("Enforce: %v", err)
+			}
+			if !report.Blocked {
+				t.Fatal("expected activation to be blocked")
+			}
+
+			found := false
+			for _, issue := range report.BlockingIssues {
+				if issue.Check == test.wantCheck && issue.Entity == "TSK-001" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("missing blocking check %q in %+v", test.wantCheck, report.BlockingIssues)
 			}
 		})
 	}

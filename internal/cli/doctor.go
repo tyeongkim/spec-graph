@@ -6,13 +6,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
+	"github.com/tyeongkim/spec-graph/internal/flock"
+	"github.com/tyeongkim/spec-graph/internal/index"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	specsync "github.com/tyeongkim/spec-graph/internal/sync"
 	spectoml "github.com/tyeongkim/spec-graph/internal/toml"
 )
+
+const doctorLockTimeout = 10 * time.Second
 
 // doctor and internal/validate are two check engines with a deliberate split,
 // and a new rule belongs to exactly one of them:
@@ -66,6 +72,17 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		return writeError(cmd, err, 1)
 	}
 
+	unlock, err := flock.TryLock(filepath.Join(specRoot, ".lock"), doctorLockTimeout)
+	if err != nil {
+		return writeError(cmd, fmt.Errorf("acquire project lock: %w", err), 1)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			unlock()
+		}
+	}()
+
 	checkSet := make(map[string]bool, len(checksToRun))
 	for _, c := range checksToRun {
 		checkSet[c] = true
@@ -104,7 +121,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		case "self_loop_relations":
 			issues = checkSelfLoopRelations(rawFiles)
 		case "stale_index":
-			issues = checkStaleIndex(cmd)
+			issues = checkStaleIndex()
 		}
 
 		status := "pass"
@@ -140,6 +157,8 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			TotalIssues: totalIssues,
 		},
 	}
+	lockHeld = false
+	unlock()
 
 	if err := writeJSON(cmd, report); err != nil {
 		return err
@@ -460,10 +479,8 @@ func checkSelfLoopRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
 	return issues
 }
 
-func checkStaleIndex(cmd *cobra.Command) []jsoncontract.DoctorIssue {
-	var issues []jsoncontract.DoctorIssue
-
-	currentFP, err := engine.Fingerprint(cmd.Context())
+func checkStaleIndex() (issues []jsoncontract.DoctorIssue) {
+	currentFP, err := specsync.ComputeFingerprint(specRoot)
 	if err != nil {
 		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",
@@ -472,7 +489,22 @@ func checkStaleIndex(cmd *cobra.Command) []jsoncontract.DoctorIssue {
 		return issues
 	}
 
-	storedFP, err := engine.IndexMeta(cmd.Context(), "toml_fingerprint")
+	indexPath := filepath.Join(specRoot, "graph.db")
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		issues = append(issues, jsoncontract.DoctorIssue{
+			File:    "",
+			Message: "index file is missing",
+		})
+		return issues
+	} else if err != nil {
+		issues = append(issues, jsoncontract.DoctorIssue{
+			File:    "",
+			Message: fmt.Sprintf("failed to inspect index: %v", err),
+		})
+		return issues
+	}
+
+	storedFP, err := index.ReadMeta(indexPath, "toml_fingerprint")
 	if err != nil {
 		issues = append(issues, jsoncontract.DoctorIssue{
 			File:    "",

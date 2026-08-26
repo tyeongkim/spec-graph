@@ -301,8 +301,19 @@ func TestGenerateEntityID(t *testing.T) {
 	})
 
 	t.Run("chronological string sort", func(t *testing.T) {
-		earlier := fmt.Sprintf("REQ-%d-aaa", int64(1000000000))
-		later := fmt.Sprintf("REQ-%d-aaa", int64(2000000000))
+		earlier, err := GenerateEntityID(EntityTypeRequirement)
+		if err != nil {
+			t.Fatalf("GenerateEntityID: %v", err)
+		}
+		parts := strings.Split(earlier, "-")
+		if len(parts) != 3 {
+			t.Fatalf("generated ID %q has %d dash-segments; want 3", earlier, len(parts))
+		}
+		seconds, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			t.Fatalf("generated ID %q has invalid timestamp: %v", earlier, err)
+		}
+		later := fmt.Sprintf("%s-%d-%s", parts[0], seconds+1, parts[2])
 		if !(earlier < later) {
 			t.Errorf("expected %q < %q lexicographically", earlier, later)
 		}

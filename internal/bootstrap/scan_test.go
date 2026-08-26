@@ -188,13 +188,23 @@ func TestScanFile_TypeInference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.prefix, func(t *testing.T) {
-			got := inferType(tt.prefix + "-001")
-			if got != tt.wantType {
-				t.Errorf("inferType(%s-001) = %q, want %q", tt.prefix, got, tt.wantType)
+			path := filepath.Join(t.TempDir(), "spec.md")
+			id := tt.prefix + "-001"
+			if err := os.WriteFile(path, []byte("# "+id+" Candidate\n"), 0o600); err != nil {
+				t.Fatalf("write fixture: %v", err)
 			}
-			gotLayer := inferLayer(tt.prefix + "-001")
-			if gotLayer != tt.wantLayer {
-				t.Errorf("inferLayer(%s-001) = %q, want %q", tt.prefix, gotLayer, tt.wantLayer)
+
+			result, err := ScanFile(path)
+			if err != nil {
+				t.Fatalf("ScanFile: %v", err)
+			}
+			if len(result.Entities) != 1 {
+				t.Fatalf("entities = %+v; want one candidate", result.Entities)
+			}
+			got := result.Entities[0]
+			if got.ID != id || got.Type != tt.wantType || got.Layer != tt.wantLayer {
+				t.Errorf("candidate = {ID:%q Type:%q Layer:%q}; want {ID:%q Type:%q Layer:%q}",
+					got.ID, got.Type, got.Layer, id, tt.wantType, tt.wantLayer)
 			}
 		})
 	}

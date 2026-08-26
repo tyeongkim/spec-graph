@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -376,6 +377,77 @@ func (idx *Index) GetMeta(key string) (string, error) {
 		return "", fmt.Errorf("get meta %q: %w", key, err)
 	}
 	return value, nil
+}
+
+// ReadMeta reads an existing index metadata value without modifying the database.
+func ReadMeta(path, key string) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("stat index %q: %w", path, err)
+	}
+
+	snapshot, err := os.CreateTemp("", "spec-graph-index-*")
+	if err != nil {
+		return "", fmt.Errorf("create index snapshot: %w", err)
+	}
+	snapshotPath := snapshot.Name()
+	defer func() {
+		for _, suffix := range []string{"", "-journal", "-shm", "-wal"} {
+			_ = os.Remove(snapshotPath + suffix)
+		}
+	}()
+	if err := snapshot.Close(); err != nil {
+		return "", fmt.Errorf("close index snapshot: %w", err)
+	}
+
+	if err := copyIndexFile(path, snapshotPath); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path + "-wal"); err == nil {
+		if err := copyIndexFile(path+"-wal", snapshotPath+"-wal"); err != nil {
+			return "", err
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat index WAL %q: %w", path+"-wal", err)
+	}
+
+	query := url.Values{}
+	query.Set("mode", "ro")
+	db, err := sql.Open("sqlite", "file:"+snapshotPath+"?"+query.Encode())
+	if err != nil {
+		return "", fmt.Errorf("open read-only index snapshot: %w", err)
+	}
+	defer db.Close()
+
+	var value string
+	err = db.QueryRow(`SELECT value FROM _meta WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read meta %q: %w", key, err)
+	}
+	return value, nil
+}
+
+func copyIndexFile(sourcePath, destinationPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open index file %q: %w", sourcePath, err)
+	}
+	defer source.Close()
+
+	destination, err := os.Create(destinationPath)
+	if err != nil {
+		return fmt.Errorf("create index snapshot %q: %w", destinationPath, err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		destination.Close()
+		return fmt.Errorf("copy index file %q: %w", sourcePath, err)
+	}
+	if err := destination.Close(); err != nil {
+		return fmt.Errorf("close index snapshot %q: %w", destinationPath, err)
+	}
+	return nil
 }
 
 // SetMeta sets a metadata key-value pair (upsert).

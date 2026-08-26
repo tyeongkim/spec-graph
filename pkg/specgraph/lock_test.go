@@ -20,6 +20,15 @@ func newTestRoot(t *testing.T) string {
 	return root
 }
 
+func assertProjectLockReleased(t *testing.T, root string) {
+	t.Helper()
+	unlock, err := flock.TryLock(filepath.Join(root, ".lock"), 0)
+	if err != nil {
+		t.Fatalf("project lock remains held after operation: %v", err)
+	}
+	unlock()
+}
+
 func TestOperationConflictsWithExternalLockHolder(t *testing.T) {
 	root := newTestRoot(t)
 
@@ -94,12 +103,10 @@ func TestConcurrentInProcessOperations(t *testing.T) {
 	}
 	wg.Wait()
 
-	if eng.lock.refs != 0 {
-		t.Errorf("lock refcount = %d after all operations; want 0", eng.lock.refs)
-	}
+	assertProjectLockReleased(t, root)
 }
 
-func TestLockRefcountReleasesAfterWrite(t *testing.T) {
+func TestWriteReleasesProjectLock(t *testing.T) {
 	root := newTestRoot(t)
 
 	eng, err := Open(context.Background(), Options{Root: root})
@@ -112,10 +119,5 @@ func TestLockRefcountReleasesAfterWrite(t *testing.T) {
 		t.Fatalf("CreateEntity: %v", err)
 	}
 
-	if eng.lock.refs != 0 {
-		t.Errorf("lock refcount = %d after write; want 0", eng.lock.refs)
-	}
-	if eng.lock.unlock != nil {
-		t.Error("lock should be fully released after a completed write")
-	}
+	assertProjectLockReleased(t, root)
 }
