@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
@@ -52,8 +51,6 @@ func TestReadDoesNotDeadlock(t *testing.T) {
 	}
 }
 
-// A writer racing a Read must not interleave: every ListEntities inside one Read
-// observes the same count.
 func TestReadObservesOneRevision(t *testing.T) {
 	eng := openSnapshotEngine(t)
 	ctx := context.Background()
@@ -62,14 +59,16 @@ func TestReadObservesOneRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	writerDone := make(chan error, 1)
 	go func() {
-		defer wg.Done()
 		for i := 0; i < 20; i++ {
-			_, _ = eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
-				Type: "decision", Title: "D"})
+			if _, err := eng.CreateEntity(ctx, specgraph.CreateEntityRequest{
+				Type: "decision", Title: "D"}); err != nil {
+				writerDone <- err
+				return
+			}
 		}
+		writerDone <- nil
 	}()
 
 	for i := 0; i < 40; i++ {
@@ -93,5 +92,7 @@ func TestReadObservesOneRevision(t *testing.T) {
 			t.Fatalf("Read: %v", err)
 		}
 	}
-	wg.Wait()
+	if err := <-writerDone; err != nil {
+		t.Fatalf("writer: %v", err)
+	}
 }
