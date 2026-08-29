@@ -1,7 +1,7 @@
 .agents/
-.sisyphus/
 .spec-graph/
 bin/
 dist/
+
 .DS_Store
-.omo/
+opencode.jsonc
