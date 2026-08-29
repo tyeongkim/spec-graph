@@ -462,8 +462,8 @@ func collectSupersededIDs(entities []model.Entity, rf RelationFetcher) (map[stri
 	return supersededIDs, issues
 }
 
-// referencesToSuperseded reports live entities still pointing at a superseded
-// entity through any relation other than supersedes itself.
+// conflicts_with is symmetric and stored under the lexicographically smaller ID,
+// so a live conflict can point outward from the superseded entity.
 func referencesToSuperseded(oldID string, rels []model.Relation, ef EntityFetcher) []ValidationIssue {
 	var issues []ValidationIssue
 
@@ -472,29 +472,29 @@ func referencesToSuperseded(oldID string, rels []model.Relation, ef EntityFetche
 			continue
 		}
 
-		var peerID string
-		switch oldID {
-		case r.ToID:
-			peerID = r.FromID
-		case r.FromID:
-			peerID = r.ToID
+		var referrerID string
+		switch {
+		case r.ToID == oldID:
+			referrerID = r.FromID
+		case r.FromID == oldID && r.Type == model.RelationConflictsWith:
+			referrerID = r.ToID
 		default:
 			continue
 		}
 
-		peer, issue := fetchEntity(ef, peerID, "superseded_refs", model.LayerArch)
+		referrer, issue := fetchEntity(ef, referrerID, "superseded_refs", model.LayerArch)
 		if issue != nil {
 			issues = append(issues, *issue)
 			continue
 		}
-		if peer == nil || !isArchEntity(*peer) {
+		if referrer == nil || !isArchEntity(*referrer) {
 			continue
 		}
-		if peer.Status != model.EntityStatusActive && peer.Status != model.EntityStatusDraft {
+		if referrer.Status != model.EntityStatusActive && referrer.Status != model.EntityStatusDraft {
 			continue
 		}
 
-		issues = append(issues, archIssue("superseded_refs", SeverityHigh, peer.ID,
+		issues = append(issues, archIssue("superseded_refs", SeverityHigh, referrer.ID,
 			fmt.Sprintf("entity still references superseded entity %s via %s", oldID, r.Type)))
 	}
 

@@ -123,6 +123,9 @@ Always run this after revising or deprecating an entity. It detects references t
 have been **superseded** (i.e. have an inbound `supersedes` edge), not deprecated entities in
 general. When flagged, update references to point to the replacement entity or remove the relation.
 
+Only edges *arriving* at the superseded entity count as references; its own outbound edges are the
+audit trail `entity revise` leaves behind.
+
 ### unresolved
 Detects open questions, unverified assumptions, and unmitigated risks.
 

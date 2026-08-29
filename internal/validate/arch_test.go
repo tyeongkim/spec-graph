@@ -458,6 +458,34 @@ func TestCheckSupersededRefs(t *testing.T) {
 			},
 			wantIssues: 1,
 		},
+		{
+			name: "superseded entity's own outbound relations",
+			entities: []model.Entity{
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusDeprecated),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusDraft),
+				archEntity("ACT-1", model.EntityTypeCriterion, model.EntityStatusActive),
+				archEntity("DEC-1", model.EntityTypeDecision, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-2", "REQ-1", model.RelationSupersedes),
+				rel(2, "REQ-1", "ACT-1", model.RelationHasCriterion),
+				rel(3, "REQ-1", "DEC-1", model.RelationConstrainedBy),
+			},
+			wantIssues: 0,
+		},
+		{
+			name: "conflicts_with stored on the superseded entity",
+			entities: []model.Entity{
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusDeprecated),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusDraft),
+				archEntity("REQ-9", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-2", "REQ-1", model.RelationSupersedes),
+				rel(2, "REQ-1", "REQ-9", model.RelationConflictsWith),
+			},
+			wantIssues: 1,
+		},
 	}
 
 	for _, tt := range tests {
