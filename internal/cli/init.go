@@ -74,6 +74,7 @@ func createGitignore(root string) error {
 	fmt.Fprint(f, "graph.db-wal\n")
 	fmt.Fprint(f, "graph.db-shm\n")
 	fmt.Fprint(f, ".lock\n")
+	fmt.Fprint(f, "txn.journal\n")
 
 	return nil
 }

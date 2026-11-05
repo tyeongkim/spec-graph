@@ -180,7 +180,8 @@ func hasTomlFiles(dir string) bool {
 	return found
 }
 
-// updateGitignore ensures graph.db* entries are in .spec-graph/.gitignore.
+// updateGitignore ensures the local index and transaction journal are listed in
+// .spec-graph/.gitignore.
 func updateGitignore(root string) error {
 	gitignorePath := filepath.Join(root, ".gitignore")
 
@@ -190,7 +191,7 @@ func updateGitignore(root string) error {
 		content = string(data)
 	}
 
-	linesToAdd := []string{"graph.db", "graph.db-wal", "graph.db-shm", "graph.db.pre-migration.bak"}
+	linesToAdd := []string{"graph.db", "graph.db-wal", "graph.db-shm", "graph.db.pre-migration.bak", "txn.journal"}
 	var missing []string
 
 	for _, line := range linesToAdd {
@@ -207,7 +208,7 @@ func updateGitignore(root string) error {
 		content += "\n"
 	}
 
-	content += "\n# SQLite index (regenerated from TOML)\n"
+	content += "\n# Local index and transaction recovery files\n"
 	for _, line := range missing {
 		content += line + "\n"
 	}

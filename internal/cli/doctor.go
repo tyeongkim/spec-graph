@@ -44,6 +44,7 @@ var allCheckNames = []string{
 	"symmetric_relations",
 	"schema_validation",
 	"self_loop_relations",
+	"transaction_journal",
 	"stale_index",
 }
 
@@ -120,6 +121,8 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 			issues = checkSchemaValidation(rawFiles)
 		case "self_loop_relations":
 			issues = checkSelfLoopRelations(rawFiles)
+		case "transaction_journal":
+			issues = checkTransactionJournal()
 		case "stale_index":
 			issues = checkStaleIndex()
 		}
@@ -477,6 +480,18 @@ func checkSelfLoopRelations(files []rawEntityFile) []jsoncontract.DoctorIssue {
 		}
 	}
 	return issues
+}
+
+func checkTransactionJournal() []jsoncontract.DoctorIssue {
+	_, err := os.Lstat(filepath.Join(specRoot, "txn.journal"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	message := "unfinished transaction journal found; the next engine operation will attempt recovery"
+	if err != nil {
+		message = fmt.Sprintf("cannot inspect transaction journal: %v", err)
+	}
+	return []jsoncontract.DoctorIssue{{File: "txn.journal", Message: message}}
 }
 
 func checkStaleIndex() (issues []jsoncontract.DoctorIssue) {

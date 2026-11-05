@@ -116,11 +116,16 @@ func writeLockedErr(ctx context.Context, e *Engine, fn func() error) error {
 	return err
 }
 
-// conflictFromLock converts a flock timeout into a structured conflict Error and
-// passes other errors through as runtime failures.
+// conflictFromLock converts a flock timeout into a structured conflict Error,
+// returns structured engine errors from onAcquire unchanged, and wraps any other
+// failure as a runtime error.
 func conflictFromLock(root string, err error) error {
 	if err == nil {
 		return nil
+	}
+	var engineError *Error
+	if errors.As(err, &engineError) {
+		return err
 	}
 	if isLockTimeout(err) {
 		return newError(CodeConflict, fmt.Sprintf("another spec-graph process holds the lock at %q", root), err)

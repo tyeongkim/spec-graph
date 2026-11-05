@@ -1,7 +1,6 @@
 package specgraph
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 
@@ -109,14 +108,27 @@ func (t *txn) commit() error {
 		return nil
 	}
 
-	for i, id := range t.order {
+	journal := transactionJournal{Version: 1}
+	for _, id := range t.order {
+		entry := t.staged[id]
+		journal.Entries = append(journal.Entries, journalEntry{ID: id, EntityType: entry.entityType, PreImage: entry.preImage, Absent: entry.preImage == nil})
+	}
+	if err := writeJournal(t.eng.root, journal); err != nil {
+		return journalError(t.eng.root, err)
+	}
+	for _, id := range t.order {
 		if err := t.apply(t.staged[id]); err != nil {
-			return t.rollback(t.order[:i+1], err)
+			return t.rollback(journal, err)
 		}
 	}
-
+	if err := syncEntityDirectories(t.eng.root, journal.Entries); err != nil {
+		return t.rollback(journal, err)
+	}
+	if err := removeJournal(t.eng.root); err != nil {
+		return journalError(t.eng.root, err)
+	}
 	if _, err := t.eng.syncer.EnsureFresh(); err != nil {
-		return t.rollback(t.order, newError(CodeRuntime, "sync index after commit", err))
+		return newError(CodeRuntime, "sync index after commit", err)
 	}
 	return nil
 }
@@ -137,42 +149,12 @@ func (t *txn) apply(entry *stagedFile) error {
 	return nil
 }
 
-// rollback restores the pre-image of every entry the commit attempted, including
-// the one that failed, since a failed write may still have replaced the file. It
-// returns the failure that triggered the rollback, or a combined error naming
-// both failures when restoration could not complete.
-func (t *txn) rollback(attempted []string, cause error) error {
-	var restoreErr error
-	for _, id := range attempted {
-		if err := t.restore(t.staged[id]); err != nil && restoreErr == nil {
-			restoreErr = err
-		}
+func (t *txn) rollback(journal transactionJournal, cause error) error {
+	if err := restoreJournal(t.eng.root, t.eng.store, journal); err != nil {
+		return journalError(t.eng.root, errors.Join(cause, err))
 	}
-
-	if _, err := t.eng.syncer.EnsureFresh(); err != nil && restoreErr == nil {
-		restoreErr = err
-	}
-
-	if restoreErr != nil {
-		return newError(
-			CodeRuntime,
-			fmt.Sprintf("commit failed (%v) and rollback could not restore the store (%v); run spec-graph doctor", cause, restoreErr),
-			errors.Join(cause, restoreErr),
-		)
+	if _, err := t.eng.syncer.EnsureFresh(); err != nil {
+		return journalError(t.eng.root, errors.Join(cause, err))
 	}
 	return cause
-}
-
-func (t *txn) restore(entry *stagedFile) error {
-	current, err := t.eng.store.ReadEntityBytes(entry.id, entry.entityType)
-	if err != nil {
-		return err
-	}
-	if bytes.Equal(current, entry.preImage) {
-		return nil
-	}
-	if entry.preImage == nil {
-		return t.eng.store.DeleteEntity(entry.id, entry.entityType)
-	}
-	return t.eng.store.WriteEntityBytes(entry.id, entry.entityType, entry.preImage)
 }

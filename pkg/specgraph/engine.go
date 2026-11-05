@@ -3,6 +3,7 @@ package specgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,18 +75,32 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 	var syncer *sync.Syncer
 	lockPath := filepath.Join(root, ".lock")
 	if err := withInitialLock(lockPath, opts.LockTimeout, func() error {
-		var err error
+		recovered, err := recoverJournal(root, store)
+		if err != nil {
+			return err
+		}
 		idx, err = index.Open(filepath.Join(root, "graph.db"))
 		if err != nil {
 			return fmt.Errorf("open index: %w", err)
 		}
 		syncer = sync.NewSyncer(store, idx, root)
-		if _, err := syncer.EnsureFresh(); err != nil {
-			_ = idx.Close()
-			return err
+		if recovered {
+			err = syncer.ForceRebuild()
+			if err != nil {
+				err = journalError(root, err)
+			}
+		} else {
+			_, err = syncer.EnsureFresh()
 		}
-		return nil
+		if err != nil {
+			_ = idx.Close()
+		}
+		return err
 	}); err != nil {
+		var engineError *Error
+		if errors.As(err, &engineError) {
+			return nil, err
+		}
 		if isLockTimeout(err) {
 			return nil, newError(CodeConflict, fmt.Sprintf("another spec-graph process holds the lock at %q", root), err)
 		}
@@ -103,8 +118,18 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 }
 
 func (e *Engine) onLockAcquired() error {
+	recovered, err := recoverJournal(e.root, e.store)
+	if err != nil {
+		return err
+	}
 	if _, err := e.idx.RefreshIfReplaced(); err != nil {
 		return newError(CodeRuntime, "refresh index handle", err)
+	}
+	if recovered {
+		if err := e.syncer.ForceRebuild(); err != nil {
+			return journalError(e.root, err)
+		}
+		return nil
 	}
 	if _, err := e.syncer.EnsureFresh(); err != nil {
 		return newError(CodeRuntime, "sync index", err)
