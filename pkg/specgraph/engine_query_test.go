@@ -2,6 +2,7 @@ package specgraph_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
@@ -296,4 +297,40 @@ func TestQueryUnresolved(t *testing.T) {
 			t.Errorf("Type = %q, want %q", res.Entities[0].Type, "question")
 		}
 	})
+}
+
+func TestUnresolvedPhaseUsesEffectiveTaskScope(t *testing.T) {
+	eng := openTestEngine(t)
+	ctx := context.Background()
+	for _, req := range []specgraph.CreateEntityRequest{
+		{Type: "phase", ID: "PHS-001", Title: "Phase"},
+		{Type: "question", ID: "QST-001", Title: "In scope"},
+		{Type: "question", ID: "QST-002", Title: "Out of scope"},
+		{Type: "task", ID: "TSK-001", Title: "Task", Description: "Resolve the scoped question.", Metadata: json.RawMessage(`{"order":1,"instructions":["Resolve question"],"acceptance":["Question answered"],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}]}`)},
+	} {
+		if _, err := eng.CreateEntity(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, req := range []specgraph.AddRelationRequest{
+		{From: "TSK-001", To: "PHS-001", Type: "belongs_to"},
+		{From: "TSK-001", To: "QST-001", Type: "covers"},
+	} {
+		if _, err := eng.AddRelation(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := eng.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Phase: "PHS-001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 1 || len(result.Entities) != 1 || result.Entities[0].ID != "QST-001" {
+		t.Fatalf("effective task scope lost: %+v", result)
+	}
+	if _, err := eng.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Phase: "QST-001"}); !specgraph.IsInvalidInput(err) {
+		t.Fatalf("non-phase error = %v", err)
+	}
+	if _, err := eng.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Phase: "PHS-404"}); !specgraph.IsNotFound(err) {
+		t.Fatalf("missing phase error = %v", err)
+	}
 }

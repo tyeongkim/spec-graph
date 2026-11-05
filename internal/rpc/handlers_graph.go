@@ -71,7 +71,8 @@ func (d *Dispatcher) queryPath(ctx context.Context, params json.RawMessage) (any
 }
 
 type queryUnresolvedParams struct {
-	Type string `json:"type"`
+	Type  string `json:"type"`
+	Phase string `json:"phase"`
 }
 
 func (d *Dispatcher) queryUnresolved(ctx context.Context, params json.RawMessage) (any, *rpcError) {
@@ -79,7 +80,7 @@ func (d *Dispatcher) queryUnresolved(ctx context.Context, params json.RawMessage
 	if rerr := decodeParams(params, &p); rerr != nil {
 		return nil, rerr
 	}
-	result, err := d.engine.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Type: p.Type})
+	result, err := d.engine.QueryUnresolved(ctx, specgraph.QueryUnresolvedRequest{Type: p.Type, Phase: p.Phase})
 	if err != nil {
 		return nil, engineError(err)
 	}

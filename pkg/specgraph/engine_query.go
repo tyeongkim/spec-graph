@@ -38,7 +38,8 @@ type QueryPathRequest struct {
 type QueryUnresolvedRequest struct {
 	// Type filters results to a specific entity type. Empty means all
 	// unresolved types (question, assumption, risk).
-	Type string
+	Type  string
+	Phase string
 }
 
 // engineGraphEntityFetcher adapts the SQLite index to graph.EntityFetcher.
@@ -199,6 +200,31 @@ func (e *Engine) queryUnresolvedLocked(req QueryUnresolvedRequest) (*graph.Query
 	result, err := graph.QueryUnresolved(opts, ef)
 	if err != nil {
 		return nil, newError(CodeRuntime, "query unresolved", err)
+	}
+	if req.Phase != "" {
+		phase, err := e.getEntityLocked(req.Phase)
+		if err != nil {
+			return nil, err
+		}
+		if phase.Type != model.EntityTypePhase {
+			return nil, newError(CodeInvalidInput, "entity is not phase", nil)
+		}
+		scope, err := graph.EffectivePhaseScope(req.Phase, &engineRelationFetcher{idx: e.idx})
+		if err != nil {
+			return nil, newError(CodeRuntime, "derive phase scope", err)
+		}
+		covered := make(map[string]bool, len(scope.Covered))
+		for _, id := range scope.Covered {
+			covered[id] = true
+		}
+		filtered := make([]model.Entity, 0, len(result.Entities))
+		for _, entity := range result.Entities {
+			if covered[entity.ID] {
+				filtered = append(filtered, entity)
+			}
+		}
+		result.Entities = filtered
+		result.Count = len(filtered)
 	}
 	return result, nil
 }

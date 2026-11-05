@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func decodeResponses(t *testing.T, r io.Reader) []response {
@@ -41,7 +43,7 @@ func TestServe(t *testing.T) {
 		}, "\n")
 
 		var out bytes.Buffer
-		if err := Serve(context.Background(), eng, strings.NewReader(input), &out); err != nil {
+		if err := Serve(context.Background(), eng, io.NopCloser(strings.NewReader(input)), &out); err != nil {
 			t.Fatalf("Serve: %v", err)
 		}
 
@@ -78,7 +80,7 @@ func TestServe(t *testing.T) {
 		}
 
 		var out bytes.Buffer
-		if err := Serve(context.Background(), eng, strings.NewReader(sb.String()), &out); err != nil {
+		if err := Serve(context.Background(), eng, io.NopCloser(strings.NewReader(sb.String())), &out); err != nil {
 			t.Fatalf("Serve: %v", err)
 		}
 
@@ -115,7 +117,7 @@ func TestServe(t *testing.T) {
 
 		var mu sync.Mutex
 		out := &lockedBuffer{mu: &mu}
-		if err := Serve(context.Background(), eng, strings.NewReader(sb.String()), out); err != nil {
+		if err := Serve(context.Background(), eng, io.NopCloser(strings.NewReader(sb.String())), out); err != nil {
 			t.Fatalf("Serve: %v", err)
 		}
 
@@ -144,4 +146,64 @@ func (b *lockedBuffer) reader() io.Reader {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return bytes.NewReader(b.buf.Bytes())
+}
+
+type observedReader struct {
+	io.ReadCloser
+	started chan struct{}
+	once    sync.Once
+}
+
+func (r *observedReader) Read(b []byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	return r.ReadCloser.Read(b)
+}
+
+func TestServeCancellationUnblocksIdleInput(t *testing.T) {
+	eng := newTestEngine(t)
+	in, writer := io.Pipe()
+	defer writer.Close()
+	reader := &observedReader{ReadCloser: in, started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, eng, reader, io.Discard) }()
+	<-reader.started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancellation = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		writer.Close()
+		<-done
+		t.Fatal("Serve did not unblock idle input")
+	}
+}
+
+type brokenWriter struct{ err error }
+
+func (w brokenWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestServeOutputFailureStopsIdleInput(t *testing.T) {
+	eng := newTestEngine(t)
+	in, writer := io.Pipe()
+	defer writer.Close()
+	expected := errors.New("output unavailable")
+	done := make(chan error, 1)
+	go func() { done <- Serve(context.Background(), eng, in, brokenWriter{expected}) }()
+	if _, err := io.WriteString(writer, `{"jsonrpc":"2.0","id":1,"method":"entity.list"}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, expected) {
+			t.Fatalf("output error = %v, want %v", err, expected)
+		}
+	case <-time.After(3 * time.Second):
+		writer.Close()
+		<-done
+		t.Fatal("Serve ignored output failure")
+	}
 }

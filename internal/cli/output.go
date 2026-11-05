@@ -33,8 +33,8 @@ func writeJSON(cmd *cobra.Command, data any) error {
 	if err != nil {
 		return writeError(cmd, fmt.Errorf("marshal response: %w", err), 1)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(out))
-	return nil
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
+	return err
 }
 
 func writeError(cmd *cobra.Command, err error, exitCode int) error {

@@ -482,3 +482,19 @@ func TestGraphWriteTransportContracts(t *testing.T) {
 		}
 	})
 }
+
+func TestUnresolvedPhaseParameterFiltersScope(t *testing.T) {
+	eng := newTestEngine(t)
+	seedGraphTransportFixture(t, eng)
+	for _, relation := range []specgraph.AddRelationRequest{
+		{From: "PHS-001", To: "QST-001", Type: "covers"},
+	} {
+		if _, err := eng.AddRelation(context.Background(), relation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := decodeRPCResult[graph.QueryUnresolvedResult](t, callRPC(t, NewDispatcher(eng), "query.unresolved", map[string]any{"phase": "PHS-001"}))
+	if result.Count != 1 || len(result.Entities) != 1 || result.Entities[0].ID != "QST-001" {
+		t.Fatalf("phase-scoped unresolved = %+v, want only QST-001", result)
+	}
+}
