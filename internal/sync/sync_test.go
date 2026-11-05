@@ -286,6 +286,10 @@ func TestForceRebuild_PartialParseFailure(t *testing.T) {
 	if e == nil {
 		t.Error("good entity should still be in index despite bad file")
 	}
+
+	if _, err := syncer.EnsureFresh(); !isRebuildError(err) {
+		t.Fatalf("EnsureFresh after partial rebuild: got %v; want RebuildError until the bad file is repaired", err)
+	}
 }
 
 func TestFingerprint_EmptyState(t *testing.T) {

@@ -1,11 +1,44 @@
 package spectoml
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/BurntSushi/toml"
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
+
+func TestMetadataKeysRoundTrip(t *testing.T) {
+	keys := map[string]any{
+		"a.b": "dot", "has space": "space", `quote"d`: "quote", "한글": "unicode", "": "empty",
+		"back\\slash": "backslash", "line\nbreak": "newline", "bare-Key_123": "bare",
+	}
+	metadata := make(map[string]any, len(keys)+1)
+	for key, value := range keys {
+		metadata[key] = value
+	}
+	metadata["nested"] = keys
+	ef := EntityFile{
+		Schema: 1, ID: "REQ-001", Type: model.EntityTypeRequirement,
+		Title: "Metadata keys", Status: model.EntityStatusActive,
+		Metadata:  metadata,
+		Relations: []RelationEntry{{To: "DEC-001", Type: model.RelationDependsOn, Metadata: keys}},
+	}
+	store := NewStore(t.TempDir())
+	if err := store.WriteEntity(&ef); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.ReadEntity(ef.ID, ef.Type)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded.Metadata, ef.Metadata) {
+		t.Errorf("metadata = %#v, want %#v", loaded.Metadata, ef.Metadata)
+	}
+	if len(loaded.Relations) != 1 || !reflect.DeepEqual(loaded.Relations[0].Metadata, keys) {
+		t.Errorf("relations = %#v, want original relation metadata", loaded.Relations)
+	}
+}
 
 func TestTomlQuote_Spec(t *testing.T) {
 	tests := []struct {

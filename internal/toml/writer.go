@@ -118,6 +118,19 @@ func tomlQuote(s string) string {
 	return b.String()
 }
 
+func tomlKey(key string) string {
+	if key == "" {
+		return tomlQuote(key)
+	}
+	for _, r := range key {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			continue
+		}
+		return tomlQuote(key)
+	}
+	return key
+}
+
 func writeMapCanonical(b *strings.Builder, m map[string]any) {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -126,7 +139,7 @@ func writeMapCanonical(b *strings.Builder, m map[string]any) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		fmt.Fprintf(b, "%s = %s\n", k, formatValue(m[k]))
+		fmt.Fprintf(b, "%s = %s\n", tomlKey(k), formatValue(m[k]))
 	}
 }
 
@@ -184,7 +197,7 @@ func formatInlineTable(m map[string]any) string {
 
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s = %s", k, formatValue(m[k])))
+		parts = append(parts, fmt.Sprintf("%s = %s", tomlKey(k), formatValue(m[k])))
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
 }

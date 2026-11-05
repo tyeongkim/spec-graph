@@ -134,6 +134,10 @@ func (s *Syncer) ForceRebuild() error {
 		return fmt.Errorf("rebuild index: %w", err)
 	}
 
+	if len(parseErrors) > 0 {
+		return &RebuildError{Errors: parseErrors}
+	}
+
 	fingerprint, err := s.ComputeFingerprint()
 	if err != nil {
 		return fmt.Errorf("compute fingerprint after rebuild: %w", err)
@@ -141,10 +145,6 @@ func (s *Syncer) ForceRebuild() error {
 
 	if err := s.idx.SetMeta(metaKeyFingerprint, fingerprint); err != nil {
 		return fmt.Errorf("store fingerprint: %w", err)
-	}
-
-	if len(parseErrors) > 0 {
-		return &RebuildError{Errors: parseErrors}
 	}
 	return nil
 }
@@ -265,7 +265,9 @@ func entityTypeFromDir(dir string) model.EntityType {
 }
 
 // RebuildError is returned when some TOML files failed to parse during rebuild.
-// The index is still rebuilt with the files that parsed successfully.
+// The index is still rebuilt with the files that parsed successfully, but no
+// fingerprint is recorded, so the next freshness check rebuilds and reports the
+// failure again until the files are repaired.
 type RebuildError struct {
 	Errors []error
 }

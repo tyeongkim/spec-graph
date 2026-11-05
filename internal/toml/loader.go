@@ -279,12 +279,6 @@ func atomicWrite(path string, data []byte) error {
 	}
 
 	if err := os.Rename(tmpName, path); err != nil {
-		// On Windows, os.Rename fails if destination exists. Remove and retry.
-		if removeErr := os.Remove(path); removeErr == nil {
-			if retryErr := os.Rename(tmpName, path); retryErr == nil {
-				return nil
-			}
-		}
 		os.Remove(tmpName)
 		return fmt.Errorf("rename temp file to %q: %w", path, err)
 	}
