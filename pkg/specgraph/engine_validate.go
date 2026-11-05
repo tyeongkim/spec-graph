@@ -2,7 +2,9 @@ package specgraph
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/tyeongkim/spec-graph/internal/model"
 	"github.com/tyeongkim/spec-graph/internal/validate"
 )
 
@@ -33,6 +35,35 @@ func (e *Engine) Validate(ctx context.Context, req ValidateRequest) (*validate.V
 }
 
 func (e *Engine) validateLocked(req ValidateRequest) (*validate.ValidateResult, error) {
+	if req.EntityID != "" && req.Phase != "" {
+		return nil, newError(CodeInvalidInput, "entity and phase are mutually exclusive", nil)
+	}
+	if req.Phase != "" && req.Layer == string(model.LayerArch) {
+		return nil, newError(CodeInvalidInput, "phase cannot be used with arch layer", nil)
+	}
+	if req.Phase != "" {
+		entity, err := e.getEntityLocked(req.Phase)
+		if err != nil {
+			return nil, err
+		}
+		if entity.Type != model.EntityTypePhase {
+			return nil, newError(CodeInvalidInput, fmt.Sprintf("entity %q is type %q, not phase", req.Phase, entity.Type), nil)
+		}
+	}
+	if req.EntityID != "" {
+		if _, err := e.getEntityLocked(req.EntityID); err != nil {
+			return nil, err
+		}
+	}
+	for _, check := range req.Checks {
+		layer, known := validate.CheckLayer(check)
+		if !known {
+			return nil, newError(CodeInvalidInput, fmt.Sprintf("unknown check: %q", check), nil)
+		}
+		if req.Layer != "" && req.Layer != "all" && req.Layer != string(layer) {
+			return nil, newError(CodeInvalidInput, fmt.Sprintf("check %q belongs to layer %q, not %q", check, layer, req.Layer), nil)
+		}
+	}
 	var phase *string
 	if req.Phase != "" {
 		p := req.Phase

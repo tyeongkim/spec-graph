@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,28 +27,6 @@ var validateCmd = &cobra.Command{
 			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
 		}
 
-		if phaseFlag != "" && layer != nil && *layer != model.LayerMapping {
-			return handleError(cmd, &model.ErrInvalidInput{
-				Message: fmt.Sprintf("--phase cannot be used with --layer %s; only --layer mapping or --layer all is allowed", *layer),
-			})
-		}
-
-		if phaseFlag != "" {
-			entity, err := engine.GetEntity(cmd.Context(), phaseFlag)
-			if err != nil {
-				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("phase %q not found", phaseFlag)})
-			}
-			if entity.Type != model.EntityTypePhase {
-				return handleError(cmd, &model.ErrInvalidInput{Message: fmt.Sprintf("entity %q is type %q, not phase", phaseFlag, entity.Type)})
-			}
-		}
-
-		if entityFlag != "" {
-			if _, err := engine.GetEntity(cmd.Context(), entityFlag); err != nil {
-				return handleError(cmd, &model.ErrEntityNotFound{ID: entityFlag})
-			}
-		}
-
 		layerStr := ""
 		if layer != nil {
 			layerStr = string(*layer)
@@ -68,7 +45,7 @@ var validateCmd = &cobra.Command{
 			IncludeReferences: includeReferencesFlag,
 		})
 		if err != nil {
-			return handleError(cmd, &model.ErrInvalidInput{Message: err.Error()})
+			return handleError(cmd, err)
 		}
 
 		issues := make([]jsoncontract.ValidateIssue, len(result.Issues))

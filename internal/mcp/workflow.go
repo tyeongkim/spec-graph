@@ -77,49 +77,22 @@ func phaseBrief(ctx context.Context, engine *specgraph.Engine, phaseID string) (
 type phaseGateResult struct {
 	Issues   []validate.ValidationIssue `json:"issues"`
 	Blockers map[string][]string        `json:"blockers"`
+	Warnings []validate.ValidationIssue `json:"warnings"`
 	Passed   bool                       `json:"passed"`
 }
 
-// phaseGate runs every graph-level check that governs phase resolution. It
-// reports findings without changing state: resolving a phase additionally
-// requires the test, build, and per-entity code verification that only the
-// caller can perform, so the transition stays an explicit separate call.
 func phaseGate(ctx context.Context, engine *specgraph.Engine, phaseID string) (phaseGateResult, error) {
-	var result phaseGateResult
-	err := engine.Read(ctx, func(snapshot *specgraph.Snapshot) error {
-		phaseContext, err := snapshot.PhaseContext(phaseID)
-		if err != nil {
-			return err
-		}
-
-		checks := append(phaseScopedChecks(phaseID),
-			specgraph.ValidateRequest{
-				Layer:  string(model.LayerMapping),
-				Phase:  phaseID,
-				Checks: []string{"phase_satisfaction"},
-			},
-			specgraph.ValidateRequest{
-				Layer:  string(model.LayerArch),
-				Checks: []string{"coverage", "unresolved"},
-			},
-		)
-
-		issues, err := collectIssues(snapshot, checks)
-		if err != nil {
-			return err
-		}
-
-		result = phaseGateResult{
-			Issues:   issues,
-			Blockers: phaseContext.Blockers,
-			Passed:   len(issues) == 0 && len(phaseContext.Blockers) == 0,
-		}
-		return nil
-	})
+	report, err := engine.EvaluatePhaseGate(ctx, phaseID)
 	if err != nil {
 		return phaseGateResult{}, err
 	}
-	return result, nil
+	issues := append([]validate.ValidationIssue{}, report.BlockingIssues...)
+	warnings := append([]validate.ValidationIssue{}, report.Warnings...)
+	blockers := make(map[string][]string)
+	for _, issue := range issues {
+		blockers[issue.Entity] = append(blockers[issue.Entity], issue.Message)
+	}
+	return phaseGateResult{Issues: issues, Blockers: blockers, Warnings: warnings, Passed: !report.Blocked}, nil
 }
 
 type changeImpactResult struct {

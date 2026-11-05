@@ -13,6 +13,7 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/gate"
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
 	"github.com/tyeongkim/spec-graph/internal/model"
+	"github.com/tyeongkim/spec-graph/internal/rpc"
 	"github.com/tyeongkim/spec-graph/pkg/specgraph"
 )
 
@@ -43,7 +44,8 @@ func addTool[Args any](s *server.MCPServer, tool mcp.Tool, handle func(context.C
 		func(ctx context.Context, _ mcp.CallToolRequest, args Args) (*mcp.CallToolResult, error) {
 			result, err := handle(ctx, args)
 			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
+				data, _ := json.Marshal(rpc.EngineError(err))
+				return mcp.NewToolResultError(string(data)), nil
 			}
 			data, err := json.Marshal(result)
 			if err != nil {

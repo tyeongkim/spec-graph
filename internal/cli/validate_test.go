@@ -289,16 +289,16 @@ func TestValidatePhaseFlag_InvalidID(t *testing.T) {
 	dir := t.TempDir()
 
 	r := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "NONEXISTENT")
-	if r.exitCode != 3 {
-		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	if r.exitCode != 1 {
+		t.Fatalf("expected exit 1, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
 
 	var errResp jsoncontract.ErrorResponse
 	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
 		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
 	}
-	if errResp.Error.Code != "INVALID_INPUT" {
-		t.Errorf("code=%q; want INVALID_INPUT", errResp.Error.Code)
+	if errResp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code=%q; want NOT_FOUND", errResp.Error.Code)
 	}
 }
 
@@ -581,8 +581,8 @@ func TestValidateEntityFlag_NonExistent(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.stderr), &errResp); err != nil {
 		t.Fatalf("unmarshal stderr: %v\nraw: %s", err, r.stderr)
 	}
-	if errResp.Error.Code != "ENTITY_NOT_FOUND" {
-		t.Errorf("code=%q; want ENTITY_NOT_FOUND", errResp.Error.Code)
+	if errResp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code=%q; want NOT_FOUND", errResp.Error.Code)
 	}
 }
 
@@ -608,5 +608,18 @@ func TestValidateEntityFlag_MutualExclusionWithPhase(t *testing.T) {
 	}
 	if errResp.Error.Code != "INVALID_INPUT" {
 		t.Errorf("code=%q; want INVALID_INPUT", errResp.Error.Code)
+	}
+}
+
+func TestValidatePhaseExecUsesEnginePolicy(t *testing.T) {
+	dbFile := initTestProject(t)
+	dir := t.TempDir()
+	created := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase")
+	if created.exitCode != 0 {
+		t.Fatalf("create phase: %s", created.stderr)
+	}
+	result := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "PHS-001", "--layer", "exec", "--check", "task_graph")
+	if result.exitCode != 0 {
+		t.Fatalf("phase-scoped exec validation rejected: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
 }

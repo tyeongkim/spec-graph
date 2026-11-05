@@ -157,3 +157,7 @@ func decodeParams(params json.RawMessage, dst any) *rpcError {
 	}
 	return nil
 }
+
+func EngineError(err error) *rpcError {
+	return engineError(err)
+}

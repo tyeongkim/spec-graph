@@ -675,3 +675,58 @@ func TestListEntitiesRejectsAnInvalidLayer(t *testing.T) {
 		t.Errorf("error %q does not mention the rejected layer", text)
 	}
 }
+
+func TestPhaseGateDoesNotBlockOnUnrelatedArchitectureFindings(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	for _, req := range []specgraph.CreateEntityRequest{
+		{Type: "plan", ID: "PLN-001", Title: "Plan", Status: "active"},
+		{Type: "phase", ID: "PHS-001", Title: "Phase"},
+		{Type: "requirement", ID: "REQ-001", Title: "Unrelated requirement", Status: "active"},
+	} {
+		if _, err := engine.CreateEntity(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: "PHS-001", To: "PLN-001", Type: "belongs_to"}); err != nil {
+		t.Fatal(err)
+	}
+	active := "active"
+	if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &active}); err != nil {
+		t.Fatal(err)
+	}
+	text := callToolExpectingSuccess(t, engine, "phase_gate", map[string]any{"phase_id": "PHS-001"})
+	var result phaseGateResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("unrelated architecture blocked phase: %s", text)
+	}
+	phase, err := engine.GetEntity(ctx, "PHS-001")
+	if err != nil || phase.Status != "active" {
+		t.Fatalf("gate mutated phase: %+v %v", phase, err)
+	}
+	resolved := "resolved"
+	update, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &resolved})
+	if err != nil || update.Outcome != specgraph.UpdateOutcomeApplied {
+		t.Fatalf("actual transition disagrees: %+v %v", update, err)
+	}
+}
+
+func TestToolErrorsPreserveEngineCode(t *testing.T) {
+	text := callToolExpectingError(t, newTestEngine(t), "get_entity", map[string]any{"id": "REQ-404"})
+	var result struct {
+		Message string `json:"message"`
+		Data    struct {
+			Code     string `json:"code"`
+			ExitCode int    `json:"exit_code"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("unstructured error %q: %v", text, err)
+	}
+	if result.Data.Code != "not_found" || result.Data.ExitCode != 1 || result.Message == "" {
+		t.Fatalf("error classification lost: %s", text)
+	}
+}
