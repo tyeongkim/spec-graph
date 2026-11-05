@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 func startServe(t *testing.T, dir, dbFile string) (stdin io.WriteCloser, stop func()) {
 	t.Helper()
 
-	cmd := exec.Command(binaryPath, "--db", dbFile, "serve")
+	cmd := exec.Command(binaryPath, "--root", filepath.Dir(dbFile), "serve")
 	cmd.Dir = dir
 
 	in, err := cmd.StdinPipe()
@@ -41,19 +42,19 @@ func TestE2E_CLICoexistsWithRunningServer(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	if r := runCLI(t, dir, "init", "--db", dbFile); r.exitCode != 0 {
+	if r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile)); r.exitCode != 0 {
 		t.Fatalf("init: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	_, stop := startServe(t, dir, dbFile)
 	defer stop()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Concurrent with server")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Concurrent with server")
 	if r.exitCode != 0 {
 		t.Fatalf("entity add while server running: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("entity list while server running: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -70,7 +71,7 @@ func TestE2E_DualServersCoexist(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	if r := runCLI(t, dir, "init", "--db", dbFile); r.exitCode != 0 {
+	if r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile)); r.exitCode != 0 {
 		t.Fatalf("init: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
@@ -79,7 +80,7 @@ func TestE2E_DualServersCoexist(t *testing.T) {
 	_, stop2 := startServe(t, dir, dbFile)
 	defer stop2()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Two servers up")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Two servers up")
 	if r.exitCode != 0 {
 		t.Fatalf("entity add with two servers running: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}

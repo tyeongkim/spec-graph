@@ -16,7 +16,7 @@ func TestPhaseContextTransportParity(t *testing.T) {
 	seedPhaseContextCLI(t, dbFile)
 	dir := t.TempDir()
 
-	result := runCLI(t, dir, "--db", dbFile, "phase", "context", "PHS-001")
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "phase", "context", "PHS-001")
 	if result.exitCode != 0 {
 		t.Fatalf("phase context: exit %d; stderr: %s", result.exitCode, result.stderr)
 	}
@@ -51,7 +51,7 @@ func TestPhaseContextTransportParity(t *testing.T) {
 func TestPhaseContextTransportErrors(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
-	runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Requirement")
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Requirement")
 
 	tests := []struct {
 		name     string
@@ -63,7 +63,7 @@ func TestPhaseContextTransportErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := runCLI(t, dir, "--db", dbFile, "phase", "context", test.id)
+			result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "phase", "context", test.id)
 			if result.exitCode == 0 {
 				t.Fatal("expected phase context to fail")
 			}
@@ -94,7 +94,7 @@ func seedPhaseContextCLI(t *testing.T, dbFile string) {
 		{"--type", "task", "--id", "TSK-003", "--title", "Consume result", "--description", "Consume the engine result.", "--metadata", taskContractJSON(1, "Consume the engine result.")},
 	}
 	for _, entityArgs := range entities {
-		args := append([]string{"--db", dbFile, "entity", "add"}, entityArgs...)
+		args := append([]string{"--root", filepath.Dir(dbFile), "entity", "add"}, entityArgs...)
 		result := runCLI(t, dir, args...)
 		if result.exitCode != 0 {
 			t.Fatalf("seed entity %v: exit %d; stderr: %s", entityArgs, result.exitCode, result.stderr)
@@ -113,7 +113,7 @@ func seedPhaseContextCLI(t *testing.T, dbFile string) {
 		{"TSK-003", "REQ-001", "covers"},
 	}
 	for _, relation := range relations {
-		result := runCLI(t, dir, "--db", dbFile, "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
+		result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
 		if result.exitCode != 0 {
 			t.Fatalf("seed relation %v: exit %d; stderr: %s", relation, result.exitCode, result.stderr)
 		}

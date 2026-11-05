@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
@@ -13,7 +14,7 @@ func TestEntityReviseMovesLiveRelationsAndKeepsDeliveryRecord(t *testing.T) {
 	dir := t.TempDir()
 	setupDeliveredRequirement(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "revise", "REQ-001",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "revise", "REQ-001",
 		"--title", "Query operations, narrowed",
 		"--reason", "Split traversal out of query scope")
 	if r.exitCode != 0 {
@@ -38,7 +39,7 @@ func TestEntityReviseMovesLiveRelationsAndKeepsDeliveryRecord(t *testing.T) {
 	assertRelation(t, resp.Carried, "API-001", model.RelationImplements)
 	assertRelation(t, resp.Retained, "PHS-001", model.RelationDelivers)
 
-	validation := runCLI(t, dir, "--db", dbFile, "validate", "--check", "mapping_consistency")
+	validation := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "mapping_consistency")
 	if validation.exitCode != 0 {
 		t.Fatalf("mapping_consistency after revise: exit=%d stdout=%s stderr=%s",
 			validation.exitCode, validation.stdout, validation.stderr)
@@ -50,12 +51,12 @@ func TestEntityReviseRejectsForkingAnAlreadySupersededEntity(t *testing.T) {
 	dir := t.TempDir()
 	setupDeliveredRequirement(t, dir, dbFile)
 
-	first := runCLI(t, dir, "--db", dbFile, "entity", "revise", "REQ-001", "--reason", "First revision")
+	first := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "revise", "REQ-001", "--reason", "First revision")
 	if first.exitCode != 0 {
 		t.Fatalf("first revise: exit=%d stderr=%s", first.exitCode, first.stderr)
 	}
 
-	second := runCLI(t, dir, "--db", dbFile, "entity", "revise", "REQ-001", "--reason", "Forking revision")
+	second := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "revise", "REQ-001", "--reason", "Forking revision")
 	if second.exitCode != 2 {
 		t.Fatalf("expected exit 2 (conflict), got %d; stdout=%s stderr=%s", second.exitCode, second.stdout, second.stderr)
 	}
@@ -74,15 +75,15 @@ func TestEntityReviseRejectsForkingAnAlreadySupersededEntity(t *testing.T) {
 func setupDeliveredRequirement(t *testing.T, dir, dbFile string) {
 	t.Helper()
 	cmds := [][]string{
-		{"--db", dbFile, "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Query operations", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "interface", "--id", "API-001", "--title", "Engine.QueryScope", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "plan", "--id", "PLN-001", "--title", "Delivery plan", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
-		{"--db", dbFile, "relation", "add", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
-		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to"},
-		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "covers"},
-		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "delivers"},
-		{"--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved", "--force", "--reason", "Accept for test setup"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Query operations", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "interface", "--id", "API-001", "--title", "Engine.QueryScope", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "plan", "--id", "PLN-001", "--title", "Delivery plan", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "covers"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "delivers"},
+		{"--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "resolved", "--force", "--reason", "Accept for test setup"},
 	}
 	for _, args := range cmds {
 		r := runCLI(t, dir, args...)

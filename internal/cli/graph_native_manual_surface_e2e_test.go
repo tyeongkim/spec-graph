@@ -28,7 +28,7 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 		return result
 	}
 
-	mustCLI("init", "init", "--db", dbFile)
+	mustCLI("init", "init", "--root", filepath.Dir(dbFile))
 
 	entities := [][]string{
 		{"plan", "PLN-001", "Manual surface plan", "Graph-native manual surface plan.", `{"owner":"platform"}`, "active"},
@@ -39,7 +39,7 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 		{"task", "TSK-002", "Implement second requirement", "Implement the second requirement.", manualTaskContractJSON(2, ""), ""},
 	}
 	for _, entity := range entities {
-		args := []string{"--db", dbFile, "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--description", entity[3], "--metadata", entity[4]}
+		args := []string{"--root", filepath.Dir(dbFile), "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--description", entity[3], "--metadata", entity[4]}
 		if entity[5] != "" {
 			args = append(args, "--status", entity[5])
 		}
@@ -57,15 +57,15 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 		{"TSK-002", "TSK-001", "task_depends_on"},
 	}
 	for _, relation := range relations {
-		mustCLI("relation add", "--db", dbFile, "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
+		mustCLI("relation add", "--root", filepath.Dir(dbFile), "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
 	}
 
 	// Activate the phase (its parent plan is active) so tasks can later be
 	// activated against an active parent phase.
-	mustCLI("activate PHS-001", "--db", dbFile, "entity", "update", "PHS-001", "--status", "active")
+	mustCLI("activate PHS-001", "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "active")
 
 	// phase context reflects the derived task graph, scope, and readiness.
-	result := mustCLI("phase context", "--db", dbFile, "phase", "context", "PHS-001")
+	result := mustCLI("phase context", "--root", filepath.Dir(dbFile), "phase", "context", "PHS-001")
 	var phaseContext specgraph.PhaseContextResult
 	if err := json.Unmarshal([]byte(result.stdout), &phaseContext); err != nil {
 		t.Fatalf("unmarshal phase context: %v\nraw: %s", err, result.stdout)
@@ -103,7 +103,7 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 	// leave the entity count unchanged.
 	countBefore := manualEntityCount(t, projectDir, dbFile)
 	malformed := `{"order":3,"instructions":["do"],"acceptance":["ok"],"must_not":[],"references":[],"qa":[{"command":"go test ./...","expected":"exit 0","evidence":""}],"agent":"x"}`
-	if bad := runCLI(t, projectDir, "--db", dbFile, "entity", "add", "--type", "task", "--id", "TSK-003", "--title", "Malformed", "--description", "Unknown key.", "--metadata", malformed); bad.exitCode == 0 {
+	if bad := runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "task", "--id", "TSK-003", "--title", "Malformed", "--description", "Unknown key.", "--metadata", malformed); bad.exitCode == 0 {
 		t.Fatalf("malformed task add should fail; stdout=%s", bad.stdout)
 	}
 	if countAfter := manualEntityCount(t, projectDir, dbFile); countAfter != countBefore {
@@ -111,11 +111,11 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 	}
 
 	// Activate TSK-001; it has no prerequisites.
-	mustCLI("activate TSK-001", "--db", dbFile, "entity", "update", "TSK-001", "--status", "active")
+	mustCLI("activate TSK-001", "--root", filepath.Dir(dbFile), "entity", "update", "TSK-001", "--status", "active")
 
 	// BLOCKED: TSK-002 cannot activate while its prerequisite TSK-001 is only
 	// active (not resolved). The activation gate blocks it and it stays draft.
-	blocked := runCLI(t, projectDir, "--db", dbFile, "entity", "update", "TSK-002", "--status", "active")
+	blocked := runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "entity", "update", "TSK-002", "--status", "active")
 	if blocked.exitCode == 0 {
 		t.Fatalf("TSK-002 activation should be blocked while TSK-001 unresolved; stdout=%s", blocked.stdout)
 	}
@@ -135,24 +135,24 @@ func TestE2E_GraphNativeManualSurface(t *testing.T) {
 	}
 
 	// Resolve TSK-001 with QA evidence set to the repo-relative file path.
-	mustCLI("resolve TSK-001", "--db", dbFile, "entity", "update", "TSK-001", "--status", "resolved", "--metadata", manualTaskContractJSON(1, "evidence/tsk-001.txt"))
+	mustCLI("resolve TSK-001", "--root", filepath.Dir(dbFile), "entity", "update", "TSK-001", "--status", "resolved", "--metadata", manualTaskContractJSON(1, "evidence/tsk-001.txt"))
 	if status := manualEntityStatus(t, projectDir, dbFile, "TSK-001"); status != model.EntityStatusResolved {
 		t.Fatalf("TSK-001 status = %q; want resolved", status)
 	}
 
 	// With TSK-001 resolved, TSK-002 may activate and then resolve.
-	mustCLI("activate TSK-002", "--db", dbFile, "entity", "update", "TSK-002", "--status", "active")
-	mustCLI("resolve TSK-002", "--db", dbFile, "entity", "update", "TSK-002", "--status", "resolved", "--metadata", manualTaskContractJSON(2, "evidence/tsk-002.txt"))
+	mustCLI("activate TSK-002", "--root", filepath.Dir(dbFile), "entity", "update", "TSK-002", "--status", "active")
+	mustCLI("resolve TSK-002", "--root", filepath.Dir(dbFile), "entity", "update", "TSK-002", "--status", "resolved", "--metadata", manualTaskContractJSON(2, "evidence/tsk-002.txt"))
 	if status := manualEntityStatus(t, projectDir, dbFile, "TSK-002"); status != model.EntityStatusResolved {
 		t.Fatalf("TSK-002 status = %q; want resolved", status)
 	}
 
 	// Resolve the phase, then the plan; both gates pass on the legitimate fixture.
-	mustCLI("resolve PHS-001", "--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved")
+	mustCLI("resolve PHS-001", "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "resolved")
 	if status := manualEntityStatus(t, projectDir, dbFile, "PHS-001"); status != model.EntityStatusResolved {
 		t.Fatalf("PHS-001 status = %q; want resolved", status)
 	}
-	mustCLI("resolve PLN-001", "--db", dbFile, "entity", "update", "PLN-001", "--status", "resolved")
+	mustCLI("resolve PLN-001", "--root", filepath.Dir(dbFile), "entity", "update", "PLN-001", "--status", "resolved")
 	if status := manualEntityStatus(t, projectDir, dbFile, "PLN-001"); status != model.EntityStatusResolved {
 		t.Fatalf("PLN-001 status = %q; want resolved", status)
 	}
@@ -174,7 +174,7 @@ func manualTaskContractJSON(order int, evidence string) string {
 
 func manualEntityCount(t *testing.T, dir, dbFile string) int {
 	t.Helper()
-	result := runCLI(t, dir, "--db", dbFile, "entity", "list")
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if result.exitCode != 0 {
 		t.Fatalf("entity list: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -187,7 +187,7 @@ func manualEntityCount(t *testing.T, dir, dbFile string) int {
 
 func manualEntityStatus(t *testing.T, dir, dbFile, id string) model.EntityStatus {
 	t.Helper()
-	result := runCLI(t, dir, "--db", dbFile, "entity", "get", id)
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", id)
 	if result.exitCode != 0 {
 		t.Fatalf("entity get %s: exit=%d stderr=%s", id, result.exitCode, result.stderr)
 	}

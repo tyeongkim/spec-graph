@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,14 +13,14 @@ func TestExportDOT(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "First Req")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "First Dec")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "decides")
 
-	r := runCLI(t, dir, "--db", dbFile, "export", "--format", "dot")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "export", "--format", "dot")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -39,14 +40,14 @@ func TestExportMermaid(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "First Req")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "First Dec")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "decides")
 
-	r := runCLI(t, dir, "--db", dbFile, "export", "--format", "mermaid")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "export", "--format", "mermaid")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -65,7 +66,7 @@ func TestExportMermaid(t *testing.T) {
 func TestExportInvalidFormat(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "export", "--format", "xml")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export", "--format", "xml")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -78,7 +79,7 @@ func TestExportInvalidFormat(t *testing.T) {
 func TestExportMissingFormat(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "export")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for missing required --format flag")
 	}
@@ -88,18 +89,18 @@ func TestExportCenterSubgraph(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req One")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Dec One")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "Interface One")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "depends_on")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "DEC-001", "--to", "API-001", "--type", "references")
 
-	r := runCLI(t, dir, "--db", dbFile, "export", "--format", "dot",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "export", "--format", "dot",
 		"--center", "DEC-001", "--depth", "1")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -114,7 +115,7 @@ func TestExportCenterSubgraph(t *testing.T) {
 		t.Errorf("expected neighbor API-001 in output, got:\n%s", r.stdout)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "export", "--format", "mermaid",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "export", "--format", "mermaid",
 		"--center", "REQ-001", "--depth", "1")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -133,7 +134,7 @@ func TestExportCenterSubgraph(t *testing.T) {
 func TestExportCenterNonexistent(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "export", "--format", "dot",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export", "--format", "dot",
 		"--center", "NOPE-999")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1 for nonexistent center, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -146,7 +147,7 @@ func TestExportCenterNonexistent(t *testing.T) {
 func TestExportEmptyDB(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "export", "--format", "dot")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export", "--format", "dot")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -154,7 +155,7 @@ func TestExportEmptyDB(t *testing.T) {
 		t.Errorf("expected valid empty DOT graph, got:\n%s", r.stdout)
 	}
 
-	r = runCLI(t, t.TempDir(), "--db", dbFile, "export", "--format", "mermaid")
+	r = runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export", "--format", "mermaid")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -167,14 +168,14 @@ func TestExportJSON(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "First Req")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "First Dec")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "depends_on")
 
-	r := runCLI(t, dir, "--db", dbFile, "export", "--format", "json")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "export", "--format", "json")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -212,7 +213,7 @@ func TestExportJSON(t *testing.T) {
 func TestExportJSONEmpty(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "export", "--format", "json")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "export", "--format", "json")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}

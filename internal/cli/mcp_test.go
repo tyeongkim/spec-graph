@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ type jsonrpcResponse struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-// runMCP pipes newline-delimited JSON-RPC messages to `spec-graph mcp --db <dbFile>`
+// runMCP pipes newline-delimited JSON-RPC messages to `spec-graph mcp --root <dir>`
 // via stdin, closes stdin, and returns all parsed JSON-RPC responses.
 func runMCP(t *testing.T, dbFile string, messages ...string) []jsonrpcResponse {
 	t.Helper()
@@ -26,7 +27,7 @@ func runMCP(t *testing.T, dbFile string, messages ...string) []jsonrpcResponse {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binaryPath, "--db", dbFile, "mcp")
+	cmd := exec.CommandContext(ctx, binaryPath, "--root", filepath.Dir(dbFile), "mcp")
 
 	var stdin bytes.Buffer
 	for _, msg := range messages {
@@ -156,27 +157,27 @@ func TestMCPToolCallPhaseBrief(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "plan", "--id", "PLN-001", "--title", "Plan", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("add plan: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Requirement 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add req: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to")
 	if r.exitCode != 0 {
 		t.Fatalf("add belongs_to: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
 		t.Fatalf("add covers: exit=%d stderr=%s", r.exitCode, r.stderr)

@@ -55,7 +55,7 @@ func TestInitWithoutPath(t *testing.T) {
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "graph.db")
 
-	r := runCLI(t, dir, "init", "--db", dbFile)
+	r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r.exitCode != 0 {
 		t.Fatalf("init (no --path): exit=%d stderr=%s", r.exitCode, r.stderr)
 	}

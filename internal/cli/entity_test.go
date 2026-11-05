@@ -110,7 +110,7 @@ func initTestProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "graph.db")
-	r := runCLI(t, dir, "init", "--db", dbFile)
+	r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r.exitCode != 0 {
 		t.Fatalf("init failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -121,7 +121,7 @@ func TestInitCreatesDB(t *testing.T) {
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "sub", "graph.db")
 
-	r := runCLI(t, dir, "init", "--db", dbFile)
+	r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -146,12 +146,12 @@ func TestInitIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "graph.db")
 
-	r1 := runCLI(t, dir, "init", "--db", dbFile)
+	r1 := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r1.exitCode != 0 {
 		t.Fatalf("first init failed: %s", r1.stderr)
 	}
 
-	r2 := runCLI(t, dir, "init", "--db", dbFile)
+	r2 := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r2.exitCode != 0 {
 		t.Fatalf("second init failed: %s", r2.stderr)
 	}
@@ -161,7 +161,7 @@ func TestCommandWithoutInit(t *testing.T) {
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "nonexistent", "graph.db")
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d", r.exitCode)
 	}
@@ -178,7 +178,7 @@ func TestCommandWithoutInit(t *testing.T) {
 func TestEntityAdd(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Test Requirement")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -205,7 +205,7 @@ func TestEntityAdd(t *testing.T) {
 func TestEntityAddWithAllFields(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Design Choice",
 		"--description", "A design decision",
 		"--metadata", `{"priority":"high"}`,
@@ -237,7 +237,7 @@ func TestEntityAddWithAllFields(t *testing.T) {
 func TestEntityAddInvalidID(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "BAD-ID", "--title", "Bad")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -255,10 +255,10 @@ func TestEntityAddInvalidID(t *testing.T) {
 func TestEntityAddDuplicate(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "First")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Duplicate")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -276,7 +276,7 @@ func TestEntityAddDuplicate(t *testing.T) {
 func TestEntityAddMissingFlags(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for missing required flags")
 	}
@@ -285,10 +285,10 @@ func TestEntityAddMissingFlags(t *testing.T) {
 func TestEntityGet(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Get Test")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "get", "REQ-001")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -308,7 +308,7 @@ func TestEntityGet(t *testing.T) {
 func TestEntityGetNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "get", "REQ-999")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "get", "REQ-999")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d", r.exitCode)
 	}
@@ -325,12 +325,12 @@ func TestEntityGetNotFound(t *testing.T) {
 func TestEntityListAll(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "First")
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Second")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "list")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -350,12 +350,12 @@ func TestEntityListAll(t *testing.T) {
 func TestEntityListWithTypeFilter(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req")
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Dec")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "list", "--type", "requirement")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "list", "--type", "requirement")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -375,12 +375,12 @@ func TestEntityListWithTypeFilter(t *testing.T) {
 func TestEntityListWithStatusFilter(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Draft")
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-002", "--title", "Active", "--status", "active")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "list", "--status", "active")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "list", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -397,7 +397,7 @@ func TestEntityListWithStatusFilter(t *testing.T) {
 func TestEntityListEmpty(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "list")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -417,10 +417,10 @@ func TestEntityListEmpty(t *testing.T) {
 func TestEntityUpdateTitle(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Original")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-001",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--title", "Updated Title")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -438,10 +438,10 @@ func TestEntityUpdateTitle(t *testing.T) {
 func TestEntityUpdateStatus(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Test")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-001",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -459,10 +459,10 @@ func TestEntityUpdateStatus(t *testing.T) {
 func TestEntityUpdateMetadata(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Test")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-001",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--metadata", `{"version":2}`)
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -485,7 +485,7 @@ func TestEntityUpdateMetadata(t *testing.T) {
 func TestEntityUpdateNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-999",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "REQ-999",
 		"--title", "Nope")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d", r.exitCode)
@@ -495,10 +495,10 @@ func TestEntityUpdateNotFound(t *testing.T) {
 func TestEntityUpdateStatusDeprecated(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "To Deprecate")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "REQ-001",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--status", "deprecated", "--reason", "superseded by REQ-015")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -516,10 +516,10 @@ func TestEntityUpdateStatusDeprecated(t *testing.T) {
 func TestEntityUpdateRejectsDeprecatedQuestion(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "question", "--id", "QST-001", "--title", "Open Question")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "update", "QST-001",
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "update", "QST-001",
 		"--status", "deprecated")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stdout: %s", r.exitCode, r.stdout)
@@ -537,10 +537,10 @@ func TestEntityUpdateRejectsDeprecatedQuestion(t *testing.T) {
 func TestEntityDelete(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	runCLI(t, t.TempDir(), "--db", dbFile, "entity", "add",
+	runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "To Delete")
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "delete", "REQ-001")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "delete", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -557,7 +557,7 @@ func TestEntityDelete(t *testing.T) {
 func TestEntityDeleteNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "entity", "delete", "REQ-999")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "entity", "delete", "REQ-999")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -575,18 +575,18 @@ func TestEntityFullLifecycle(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Lifecycle Test")
 	if r.exitCode != 0 {
 		t.Fatalf("add failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("get failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("list failed: %s", r.stderr)
 	}
@@ -596,24 +596,24 @@ func TestEntityFullLifecycle(t *testing.T) {
 		t.Errorf("list count = %d; want 1", listResp.Count)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--title", "Updated", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("update failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--status", "deprecated", "--reason", "end of lifecycle")
 	if r.exitCode != 0 {
 		t.Fatalf("deprecate failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "delete", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "delete", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("delete failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1 after delete, got %d", r.exitCode)
 	}
@@ -622,9 +622,9 @@ func TestEntityFullLifecycle(t *testing.T) {
 func setupGatedPhaseWithUnresolvedQuestion(t *testing.T, dir, dbFile string) {
 	t.Helper()
 	cmds := [][]string{
-		{"--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Unresolved question", "--status", "active"},
-		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Unresolved question", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
 	}
 	for _, args := range cmds {
 		r := runCLI(t, dir, args...)
@@ -639,7 +639,7 @@ func TestGateBlocksPhaseResolution(t *testing.T) {
 	dir := t.TempDir()
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "resolved")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2 (gate blocked), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -689,7 +689,7 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	dir := t.TempDir()
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001",
 		"--status", "resolved", "--force", "--reason", "Accept unresolved question")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0 (force bypass), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
@@ -734,13 +734,13 @@ func TestGateForceBypassWithReason(t *testing.T) {
 func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
-	setup := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "phase",
+	setup := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase",
 		"--id", "PHS-001", "--title", "Resolved phase", "--status", "resolved")
 	if setup.exitCode != 0 {
 		t.Fatalf("setup failed: exit=%d stderr=%s", setup.exitCode, setup.stderr)
 	}
 
-	result := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001",
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001",
 		"--status", "active", "--force", "--reason", "Attempt structural bypass")
 	if result.exitCode != 2 {
 		t.Fatalf("exit = %d; want 2; stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
@@ -753,7 +753,7 @@ func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
 		t.Fatal("blocked = false; want true")
 	}
 
-	stored := runCLI(t, dir, "--db", dbFile, "entity", "get", "PHS-001")
+	stored := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "PHS-001")
 	if stored.exitCode != 0 {
 		t.Fatalf("get phase: %s", stored.stderr)
 	}
@@ -772,7 +772,7 @@ func TestGateNotAppliedForNonResolvedTransition(t *testing.T) {
 
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "draft")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "draft")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0 for non-gated transition, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -791,11 +791,11 @@ func TestGatePassesWhenNoIssues(t *testing.T) {
 	dir := t.TempDir()
 
 	cmds := [][]string{
-		{"--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Resolved question", "--status", "active"},
-		{"--db", dbFile, "entity", "add", "--type", "decision", "--id", "DEC-001", "--title", "Answer", "--status", "active"},
-		{"--db", dbFile, "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
-		{"--db", dbFile, "relation", "add", "--from", "DEC-001", "--to", "QST-001", "--type", "answers"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Resolved question", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "decision", "--id", "DEC-001", "--title", "Answer", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "DEC-001", "--to", "QST-001", "--type", "answers"},
 	}
 	for _, args := range cmds {
 		r := runCLI(t, dir, args...)
@@ -804,7 +804,7 @@ func TestGatePassesWhenNoIssues(t *testing.T) {
 		}
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "update", "PHS-001", "--status", "resolved")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "resolved")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0 (gate passes), got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}

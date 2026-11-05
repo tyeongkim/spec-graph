@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
@@ -20,7 +21,7 @@ func seedImpactEntities(t *testing.T, dbFile string) {
 		{"test", "TST-010", "Auth test"},
 	}
 	for _, e := range entities {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("seed entity %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -32,7 +33,7 @@ func seedImpactRelations(t *testing.T, dbFile string, relations []struct{ from, 
 	t.Helper()
 	dir := t.TempDir()
 	for _, rel := range relations {
-		r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("seed relation %s->%s (%s): exit=%d stderr=%s",
@@ -50,7 +51,7 @@ func TestImpactSingleSource(t *testing.T) {
 	}
 	seedImpactRelations(t, dbFile, relations)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "REQ-001")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -92,7 +93,7 @@ func TestImpactMultipleSources(t *testing.T) {
 	}
 	seedImpactRelations(t, dbFile, relations)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "REQ-001", "DEC-003")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "REQ-001", "DEC-003")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -125,7 +126,7 @@ func TestImpactWithFollowFlag(t *testing.T) {
 	}
 	seedImpactRelations(t, dbFile, relations)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "REQ-001", "--follow", "implements")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--follow", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -161,7 +162,7 @@ func TestImpactWithMinSeverity(t *testing.T) {
 	}
 	seedImpactRelations(t, dbFile, relations)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "REQ-001", "--min-severity", "high")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--min-severity", "high")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -187,7 +188,7 @@ func TestImpactWithDimension(t *testing.T) {
 	}
 	seedImpactRelations(t, dbFile, relations)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "REQ-001", "--dimension", "structural")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--dimension", "structural")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -218,7 +219,7 @@ func TestImpactWithDimension(t *testing.T) {
 func TestImpactEntityNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact", "NONEXIST-001")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact", "NONEXIST-001")
 	if r.exitCode == 0 {
 		t.Fatalf("expected non-zero exit for nonexistent entity, got 0")
 	}
@@ -228,13 +229,13 @@ func TestImpactNoRelations(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-050", "--title", "Isolated")
 	if r.exitCode != 0 {
 		t.Fatalf("seed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "impact", "REQ-050")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-050")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -256,13 +257,13 @@ func TestImpactInvalidFlag(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-060", "--title", "Test")
 	if r.exitCode != 0 {
 		t.Fatalf("seed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "impact", "REQ-060", "--min-severity", "invalid")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-060", "--min-severity", "invalid")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3 for invalid flag, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -279,7 +280,7 @@ func TestImpactInvalidFlag(t *testing.T) {
 func TestImpactNoArgs(t *testing.T) {
 	dbFile := initTestProject(t)
 
-	r := runCLI(t, t.TempDir(), "--db", dbFile, "impact")
+	r := runCLI(t, t.TempDir(), "--root", filepath.Dir(dbFile), "impact")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for missing args")
 	}

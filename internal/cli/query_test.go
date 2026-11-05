@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
@@ -12,39 +13,39 @@ func TestQueryScopeHappyPath(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create phase.
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// Create entities.
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Requirement 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add req: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "Interface 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add api: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
 		t.Fatalf("add covers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "API-001", "--type", "delivers")
 	if r.exitCode != 0 {
 		t.Fatalf("add delivers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// Query scope.
-	r = runCLI(t, dir, "--db", dbFile, "query", "scope", "PHS-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "scope", "PHS-001")
 	if r.exitCode != 0 {
 		t.Fatalf("query scope: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -80,7 +81,7 @@ func TestQueryScopeNotFound(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "scope", "PHS-999")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "scope", "PHS-999")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -99,13 +100,13 @@ func TestQueryScopeEmptyPhase(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create phase with no linked entities.
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Empty Phase")
 	if r.exitCode != 0 {
 		t.Fatalf("add phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "query", "scope", "PHS-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "scope", "PHS-001")
 	if r.exitCode != 0 {
 		t.Fatalf("query scope: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -133,18 +134,18 @@ func TestQueryUnresolvedMixed(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "question", "--id", "QST-001", "--title", "Open question")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "assumption", "--id", "ASM-001", "--title", "Active assumption", "--status", "active")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "risk", "--id", "RSK-001", "--title", "Draft risk")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "question", "--id", "QST-002", "--title", "Resolved question", "--status", "resolved")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Not unresolved type")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "unresolved")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "unresolved")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -185,14 +186,14 @@ func TestQueryUnresolvedPhaseUsesEffectiveScope(t *testing.T) {
 		{"relation", "add", "--from", "TSK-001", "--to", "QST-001", "--type", "covers"},
 	}
 	for _, command := range commands {
-		args := append([]string{"--db", dbFile}, command...)
+		args := append([]string{"--root", filepath.Dir(dbFile)}, command...)
 		result := runCLI(t, dir, args...)
 		if result.exitCode != 0 {
 			t.Fatalf("command %v: exit=%d stderr=%s", command, result.exitCode, result.stderr)
 		}
 	}
 
-	result := runCLI(t, dir, "--db", dbFile, "query", "unresolved", "--phase", "PHS-001")
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "unresolved", "--phase", "PHS-001")
 	if result.exitCode != 0 {
 		t.Fatalf("query unresolved: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -209,14 +210,14 @@ func TestQueryUnresolvedTypeFilter(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "question", "--id", "QST-001", "--title", "Q1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "assumption", "--id", "ASM-001", "--title", "A1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "risk", "--id", "RSK-001", "--title", "R1")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "unresolved", "--type", "question")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "unresolved", "--type", "question")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -241,7 +242,7 @@ func TestQueryUnresolvedEmpty(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "unresolved")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "unresolved")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -266,7 +267,7 @@ func TestQueryUnresolvedInvalidType(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "unresolved", "--type", "invalid")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "unresolved", "--type", "invalid")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -284,19 +285,19 @@ func TestQueryPathExists(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "API 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase 1")
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "API-001", "--type", "delivers")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "PHS-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "path", "REQ-001", "PHS-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -339,12 +340,12 @@ func TestQueryPathNoPath(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Dec 1")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "DEC-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "path", "REQ-001", "DEC-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -369,10 +370,10 @@ func TestQueryPathSameEntity(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "REQ-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "path", "REQ-001", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -400,10 +401,10 @@ func TestQueryPathNonexistentEntity(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "path", "REQ-001", "NONEXISTENT-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "path", "REQ-001", "NONEXISTENT-001")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -421,12 +422,12 @@ func TestQuerySQLSelectRows(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "API 1")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "SELECT id, type FROM entities ORDER BY id")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "SELECT id, type FROM entities ORDER BY id")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -464,7 +465,7 @@ func TestQuerySQLAllowsSemicolonsWithinOneStatement(t *testing.T) {
 		{name: "trailing separator", query: "SELECT 1; /* trailing comment */"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			r := runCLI(t, dir, "--db", dbFile, "query", "sql", test.query)
+			r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", test.query)
 			if r.exitCode != 0 {
 				t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 			}
@@ -484,7 +485,7 @@ func TestQuerySQLRejectsDelete(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "DELETE FROM entities")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "DELETE FROM entities")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -502,13 +503,13 @@ func TestQuerySQLRejectsMultipleStatementsWithoutDeleting(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
 	if r.exitCode != 0 {
 		t.Fatalf("add entity: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "query", "sql", "SELECT id FROM entities; DELETE FROM entities")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "SELECT id FROM entities; DELETE FROM entities")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -521,7 +522,7 @@ func TestQuerySQLRejectsMultipleStatementsWithoutDeleting(t *testing.T) {
 		t.Errorf("code = %q; want INVALID_INPUT", errResp.Error.Code)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("seeded entity was deleted: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -531,7 +532,7 @@ func TestQuerySQLRejectsDrop(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "DROP TABLE entities")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "DROP TABLE entities")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -549,7 +550,7 @@ func TestQuerySQLRejectsPragma(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "PRAGMA table_info(entities)")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "PRAGMA table_info(entities)")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -567,7 +568,7 @@ func TestQuerySQLRejectsCaseInsensitive(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "sql", "delete FROM entities")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "sql", "delete FROM entities")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -585,19 +586,19 @@ func TestQueryNeighborsDepth1(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "API 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "test", "--id", "TST-001", "--title", "Test 1")
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "TST-001", "--to", "API-001", "--type", "verifies")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "REQ-001", "--depth", "1")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "neighbors", "REQ-001", "--depth", "1")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -638,15 +639,15 @@ func TestQueryNeighborsDefaultDepth(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Req 1")
-	runCLI(t, dir, "--db", dbFile, "entity", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "API 1")
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "REQ-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "neighbors", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -665,7 +666,7 @@ func TestQueryNeighborsNonexistent(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "query", "neighbors", "NONEXIST-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "query", "neighbors", "NONEXIST-001")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr=%s", r.exitCode, r.stderr)
 	}

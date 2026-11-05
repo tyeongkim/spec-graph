@@ -24,7 +24,7 @@
   `export --format dot|mermaid` emits the raw diagram format, and `serve` speaks JSON-RPC.
 - Error messages go to **stderr**.
 - Exit codes: `0` success, `1` runtime error, `2` validation failure / gate blocked, `3` invalid input / schema violation.
-- Root persistent flags: `--layer` and `--db <PATH>`.
+- Root persistent flags: `--layer` and `--root <PATH>` (spec-graph project directory, default `.spec-graph`).
 
 ---
 

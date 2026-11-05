@@ -21,7 +21,7 @@ var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a spec-graph project",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		root := filepath.Dir(dbPath)
+		root := specRoot
 		if initPath != "" {
 			root = filepath.Join(initPath, ".spec-graph")
 		}

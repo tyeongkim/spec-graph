@@ -12,7 +12,7 @@ import (
 func TestE2E_GraphNativeSkillWorkflow(t *testing.T) {
 	projectDir := t.TempDir()
 	dbFile := filepath.Join(projectDir, ".spec-graph", "graph.db")
-	result := runCLI(t, projectDir, "init", "--db", dbFile)
+	result := runCLI(t, projectDir, "init", "--root", filepath.Dir(dbFile))
 	if result.exitCode != 0 {
 		t.Fatalf("init: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -26,7 +26,7 @@ func TestE2E_GraphNativeSkillWorkflow(t *testing.T) {
 		{"task", "TSK-002", "Consume phase context", "Consume the complete phase context.", taskContractJSON(2, "Consume the complete phase context."), ""},
 	}
 	for _, entity := range entities {
-		args := []string{"--db", dbFile, "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--description", entity[3], "--metadata", entity[4]}
+		args := []string{"--root", filepath.Dir(dbFile), "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--description", entity[3], "--metadata", entity[4]}
 		if entity[5] != "" {
 			args = append(args, "--status", entity[5])
 		}
@@ -45,13 +45,13 @@ func TestE2E_GraphNativeSkillWorkflow(t *testing.T) {
 		{"TSK-002", "TSK-001", "task_depends_on"},
 	}
 	for _, relation := range relations {
-		result = runCLI(t, projectDir, "--db", dbFile, "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
+		result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
 		if result.exitCode != 0 {
 			t.Fatalf("relation add %v: exit=%d stderr=%s", relation, result.exitCode, result.stderr)
 		}
 	}
 
-	result = runCLI(t, projectDir, "--db", dbFile, "phase", "context", "PHS-001")
+	result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "phase", "context", "PHS-001")
 	if result.exitCode != 0 {
 		t.Fatalf("phase context: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}

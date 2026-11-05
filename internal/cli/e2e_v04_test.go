@@ -32,7 +32,7 @@ REQ-010 depends on DEC-010
 	var scanStdout string
 
 	t.Run("bootstrap_scan", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", scanDir)
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", scanDir)
 		if r.exitCode != 0 {
 			t.Fatalf("bootstrap scan failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -74,7 +74,7 @@ REQ-010 depends on DEC-010
 	}
 
 	t.Run("bootstrap_import_review", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "bootstrap", "import",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import",
 			"--input", candidatesFile, "--mode", "review")
 		if r.exitCode != 0 {
 			t.Fatalf("import review failed: exit=%d stderr=%s", r.exitCode, r.stderr)
@@ -90,7 +90,7 @@ REQ-010 depends on DEC-010
 	})
 
 	t.Run("review_did_not_write", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "list")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 		if r.exitCode != 0 {
 			t.Fatalf("entity list failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -104,7 +104,7 @@ REQ-010 depends on DEC-010
 	})
 
 	t.Run("bootstrap_import_apply", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "bootstrap", "import",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import",
 			"--input", candidatesFile, "--mode", "apply")
 		if r.exitCode != 0 {
 			t.Fatalf("import apply failed: exit=%d stderr=%s", r.exitCode, r.stderr)
@@ -128,7 +128,7 @@ REQ-010 depends on DEC-010
 	})
 
 	t.Run("entity_get_after_apply", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-010")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-010")
 		if r.exitCode != 0 {
 			t.Fatalf("entity get REQ-010 failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -148,7 +148,7 @@ REQ-010 depends on DEC-010
 	})
 
 	t.Run("entity_list_count", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "list")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 		if r.exitCode != 0 {
 			t.Fatalf("entity list failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 		}

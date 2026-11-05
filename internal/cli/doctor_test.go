@@ -13,7 +13,7 @@ import (
 
 func runDoctorCheck(t *testing.T, dir, dbFile, check string) (cliResult, jsoncontract.DoctorReport, jsoncontract.DoctorCheck) {
 	t.Helper()
-	r := runCLI(t, dir, "--db", dbFile, "doctor", "--check", check)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "doctor", "--check", check)
 
 	var report jsoncontract.DoctorReport
 	if err := json.Unmarshal([]byte(r.stdout), &report); err != nil {
@@ -30,7 +30,7 @@ func runDoctorCheck(t *testing.T, dir, dbFile, check string) (cliResult, jsoncon
 
 func addDoctorEntity(t *testing.T, dir, dbFile, entityType, id string) string {
 	t.Helper()
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", entityType, "--id", id, "--title", id)
 	if r.exitCode != 0 {
 		t.Fatalf("add %s %s: exit=%d stderr=%s", entityType, id, r.exitCode, r.stderr)
@@ -73,20 +73,20 @@ func TestDoctorAcceptsSupersedesOwnedByLexicographicallyLargerRevision(t *testin
 		{"REQ-001", "Mention payload API"},
 		{"REQ-002", "Mention resolution API"},
 	} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", "requirement", "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
 		}
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-002", "--to", "REQ-001", "--type", "supersedes")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add supersedes: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	if r := runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+	if r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--status", "deprecated", "--reason", "superseded by REQ-002"); r.exitCode != 0 {
 		t.Fatalf("entity update REQ-001 --status deprecated: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -112,7 +112,7 @@ func TestDoctorFlagsConflictsWithStoredInLargerIDFile(t *testing.T) {
 	dir := t.TempDir()
 
 	for _, id := range []string{"DEC-001", "DEC-002"} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", "decision", "--id", id, "--title", id)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", id, r.exitCode, r.stderr)

@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
@@ -29,7 +30,7 @@ func setupRelationEntities(t *testing.T, dbFile string) {
 	}
 
 	for _, e := range entities {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("setup entity %s failed: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -42,7 +43,7 @@ func TestRelationAddImplements(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -86,7 +87,7 @@ func TestRelationAddVariousTypes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+			r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 				"--from", tc.from, "--to", tc.to, "--type", tc.relType)
 			if r.exitCode != 0 {
 				t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -108,7 +109,7 @@ func TestRelationAddSelfLoop(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -128,7 +129,7 @@ func TestRelationAddInvalidEdge(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "API-005", "--type", "implements")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -148,7 +149,7 @@ func TestRelationAddEntityNotFound(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-999", "--type", "implements")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -168,13 +169,13 @@ func TestRelationAddDuplicate(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("first add failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -194,7 +195,7 @@ func TestRelationAddInvalidType(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "bogus_type")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for invalid relation type")
@@ -213,7 +214,7 @@ func TestRelationAddMissingFlags(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for missing required flags")
 	}
@@ -224,14 +225,14 @@ func TestRelationListByFrom(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "STT-001", "--type", "triggers")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "TST-012", "--to", "REQ-001", "--type", "verifies")
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "list", "--from", "API-005")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list", "--from", "API-005")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -250,12 +251,12 @@ func TestRelationListByTo(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "TST-012", "--to", "REQ-001", "--type", "verifies")
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "list", "--to", "REQ-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list", "--to", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -274,12 +275,12 @@ func TestRelationListByType(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "TST-012", "--to", "REQ-001", "--type", "verifies")
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "list", "--type", "implements")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -298,12 +299,12 @@ func TestRelationListAll(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "TST-012", "--to", "REQ-001", "--type", "verifies")
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "list")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -322,7 +323,7 @@ func TestRelationListEmptyResult(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "list", "--from", "REQ-999")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list", "--from", "REQ-999")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -344,10 +345,10 @@ func TestRelationDelete(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--db", dbFile, "relation", "add",
+	runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
@@ -367,7 +368,7 @@ func TestRelationDeleteNotFound(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stderr: %s", r.exitCode, r.stderr)
@@ -386,7 +387,7 @@ func TestRelationDeleteMissingFlags(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "delete")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete")
 	if r.exitCode == 0 {
 		t.Fatal("expected non-zero exit for missing required flags")
 	}
@@ -397,13 +398,13 @@ func TestRelationFullLifecycle(t *testing.T) {
 	setupRelationEntities(t, dbFile)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("add failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("list failed: %s", r.stderr)
 	}
@@ -415,13 +416,13 @@ func TestRelationFullLifecycle(t *testing.T) {
 		t.Errorf("list count = %d; want 1", listResp.Count)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("delete failed: %s", r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("list after delete failed: %s", r.stderr)
 	}
@@ -432,7 +433,7 @@ func TestRelationFullLifecycle(t *testing.T) {
 		t.Errorf("list count after delete = %d; want 0", listResp.Count)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-005", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1 for double delete, got %d", r.exitCode)

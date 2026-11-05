@@ -13,7 +13,6 @@ import (
 
 var (
 	specRoot  string
-	dbPath    string
 	layerFlag string
 	engine    *specgraph.Engine
 )
@@ -42,8 +41,6 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
-		specRoot = filepath.Dir(dbPath)
-
 		if _, err := os.Stat(specRoot); os.IsNotExist(err) {
 			return handleError(cmd, &model.ErrNotInitialized{})
 		}
@@ -71,7 +68,7 @@ func versionString() string {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db", ".spec-graph/graph.db", "path to the SQLite database file")
+	rootCmd.PersistentFlags().StringVar(&specRoot, "root", ".spec-graph", "path to the spec-graph project directory")
 	rootCmd.PersistentFlags().StringVar(&layerFlag, "layer", "all", "filter by layer: arch, exec, mapping, or all (default)")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(entityCmd)

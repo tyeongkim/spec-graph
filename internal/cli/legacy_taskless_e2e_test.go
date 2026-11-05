@@ -24,7 +24,7 @@ func TestE2E_LegacyTasklessWorkflow(t *testing.T) {
 	}
 
 	dbFile := filepath.Join(projectDir, ".spec-graph", "graph.db")
-	result := runCLI(t, projectDir, "init", "--db", dbFile)
+	result := runCLI(t, projectDir, "init", "--root", filepath.Dir(dbFile))
 	if result.exitCode != 0 {
 		t.Fatalf("init: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -34,19 +34,19 @@ func TestE2E_LegacyTasklessWorkflow(t *testing.T) {
 		{"requirement", "REQ-001", "Legacy requirement", `{"priority":"must","kind":"functional"}`},
 	}
 	for _, entity := range entities {
-		result = runCLI(t, projectDir, "--db", dbFile, "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--metadata", entity[3])
+		result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", entity[0], "--id", entity[1], "--title", entity[2], "--metadata", entity[3])
 		if result.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", entity[1], result.exitCode, result.stderr)
 		}
 	}
 	for _, relation := range [][]string{{"PHS-001", "PLN-001", "belongs_to"}, {"PHS-001", "REQ-001", "covers"}} {
-		result = runCLI(t, projectDir, "--db", dbFile, "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
+		result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "relation", "add", "--from", relation[0], "--to", relation[1], "--type", relation[2])
 		if result.exitCode != 0 {
 			t.Fatalf("relation add %v: exit=%d stderr=%s", relation, result.exitCode, result.stderr)
 		}
 	}
 
-	result = runCLI(t, projectDir, "--db", dbFile, "entity", "list")
+	result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if result.exitCode != 0 {
 		t.Fatalf("entity list: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -58,7 +58,7 @@ func TestE2E_LegacyTasklessWorkflow(t *testing.T) {
 		t.Fatalf("entity count = %d; want 3", entityList.Count)
 	}
 
-	result = runCLI(t, projectDir, "--db", dbFile, "query", "scope", "PHS-001")
+	result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "query", "scope", "PHS-001")
 	if result.exitCode != 0 {
 		t.Fatalf("query scope: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
@@ -70,7 +70,7 @@ func TestE2E_LegacyTasklessWorkflow(t *testing.T) {
 		t.Fatalf("legacy direct scope changed: %+v", scope)
 	}
 
-	result = runCLI(t, projectDir, "--db", dbFile, "phase", "context", "PHS-001")
+	result = runCLI(t, projectDir, "--root", filepath.Dir(dbFile), "phase", "context", "PHS-001")
 	if result.exitCode != 0 {
 		t.Fatalf("phase context: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}

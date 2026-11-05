@@ -35,7 +35,7 @@ var migrateCmd = &cobra.Command{
 }
 
 func runMigrate(cmd *cobra.Command, _ []string) error {
-	root := filepath.Dir(dbPath)
+	root := specRoot
 
 	oldDBPath := filepath.Join(root, "graph.db")
 	if _, err := os.Stat(oldDBPath); os.IsNotExist(err) {

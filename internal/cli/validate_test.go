@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/tyeongkim/spec-graph/internal/jsoncontract"
@@ -16,13 +17,13 @@ func seedOrphanGraph(t *testing.T, dir, dbFile string) {
 		{"requirement", "REQ-002", "Orphaned Req"},
 	}
 	for _, e := range entities {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("seed entity %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
 		}
 	}
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("seed relation: exit=%d stderr=%s", r.exitCode, r.stderr)
@@ -43,7 +44,7 @@ func seedCleanGraph(t *testing.T, dir, dbFile string) {
 		{"test", "TST-001", "Auth Test", "active"},
 	}
 	for _, e := range entities {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title, "--status", e.status)
 		if r.exitCode != 0 {
 			t.Fatalf("seed entity %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -56,7 +57,7 @@ func seedCleanGraph(t *testing.T, dir, dbFile string) {
 		{"TST-001", "REQ-001", "verifies"},
 	}
 	for _, rel := range relations {
-		r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("seed relation %s->%s: exit=%d stderr=%s",
@@ -70,7 +71,7 @@ func TestValidateAllChecks(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -102,7 +103,7 @@ func TestValidateCheckOrphans(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "orphans")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -125,23 +126,23 @@ func TestValidateCheckCoverage(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Uncovered Req", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("seed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Some Decision")
 	if r.exitCode != 0 {
 		t.Fatalf("seed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "depends_on")
 	if r.exitCode != 0 {
 		t.Fatalf("seed relation: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "coverage")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "coverage")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -169,7 +170,7 @@ func TestValidateCheckInvalidEdges(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "invalid_edges")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "invalid_edges")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -188,7 +189,7 @@ func TestValidateCheckSupersededRefs(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "superseded_refs")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "superseded_refs")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -207,7 +208,7 @@ func TestValidateCleanGraph(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -232,7 +233,7 @@ func TestValidateWithIssues(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -270,7 +271,7 @@ func TestValidateInvalidCheckName(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "nonexistent")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "nonexistent")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -288,7 +289,7 @@ func TestValidatePhaseFlag_InvalidID(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "NONEXISTENT")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--phase", "NONEXISTENT")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -306,13 +307,13 @@ func TestValidatePhaseFlag_WrongType(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Some Req")
 	if r.exitCode != 0 {
 		t.Fatalf("seed entity: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--phase", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--phase", "REQ-001")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -331,23 +332,23 @@ func TestValidatePhaseFlag_ValidPhase(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase One")
 	if r.exitCode != 0 {
 		t.Fatalf("seed phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
 		t.Fatalf("seed covers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-001", "--to", "API-001", "--type", "delivers")
 	if r.exitCode != 0 {
 		t.Fatalf("seed delivers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans", "--phase", "PHS-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "orphans", "--phase", "PHS-001")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -372,7 +373,7 @@ func seedGateGraph(t *testing.T, dir, dbFile string) {
 		{"assumption", "ASM-001", "Key Assumption", "active"},
 	}
 	for _, e := range entities {
-		args := []string{"--db", dbFile, "entity", "add",
+		args := []string{"--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title}
 		if e.status != "" {
 			args = append(args, "--status", e.status)
@@ -391,7 +392,7 @@ func seedGateGraph(t *testing.T, dir, dbFile string) {
 		{"REQ-001", "ASM-001", "assumes"},
 	}
 	for _, rel := range relations {
-		r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("seed relation %s->%s: exit=%d stderr=%s",
@@ -405,7 +406,7 @@ func TestValidateGates_AllViolations(t *testing.T) {
 	dir := t.TempDir()
 	seedGateGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved", "--phase", "PHS-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "unresolved", "--phase", "PHS-001")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -432,7 +433,7 @@ func TestValidateGates_PhaseScoped(t *testing.T) {
 	dir := t.TempDir()
 	seedGateGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "PHS-001")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--phase", "PHS-001")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -451,7 +452,7 @@ func TestValidateGates_NoPhase(t *testing.T) {
 	dir := t.TempDir()
 	seedGateGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "unresolved")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -475,23 +476,23 @@ func TestValidateGates_CleanPhase(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-002", "--title", "Clean Phase")
 	if r.exitCode != 0 {
 		t.Fatalf("seed phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-002", "--to", "REQ-001", "--type", "covers")
 	if r.exitCode != 0 {
 		t.Fatalf("seed covers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "PHS-002", "--to", "API-001", "--type", "delivers")
 	if r.exitCode != 0 {
 		t.Fatalf("seed delivers: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "unresolved", "--phase", "PHS-002")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "unresolved", "--phase", "PHS-002")
 	if r.exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -510,13 +511,13 @@ func TestValidateMultipleChecks(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-003", "--title", "Active orphan", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("seed active orphan: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans,coverage")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "orphans,coverage")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -546,7 +547,7 @@ func TestValidateEntityFlag_FiltersIssues(t *testing.T) {
 	dir := t.TempDir()
 	seedOrphanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--entity", "REQ-002")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--entity", "REQ-002")
 	if r.exitCode != 2 {
 		t.Fatalf("expected exit 2, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -572,7 +573,7 @@ func TestValidateEntityFlag_NonExistent(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "validate", "--entity", "NONEXIST")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--entity", "NONEXIST")
 	if r.exitCode != 1 {
 		t.Fatalf("expected exit 1, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -591,13 +592,13 @@ func TestValidateEntityFlag_MutualExclusionWithPhase(t *testing.T) {
 	dir := t.TempDir()
 	seedCleanGraph(t, dir, dbFile)
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "phase", "--id", "PHS-001", "--title", "Phase One")
 	if r.exitCode != 0 {
 		t.Fatalf("seed phase: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--entity", "REQ-001", "--phase", "PHS-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--entity", "REQ-001", "--phase", "PHS-001")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -614,11 +615,11 @@ func TestValidateEntityFlag_MutualExclusionWithPhase(t *testing.T) {
 func TestValidatePhaseExecUsesEnginePolicy(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
-	created := runCLI(t, dir, "--db", dbFile, "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase")
+	created := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase")
 	if created.exitCode != 0 {
 		t.Fatalf("create phase: %s", created.stderr)
 	}
-	result := runCLI(t, dir, "--db", dbFile, "validate", "--phase", "PHS-001", "--layer", "exec", "--check", "task_graph")
+	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--phase", "PHS-001", "--layer", "exec", "--check", "task_graph")
 	if result.exitCode != 0 {
 		t.Fatalf("phase-scoped exec validation rejected: exit=%d stderr=%s", result.exitCode, result.stderr)
 	}

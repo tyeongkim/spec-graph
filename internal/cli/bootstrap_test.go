@@ -21,7 +21,7 @@ func TestBootstrapScanDirectory(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", scanDir)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", scanDir)
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -64,7 +64,7 @@ func TestBootstrapScanFile(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", fixture)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", fixture)
 	if r.exitCode != 0 {
 		t.Fatalf("exit %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -85,7 +85,7 @@ func TestBootstrapScanMissingInput(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
 	}
@@ -108,7 +108,7 @@ func TestBootstrapImportReview(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", fixture)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", fixture)
 	if r.exitCode != 0 {
 		t.Fatalf("scan failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -118,7 +118,7 @@ func TestBootstrapImportReview(t *testing.T) {
 		t.Fatalf("write candidates: %v", err)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "bootstrap", "import", "--input", candidatesFile, "--mode", "review")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import", "--input", candidatesFile, "--mode", "review")
 	if r.exitCode != 0 {
 		t.Fatalf("import review failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -131,7 +131,7 @@ func TestBootstrapImportReview(t *testing.T) {
 		t.Fatal("expected at least one entity in review output")
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("entity list failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -153,7 +153,7 @@ func TestBootstrapImportApply(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", fixture)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", fixture)
 	if r.exitCode != 0 {
 		t.Fatalf("scan failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -163,7 +163,7 @@ func TestBootstrapImportApply(t *testing.T) {
 		t.Fatalf("write candidates: %v", err)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "bootstrap", "import", "--input", candidatesFile, "--mode", "apply")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import", "--input", candidatesFile, "--mode", "apply")
 	if r.exitCode != 0 {
 		t.Fatalf("import apply failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -183,7 +183,7 @@ func TestBootstrapImportApply(t *testing.T) {
 		t.Errorf("REQ-001 not in created list: %v", resp.Created)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("entity get failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -205,7 +205,7 @@ func TestBootstrapImportDefaultMode(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "scan", "--input", fixture)
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "scan", "--input", fixture)
 	if r.exitCode != 0 {
 		t.Fatalf("scan failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -215,7 +215,7 @@ func TestBootstrapImportDefaultMode(t *testing.T) {
 		t.Fatalf("write candidates: %v", err)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "bootstrap", "import", "--input", candidatesFile)
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import", "--input", candidatesFile)
 	if r.exitCode != 0 {
 		t.Fatalf("import without --mode failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -228,7 +228,7 @@ func TestBootstrapImportDefaultMode(t *testing.T) {
 		t.Fatal("expected at least one entity in default (review) output")
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("entity list failed: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -250,7 +250,7 @@ func TestBootstrapImportInvalidMode(t *testing.T) {
 		t.Fatalf("write candidates: %v", err)
 	}
 
-	r := runCLI(t, dir, "--db", dbFile, "bootstrap", "import", "--input", candidatesFile, "--mode", "invalid")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "bootstrap", "import", "--input", candidatesFile, "--mode", "invalid")
 	if r.exitCode != 3 {
 		t.Fatalf("expected exit 3, got %d; stderr: %s", r.exitCode, r.stderr)
 	}

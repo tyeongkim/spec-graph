@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "init", "--db", dbFile)
+	r := runCLI(t, dir, "init", "--root", filepath.Dir(dbFile))
 	if r.exitCode != 0 {
 		t.Fatalf("init: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -42,7 +43,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 	}
 
 	for _, e := range entities {
-		args := []string{"--db", dbFile, "entity", "add", "--type", e.typ, "--id", e.id, "--title", e.title}
+		args := []string{"--root", filepath.Dir(dbFile), "entity", "add", "--type", e.typ, "--id", e.id, "--title", e.title}
 		args = append(args, e.extra...)
 		r := runCLI(t, dir, args...)
 		if r.exitCode != 0 {
@@ -57,7 +58,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		}
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("entity list: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -87,7 +88,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 	}
 
 	for _, rel := range relations {
-		r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("relation add %s->%s (%s): exit=%d stderr=%s",
@@ -99,7 +100,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		}
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("relation list: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -111,13 +112,13 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Errorf("relation list count=%d; want 12", relList.Count)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "REQ-001",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "REQ-001",
 		"--title", "All endpoints need auth", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("entity update: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("entity get after update: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -132,13 +133,13 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Errorf("updated status=%q; want active", getResp.Entity.Status)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation delete: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("relation list after delete: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -149,7 +150,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Errorf("relation list count after delete=%d; want 11", relList.Count)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "delete", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "delete", "REQ-001")
 	if r.exitCode != 3 {
 		t.Fatalf("delete entity with relations: expected exit 3, got %d; stderr=%s", r.exitCode, r.stderr)
 	}
@@ -161,13 +162,13 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Errorf("delete entity with relations code=%q; want INVALID_INPUT", errResp.Error.Code)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "DEC-001", "--to", "QST-001", "--type", "answers")
 	if r.exitCode != 0 {
 		t.Fatalf("relation delete for QST-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "delete", "QST-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "delete", "QST-001")
 	if r.exitCode != 0 {
 		t.Fatalf("entity delete QST-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -179,7 +180,7 @@ func TestE2E_FullWorkflow(t *testing.T) {
 		t.Errorf("deleted=%q; want QST-001", delResp.Deleted)
 	}
 
-	r = runCLI(t, dir, "--db", dbFile, "entity", "list")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 	if r.exitCode != 0 {
 		t.Fatalf("final entity list: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -196,14 +197,14 @@ func TestE2E_EdgeCases(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("unicode_title", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", "requirement", "--id", "REQ-100",
 			"--title", "모든 API는 인증 필요")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
 
-		r = runCLI(t, dir, "--db", dbFile, "entity", "get", "REQ-100")
+		r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "REQ-100")
 		if r.exitCode != 0 {
 			t.Fatalf("get exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -220,7 +221,7 @@ func TestE2E_EdgeCases(t *testing.T) {
 		longVal := strings.Repeat("a", 4000)
 		meta := `{"data":"` + longVal + `"}`
 
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", "requirement", "--id", "REQ-101",
 			"--title", "Big", "--metadata", meta)
 		if r.exitCode != 0 {
@@ -242,7 +243,7 @@ func TestE2E_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty_filtered_list", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "list", "--type", "crosscut")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list", "--type", "crosscut")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -260,7 +261,7 @@ func TestE2E_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("all_json_parseable", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "list")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "list")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d", r.exitCode)
 		}
@@ -268,7 +269,7 @@ func TestE2E_EdgeCases(t *testing.T) {
 			t.Errorf("entity list output is not valid JSON: %s", r.stdout)
 		}
 
-		r = runCLI(t, dir, "--db", dbFile, "relation", "list")
+		r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "list")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d", r.exitCode)
 		}
@@ -282,12 +283,12 @@ func TestE2E_ErrorConsistency(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
-	r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "interface", "--id", "API-001", "--title", "Test API")
 	if r.exitCode != 0 {
 		t.Fatalf("setup entity: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "requirement", "--id", "REQ-001", "--title", "Test Req")
 	if r.exitCode != 0 {
 		t.Fatalf("setup entity: exit=%d stderr=%s", r.exitCode, r.stderr)
@@ -303,37 +304,37 @@ func TestE2E_ErrorConsistency(t *testing.T) {
 	cases := []errorCase{
 		{
 			name:     "entity_not_found",
-			args:     []string{"--db", dbFile, "entity", "get", "REQ-999"},
+			args:     []string{"--root", filepath.Dir(dbFile), "entity", "get", "REQ-999"},
 			wantExit: 1,
 			wantCode: "ENTITY_NOT_FOUND",
 		},
 		{
 			name:     "duplicate_entity",
-			args:     []string{"--db", dbFile, "entity", "add", "--type", "interface", "--id", "API-001", "--title", "Dup"},
+			args:     []string{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "interface", "--id", "API-001", "--title", "Dup"},
 			wantExit: 2,
 			wantCode: "DUPLICATE_ENTITY",
 		},
 		{
 			name:     "invalid_id",
-			args:     []string{"--db", dbFile, "entity", "add", "--type", "requirement", "--id", "BAD-001", "--title", "Bad"},
+			args:     []string{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "BAD-001", "--title", "Bad"},
 			wantExit: 3,
 			wantCode: "INVALID_INPUT",
 		},
 		{
 			name:     "invalid_edge",
-			args:     []string{"--db", dbFile, "relation", "add", "--from", "REQ-001", "--to", "API-001", "--type", "implements"},
+			args:     []string{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "REQ-001", "--to", "API-001", "--type", "implements"},
 			wantExit: 3,
 			wantCode: "INVALID_EDGE",
 		},
 		{
 			name:     "self_loop",
-			args:     []string{"--db", dbFile, "relation", "add", "--from", "REQ-001", "--to", "REQ-001", "--type", "depends_on"},
+			args:     []string{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "REQ-001", "--to", "REQ-001", "--type", "depends_on"},
 			wantExit: 3,
 			wantCode: "SELF_LOOP",
 		},
 		{
 			name:     "relation_not_found",
-			args:     []string{"--db", dbFile, "relation", "delete", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
+			args:     []string{"--root", filepath.Dir(dbFile), "relation", "delete", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
 			wantExit: 1,
 			wantCode: "RELATION_NOT_FOUND",
 		},
@@ -380,7 +381,7 @@ func TestE2E_ErrorConsistency(t *testing.T) {
 	t.Run("not_initialized", func(t *testing.T) {
 		noDBDir := t.TempDir()
 		noDBFile := noDBDir + "/nonexistent/graph.db"
-		r := runCLI(t, dir, "--db", noDBFile, "entity", "list")
+		r := runCLI(t, dir, "--root", filepath.Dir(noDBFile), "entity", "list")
 		if r.exitCode != 1 {
 			t.Fatalf("exit=%d; want 1\nstderr: %s", r.exitCode, r.stderr)
 		}
@@ -415,7 +416,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 		{"state", "STT-001", "Authenticated state"},
 	}
 	for _, e := range entities {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -433,7 +434,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 		{"API-005", "STT-001", "triggers"},
 	}
 	for _, rel := range relations {
-		r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("relation add %s->%s (%s): exit=%d stderr=%s",
@@ -452,7 +453,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	}
 
 	t.Run("basic_impact", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "impact", "REQ-001")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -481,7 +482,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	})
 
 	t.Run("follow_implements_only", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "impact", "REQ-001", "--follow", "implements")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--follow", "implements")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -501,7 +502,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	})
 
 	t.Run("dimension_structural", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "impact", "REQ-001", "--dimension", "structural")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--dimension", "structural")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -522,7 +523,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	})
 
 	t.Run("min_severity_high", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "impact", "REQ-001", "--min-severity", "high")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001", "--min-severity", "high")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -538,7 +539,7 @@ func TestE2E_ImpactWorkflow(t *testing.T) {
 	})
 
 	t.Run("multiple_sources", func(t *testing.T) {
-		r := runCLI(t, dir, "--db", dbFile, "impact", "REQ-001", "REQ-002")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001", "REQ-002")
 		if r.exitCode != 0 {
 			t.Fatalf("exit=%d stderr=%s", r.exitCode, r.stderr)
 		}
@@ -568,7 +569,7 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 		{"requirement", "REQ-001", "Auth req"},
 		{"interface", "API-001", "Auth API"},
 	} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -576,14 +577,14 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 	}
 	// Set both to active (default is draft, orphan check applies to draft too).
 	for _, id := range []string{"REQ-001", "API-001"} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "update", id, "--status", "active")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", id, "--status", "active")
 		if r.exitCode != 0 {
 			t.Fatalf("entity update %s: exit=%d stderr=%s", id, r.exitCode, r.stderr)
 		}
 	}
 
 	// Step 1: validate → exit 2 (orphans + coverage issues).
-	r := runCLI(t, dir, "--db", dbFile, "validate")
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate")
 	if r.exitCode != 2 {
 		t.Fatalf("validate (initial): exit=%d; want 2\nstdout=%s", r.exitCode, r.stdout)
 	}
@@ -599,7 +600,7 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 	}
 
 	// Step 2: validate --check orphans → exit 2 (both are orphans).
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "orphans")
 	if r.exitCode != 2 {
 		t.Fatalf("validate orphans: exit=%d; want 2\nstdout=%s", r.exitCode, r.stdout)
 	}
@@ -613,14 +614,14 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 	}
 
 	// Step 3: Add relation API-001→REQ-001 implements → fixes orphans.
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// Step 4: validate --check orphans → exit 0 (no more orphans).
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "orphans")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "orphans")
 	if r.exitCode != 0 {
 		t.Fatalf("validate orphans after fix: exit=%d; want 0\nstdout=%s\nstderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -632,27 +633,27 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 	}
 
 	// Step 5: validate --check coverage → exit 2 (REQ-001 missing has_criterion).
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "coverage")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "coverage")
 	if r.exitCode != 2 {
 		t.Fatalf("validate coverage: exit=%d; want 2\nstdout=%s", r.exitCode, r.stdout)
 	}
 
 	// Step 6: Add criterion + test + relations to fix coverage.
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "criterion", "--id", "ACT-001", "--title", "Login criterion")
 	if r.exitCode != 0 {
 		t.Fatalf("entity add ACT-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "ACT-001", "--status", "active")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "ACT-001", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("entity update ACT-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "test", "--id", "TST-001", "--title", "Auth test")
 	if r.exitCode != 0 {
 		t.Fatalf("entity add TST-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "entity", "update", "TST-001", "--status", "active")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "TST-001", "--status", "active")
 	if r.exitCode != 0 {
 		t.Fatalf("entity update TST-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -663,7 +664,7 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 		{"TST-001", "REQ-001", "verifies"},
 	}
 	for _, rel := range coverageRels {
-		r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+		r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 			"--from", rel.from, "--to", rel.to, "--type", rel.relType)
 		if r.exitCode != 0 {
 			t.Fatalf("relation add %s->%s (%s): exit=%d stderr=%s",
@@ -672,7 +673,7 @@ func TestE2E_ValidateWorkflow(t *testing.T) {
 	}
 
 	// Step 7: validate → exit 0 (all clean).
-	r = runCLI(t, dir, "--db", dbFile, "validate")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate")
 	if r.exitCode != 0 {
 		t.Fatalf("validate (final): exit=%d; want 0\nstdout=%s\nstderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
@@ -696,20 +697,20 @@ func TestE2E_ImpactAfterEntityChange(t *testing.T) {
 		{"requirement", "REQ-001", "Auth req"},
 		{"interface", "API-001", "Auth API"},
 	} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
 		}
 	}
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// First impact: should have 1 affected (API-001 via bidirectional implements).
-	r = runCLI(t, dir, "--db", dbFile, "impact", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("impact (before): exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -722,19 +723,19 @@ func TestE2E_ImpactAfterEntityChange(t *testing.T) {
 	}
 
 	// Add DEC-001 + depends_on relation.
-	r = runCLI(t, dir, "--db", dbFile, "entity", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 		"--type", "decision", "--id", "DEC-001", "--title", "Use JWT")
 	if r.exitCode != 0 {
 		t.Fatalf("entity add DEC-001: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-001", "--to", "DEC-001", "--type", "depends_on")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add depends_on: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// Second impact: should have 2 affected (API-001 + DEC-001).
-	r = runCLI(t, dir, "--db", dbFile, "impact", "REQ-001")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "impact", "REQ-001")
 	if r.exitCode != 0 {
 		t.Fatalf("impact (after): exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
@@ -757,7 +758,7 @@ func TestE2E_ValidateSupersededWorkflow(t *testing.T) {
 		{"requirement", "REQ-002", "New auth req"},
 		{"interface", "API-001", "Auth API"},
 	} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "add",
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add",
 			"--type", e.typ, "--id", e.id, "--title", e.title)
 		if r.exitCode != 0 {
 			t.Fatalf("entity add %s: exit=%d stderr=%s", e.id, r.exitCode, r.stderr)
@@ -765,28 +766,28 @@ func TestE2E_ValidateSupersededWorkflow(t *testing.T) {
 	}
 	// Set all to active.
 	for _, id := range []string{"REQ-001", "REQ-002", "API-001"} {
-		r := runCLI(t, dir, "--db", dbFile, "entity", "update", id, "--status", "active")
+		r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", id, "--status", "active")
 		if r.exitCode != 0 {
 			t.Fatalf("entity update %s: exit=%d stderr=%s", id, r.exitCode, r.stderr)
 		}
 	}
 
 	// API-001 implements REQ-001.
-	r := runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add implements: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// REQ-002 supersedes REQ-001.
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "REQ-002", "--to", "REQ-001", "--type", "supersedes")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add supersedes: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// validate --check superseded_refs → exit 2 (API-001 still references superseded REQ-001).
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "superseded_refs")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "superseded_refs")
 	if r.exitCode != 2 {
 		t.Fatalf("validate superseded_refs (stale): exit=%d; want 2\nstdout=%s", r.exitCode, r.stdout)
 	}
@@ -808,19 +809,19 @@ func TestE2E_ValidateSupersededWorkflow(t *testing.T) {
 	}
 
 	// Fix: delete stale relation, add correct one.
-	r = runCLI(t, dir, "--db", dbFile, "relation", "delete",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "delete",
 		"--from", "API-001", "--to", "REQ-001", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation delete: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
-	r = runCLI(t, dir, "--db", dbFile, "relation", "add",
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "relation", "add",
 		"--from", "API-001", "--to", "REQ-002", "--type", "implements")
 	if r.exitCode != 0 {
 		t.Fatalf("relation add new implements: exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 
 	// validate --check superseded_refs → exit 0 (clean).
-	r = runCLI(t, dir, "--db", dbFile, "validate", "--check", "superseded_refs")
+	r = runCLI(t, dir, "--root", filepath.Dir(dbFile), "validate", "--check", "superseded_refs")
 	if r.exitCode != 0 {
 		t.Fatalf("validate superseded_refs (fixed): exit=%d; want 0\nstdout=%s\nstderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
