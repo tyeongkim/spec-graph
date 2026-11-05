@@ -70,7 +70,10 @@ func (t *txn) phaseNext(req PhaseNextRequest) (PhaseNextResult, error) {
 		return PhaseNextResult{}, err
 	}
 
-	planPhaseIDs := e.collectPlanPhases(activePlanID)
+	planPhaseIDs, err := e.collectPlanPhases(activePlanID)
+	if err != nil {
+		return PhaseNextResult{}, err
+	}
 	if len(planPhaseIDs) == 0 {
 		return PhaseNextResult{}, newError(
 			CodeInvalidInput,
@@ -79,8 +82,14 @@ func (t *txn) phaseNext(req PhaseNextRequest) (PhaseNextResult, error) {
 		)
 	}
 
-	phases := e.buildPhaseInfoMap(planPhaseIDs)
-	predecessors := e.buildPredecessorMap(planPhaseIDs)
+	phases, err := e.buildPhaseInfoMap(planPhaseIDs)
+	if err != nil {
+		return PhaseNextResult{}, err
+	}
+	predecessors, err := e.buildPredecessorMap(planPhaseIDs)
+	if err != nil {
+		return PhaseNextResult{}, err
+	}
 	nextID, nextPhase := selectNextEnginePhase(phases, predecessors)
 
 	if nextID == "" {
@@ -142,19 +151,19 @@ func (e *Engine) findActivePlan() (string, error) {
 	return planRecs[0].ID, nil
 }
 
-func (e *Engine) collectPlanPhases(planID string) map[string]bool {
+func (e *Engine) collectPlanPhases(planID string) (map[string]bool, error) {
 	allPhaseRecs, err := e.idx.ListEntities(index.EntityFilters{
 		Type: string(model.EntityTypePhase),
 	})
 	if err != nil {
-		return nil
+		return nil, newError(CodeRuntime, "list phases", err)
 	}
 
 	result := make(map[string]bool)
 	for _, rec := range allPhaseRecs {
 		rels, relErr := e.idx.GetRelationsByEntity(rec.ID)
 		if relErr != nil {
-			continue
+			return nil, newError(CodeRuntime, "read phase relations", relErr)
 		}
 		for _, rel := range rels {
 			if rel.FromID == rec.ID && rel.Type == string(model.RelationBelongsTo) && rel.ToID == planID {
@@ -164,13 +173,17 @@ func (e *Engine) collectPlanPhases(planID string) map[string]bool {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
-func (e *Engine) buildPhaseInfoMap(planPhaseIDs map[string]bool) map[string]*enginePhaseInfo {
-	allPhaseRecs, _ := e.idx.ListEntities(index.EntityFilters{
+func (e *Engine) buildPhaseInfoMap(planPhaseIDs map[string]bool) (map[string]*enginePhaseInfo, error) {
+	allPhaseRecs, err := e.idx.ListEntities(index.EntityFilters{
 		Type: string(model.EntityTypePhase),
 	})
+
+	if err != nil {
+		return nil, newError(CodeRuntime, "list phases", err)
+	}
 
 	phases := make(map[string]*enginePhaseInfo)
 	for _, rec := range allPhaseRecs {
@@ -194,15 +207,15 @@ func (e *Engine) buildPhaseInfoMap(planPhaseIDs map[string]bool) map[string]*eng
 		phases[rec.ID] = pi
 	}
 
-	return phases
+	return phases, nil
 }
 
-func (e *Engine) buildPredecessorMap(planPhaseIDs map[string]bool) map[string][]string {
+func (e *Engine) buildPredecessorMap(planPhaseIDs map[string]bool) (map[string][]string, error) {
 	predecessors := make(map[string][]string)
 	for phaseID := range planPhaseIDs {
 		rels, relErr := e.idx.GetRelationsByEntity(phaseID)
 		if relErr != nil {
-			continue
+			return nil, newError(CodeRuntime, "read phase relations", relErr)
 		}
 		for _, rel := range rels {
 			if rel.Type == string(model.RelationPrecedes) && rel.ToID == phaseID {
@@ -211,7 +224,7 @@ func (e *Engine) buildPredecessorMap(planPhaseIDs map[string]bool) map[string][]
 		}
 	}
 
-	return predecessors
+	return predecessors, nil
 }
 
 func selectNextEnginePhase(phases map[string]*enginePhaseInfo, predecessors map[string][]string) (string, *enginePhaseInfo) {

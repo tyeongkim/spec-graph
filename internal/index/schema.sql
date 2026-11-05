@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS entities (
     metadata    TEXT NOT NULL DEFAULT '{}',
     file_path   TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT '',
-    updated_at  TEXT NOT NULL DEFAULT ''
+    updated_at  TEXT NOT NULL DEFAULT '',
+    completion_forced INTEGER NOT NULL DEFAULT 0,
+    completion_reason TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_entities_type   ON entities(type);

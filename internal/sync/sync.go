@@ -96,16 +96,18 @@ func (s *Syncer) ForceRebuild() error {
 		}
 
 		entityRecords = append(entityRecords, index.EntityRecord{
-			ID:          entity.ID,
-			Type:        string(entity.Type),
-			Layer:       string(entity.Layer),
-			Status:      string(entity.Status),
-			Title:       entity.Title,
-			Description: entity.Description,
-			Metadata:    metaStr,
-			FilePath:    s.store.EntityPath(ef.ID, ef.Type),
-			CreatedAt:   entity.CreatedAt,
-			UpdatedAt:   entity.UpdatedAt,
+			ID:               entity.ID,
+			Type:             string(entity.Type),
+			Layer:            string(entity.Layer),
+			Status:           string(entity.Status),
+			Title:            entity.Title,
+			Description:      entity.Description,
+			Metadata:         metaStr,
+			FilePath:         s.store.EntityPath(ef.ID, ef.Type),
+			CreatedAt:        entity.CreatedAt,
+			UpdatedAt:        entity.UpdatedAt,
+			CompletionForced: entity.CompletionForced,
+			CompletionReason: entity.CompletionReason,
 		})
 
 		relations, err := ef.ToRelations()

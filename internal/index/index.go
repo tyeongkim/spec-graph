@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -14,7 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/tyeongkim/spec-graph/internal/db"
 )
@@ -24,16 +26,18 @@ var schemaSQL string
 
 // EntityRecord is the data needed to populate the index.
 type EntityRecord struct {
-	ID          string
-	Type        string
-	Layer       string
-	Status      string
-	Title       string
-	Description string
-	Metadata    string
-	FilePath    string
-	CreatedAt   string
-	UpdatedAt   string
+	ID               string
+	Type             string
+	Layer            string
+	Status           string
+	Title            string
+	Description      string
+	Metadata         string
+	FilePath         string
+	CreatedAt        string
+	UpdatedAt        string
+	CompletionForced bool
+	CompletionReason string
 }
 
 // RelationRecord is the data needed to populate the index.
@@ -81,6 +85,11 @@ func Open(path string) (*Index, error) {
 	if _, err := db.Exec(schemaSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("index apply schema: %w", err)
+	}
+
+	if err := migrateCompletionAudit(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("index migrate completion audit: %w", err)
 	}
 
 	idx := &Index{db: db, path: path}
@@ -160,15 +169,52 @@ func statOrNil(path string) os.FileInfo {
 	return info
 }
 
-// QueryRaw runs an arbitrary read-only query against the index. The Index
-// retains ownership of the connection, so callers cannot close it or interfere
-// with Rebuild's close-and-rename. Callers must Close the returned rows.
-func (idx *Index) QueryRaw(ctx context.Context, query string) (*sql.Rows, error) {
-	rows, err := idx.db.QueryContext(ctx, query)
+// RawRows owns the read-only connection until its rows are closed.
+type RawRows struct {
+	*sql.Rows
+	db   *sql.DB
+	conn *sql.Conn
+}
+
+func (rows *RawRows) Close() error {
+	return errors.Join(rows.Rows.Close(), rows.conn.Close(), rows.db.Close())
+}
+
+// QueryRaw runs a query on a separate read-only SQLite connection. Callers must
+// close the returned rows before releasing the index's external lock.
+func (idx *Index) QueryRaw(ctx context.Context, query string) (*RawRows, error) {
+	if idx.path == ":memory:" {
+		return nil, fmt.Errorf("raw query requires a file-backed index")
+	}
+	path, err := filepath.Abs(idx.path)
 	if err != nil {
+		return nil, fmt.Errorf("resolve read-only index path: %w", err)
+	}
+	params := url.Values{}
+	params.Set("mode", "ro")
+	params.Add("_pragma", "query_only(1)")
+	readDB, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: params.Encode()}).String())
+	if err != nil {
+		return nil, fmt.Errorf("open read-only index: %w", err)
+	}
+	readDB.SetMaxOpenConns(1)
+	conn, err := readDB.Conn(ctx)
+	if err != nil {
+		readDB.Close()
+		return nil, fmt.Errorf("connect read-only index: %w", err)
+	}
+	if _, err := sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_ATTACHED, 0); err != nil {
+		conn.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("restrict read-only index: %w", err)
+	}
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		conn.Close()
+		readDB.Close()
 		return nil, fmt.Errorf("raw query: %w", err)
 	}
-	return rows, nil
+	return &RawRows{Rows: rows, conn: conn, db: readDB}, nil
 }
 
 // Rebuild drops all data and repopulates from the provided entities and
@@ -248,10 +294,10 @@ func (idx *Index) Rebuild(entities []EntityRecord, relations []RelationRecord) e
 // GetEntity returns a single entity by ID, or nil if not found.
 func (idx *Index) GetEntity(id string) (*EntityRecord, error) {
 	row := idx.db.QueryRow(
-		`SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at FROM entities WHERE id = ?`, id,
+		`SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason FROM entities WHERE id = ?`, id,
 	)
 	var e EntityRecord
-	err := row.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt)
+	err := row.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -264,7 +310,7 @@ func (idx *Index) GetEntity(id string) (*EntityRecord, error) {
 // ListEntities returns entities matching the given filters. Empty filter fields
 // are ignored.
 func (idx *Index) ListEntities(filters EntityFilters) ([]EntityRecord, error) {
-	query := `SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at FROM entities`
+	query := `SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason FROM entities`
 	var conditions []string
 	var args []any
 
@@ -351,7 +397,7 @@ func (idx *Index) GetRelationsByEntity(entityID string) ([]RelationRecord, error
 // SearchEntities performs a full-text search on entity titles.
 func (idx *Index) SearchEntities(query string) ([]EntityRecord, error) {
 	rows, err := idx.db.Query(
-		`SELECT e.id, e.type, e.layer, e.status, e.title, e.description, e.metadata, e.file_path, e.created_at, e.updated_at
+		`SELECT e.id, e.type, e.layer, e.status, e.title, e.description, e.metadata, e.file_path, e.created_at, e.updated_at, e.completion_forced, e.completion_reason
 		 FROM entities_fts f
 		 JOIN entities e ON e.id = f.id
 		 WHERE entities_fts MATCH ?
@@ -519,7 +565,7 @@ func insertEntities(db *sql.DB, entities []EntityRecord) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT INTO entities(id, type, layer, status, title, description, metadata, file_path, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO entities(id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return fmt.Errorf("prepare insert: %w", err)
@@ -527,7 +573,7 @@ func insertEntities(db *sql.DB, entities []EntityRecord) error {
 	defer stmt.Close()
 
 	for _, e := range entities {
-		if _, err := stmt.Exec(e.ID, e.Type, e.Layer, e.Status, e.Title, e.Description, e.Metadata, e.FilePath, e.CreatedAt, e.UpdatedAt); err != nil {
+		if _, err := stmt.Exec(e.ID, e.Type, e.Layer, e.Status, e.Title, e.Description, e.Metadata, e.FilePath, e.CreatedAt, e.UpdatedAt, e.CompletionForced, e.CompletionReason); err != nil {
 			return fmt.Errorf("insert entity %q: %w", e.ID, err)
 		}
 	}
@@ -571,7 +617,7 @@ func scanEntities(rows *sql.Rows) ([]EntityRecord, error) {
 	var result []EntityRecord
 	for rows.Next() {
 		var e EntityRecord
-		if err := rows.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason); err != nil {
 			return nil, fmt.Errorf("scan entity: %w", err)
 		}
 		result = append(result, e)
@@ -595,4 +641,51 @@ func scanRelations(rows *sql.Rows) ([]RelationRecord, error) {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}
 	return result, nil
+}
+
+func migrateCompletionAudit(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(entities)")
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var id, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&id, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if columns["completion_forced"] && columns["completion_reason"] {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, column := range []struct{ name, definition string }{
+		{"completion_forced", "INTEGER NOT NULL DEFAULT 0"},
+		{"completion_reason", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if !columns[column.name] {
+			if _, err := tx.Exec("ALTER TABLE entities ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec("DELETE FROM _meta WHERE key = 'toml_fingerprint'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

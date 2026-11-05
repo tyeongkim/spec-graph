@@ -26,8 +26,8 @@ type Options struct {
 
 // Engine is the single entry point for operating on a spec-graph project. It
 // holds handles to the TOML store, SQLite index, and syncer, and owns the
-// exclusive file lock that guards concurrent access. Callers must invoke Close
-// to release the lock and flush the index.
+// per-operation file lock that guards concurrent access. Callers must invoke
+// Close to release the index resources.
 //
 // All exported operation methods are safe for concurrent use by multiple
 // goroutines: read operations acquire mu for reading, while write operations
@@ -35,12 +35,13 @@ type Options struct {
 // across the entire TOML-write + index-sync sequence so a mutation and its
 // index refresh are observed atomically by concurrent readers.
 type Engine struct {
-	root   string
-	store  *spectoml.Store
-	idx    *index.Index
-	syncer *sync.Syncer
-	lock   *lockManager
-	closed bool
+	root      string
+	store     *spectoml.Store
+	idx       *index.Index
+	syncer    *sync.Syncer
+	lock      *lockManager
+	closed    bool
+	lifecycle stdsync.RWMutex
 	// mu guards all operations against concurrent access. Exported methods
 	// acquire it (RLock for reads, Lock for writes); unexported helpers run
 	// under an already-held lock and must not acquire it themselves.
@@ -69,23 +70,26 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 
 	store := spectoml.NewStore(root)
 
-	idx, err := index.Open(filepath.Join(root, "graph.db"))
-	if err != nil {
-		return nil, newError(CodeRuntime, fmt.Sprintf("open index at %q", root), err)
-	}
-
-	syncer := sync.NewSyncer(store, idx, root)
-
+	var idx *index.Index
+	var syncer *sync.Syncer
 	lockPath := filepath.Join(root, ".lock")
 	if err := withInitialLock(lockPath, opts.LockTimeout, func() error {
-		_, syncErr := syncer.EnsureFresh()
-		return syncErr
+		var err error
+		idx, err = index.Open(filepath.Join(root, "graph.db"))
+		if err != nil {
+			return fmt.Errorf("open index: %w", err)
+		}
+		syncer = sync.NewSyncer(store, idx, root)
+		if _, err := syncer.EnsureFresh(); err != nil {
+			_ = idx.Close()
+			return err
+		}
+		return nil
 	}); err != nil {
-		_ = idx.Close()
 		if isLockTimeout(err) {
 			return nil, newError(CodeConflict, fmt.Sprintf("another spec-graph process holds the lock at %q", root), err)
 		}
-		return nil, newError(CodeRuntime, fmt.Sprintf("sync index at %q", root), err)
+		return nil, newError(CodeRuntime, fmt.Sprintf("initialize index at %q", root), err)
 	}
 
 	eng := &Engine{
@@ -98,11 +102,6 @@ func Open(ctx context.Context, opts Options) (*Engine, error) {
 	return eng, nil
 }
 
-// onLockAcquired runs at the 0->1 lock transition. With the file lock freshly
-// held and no other in-process operation active, it reconciles the index with
-// any changes another process made while this process held no lock: it reopens
-// the database if the file was replaced, then rebuilds if the TOML fingerprint
-// changed.
 func (e *Engine) onLockAcquired() error {
 	if _, err := e.idx.RefreshIfReplaced(); err != nil {
 		return newError(CodeRuntime, "refresh index handle", err)
@@ -113,11 +112,12 @@ func (e *Engine) onLockAcquired() error {
 	return nil
 }
 
-// Close releases the resources held by the Engine by closing the SQLite index.
-// The cross-process file lock is no longer held across the Engine lifetime; it
-// is acquired and released per operation, so Close only needs to close the
-// index. Close is safe to call multiple times; subsequent calls are no-ops.
+// Close waits for admitted operations and index refreshes to finish, then closes
+// the index. Later operations return CodeInvalidState. Close is idempotent.
 func (e *Engine) Close() error {
+	e.lifecycle.Lock()
+	defer e.lifecycle.Unlock()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -141,6 +141,11 @@ func writeLocked[T any](ctx context.Context, e *Engine, fn func() (T, error)) (T
 	if err := ctx.Err(); err != nil {
 		return zero, cancelled(err)
 	}
+	e.lifecycle.RLock()
+	defer e.lifecycle.RUnlock()
+	if e.closed {
+		return zero, newError(CodeInvalidState, "engine is closed", nil)
+	}
 	if err := e.lock.acquire(); err != nil {
 		return zero, conflictFromLock(e.root, err)
 	}
@@ -159,6 +164,11 @@ func readLocked[T any](ctx context.Context, e *Engine, fn func() (T, error)) (T,
 	var zero T
 	if err := ctx.Err(); err != nil {
 		return zero, cancelled(err)
+	}
+	e.lifecycle.RLock()
+	defer e.lifecycle.RUnlock()
+	if e.closed {
+		return zero, newError(CodeInvalidState, "engine is closed", nil)
 	}
 	if err := e.lock.acquire(); err != nil {
 		return zero, conflictFromLock(e.root, err)
@@ -232,8 +242,8 @@ type RawQueryResult struct {
 
 // RawQuery runs a read-only SQL query against the index under the read lock and
 // returns the column names and rows as maps keyed by column name. Byte-slice
-// column values are normalized to strings for stable JSON encoding. The caller
-// is responsible for ensuring the query is a read-only SELECT.
+// column values are normalized to strings for stable JSON encoding. SQLite
+// enforces read-only access to the index.
 func (e *Engine) RawQuery(ctx context.Context, query string) (*RawQueryResult, error) {
 	return readLocked(ctx, e, func() (*RawQueryResult, error) {
 		rows, qerr := e.idx.QueryRaw(ctx, query)

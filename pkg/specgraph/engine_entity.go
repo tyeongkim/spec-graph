@@ -153,15 +153,17 @@ func (f *engineRelationFetcher) GetByEntity(entityID string) ([]model.Relation, 
 // engineEntityFromRecord converts an index record into a model.Entity.
 func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 	return model.Entity{
-		ID:          rec.ID,
-		Type:        model.EntityType(rec.Type),
-		Layer:       model.Layer(rec.Layer),
-		Status:      model.EntityStatus(rec.Status),
-		Title:       rec.Title,
-		Description: rec.Description,
-		Metadata:    json.RawMessage(rec.Metadata),
-		CreatedAt:   rec.CreatedAt,
-		UpdatedAt:   rec.UpdatedAt,
+		ID:               rec.ID,
+		Type:             model.EntityType(rec.Type),
+		Layer:            model.Layer(rec.Layer),
+		Status:           model.EntityStatus(rec.Status),
+		Title:            rec.Title,
+		Description:      rec.Description,
+		Metadata:         json.RawMessage(rec.Metadata),
+		CreatedAt:        rec.CreatedAt,
+		UpdatedAt:        rec.UpdatedAt,
+		CompletionForced: rec.CompletionForced,
+		CompletionReason: rec.CompletionReason,
 	}
 }
 
