@@ -106,7 +106,7 @@ spec-graph validate --layer arch --check invalid_edges
 | Arch relation violates the arch edge matrix | high |
 
 Normally not triggered when using `relation add` (which validates at insertion), but useful
-after direct DB edits or bootstrap imports.
+after direct DB edits.
 
 ### superseded_refs
 Detects active entities still referencing deprecated or superseded entities.

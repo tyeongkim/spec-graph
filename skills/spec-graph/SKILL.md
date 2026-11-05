@@ -305,12 +305,6 @@ spec-graph export --center <ID> --depth 3 --format json
 spec-graph export --layer arch --format dot
 ```
 
-### Bootstrap
-```bash
-spec-graph bootstrap scan --input ./docs/ [--format json]
-spec-graph bootstrap import --input extracted.json --mode review
-```
-
 ### Migration & Integrity
 ```bash
 # One-shot migration from old SQLite-only format
@@ -636,32 +630,7 @@ spec-graph relation add --from "$REQ" --to "$XCT" --type constrained_by
 spec-graph validate --layer arch --entity "$REQ"
 ```
 
-### Pattern 6: Bootstrap (graph from existing docs)
-
-When existing markdown documents are available:
-
-```bash
-# 1. Extract candidates — generates review candidates, not auto-committed
-spec-graph bootstrap scan --input ./docs/ --format json
-
-# 2. Review — filter low-confidence items
-cat extracted.json | jq '.entities[] | select(.confidence >= 0.7)'
-
-# 3. Preview candidates in review mode (the default; does not write)
-spec-graph bootstrap import --input extracted.json --mode review
-
-# 4. Apply the reviewed candidates atomically
-spec-graph bootstrap import --input extracted.json --mode apply
-```
-
-`--mode apply` writes the batch as one transaction and returns only `created` and `skipped`.
-Candidates below `0.5` confidence, candidates that already exist, and relation candidates whose
-endpoint types fail the edge matrix are skipped. An unknown entity or relation type, a malformed
-entity ID, a missing relation endpoint, or a write failure aborts the batch without changing the
-graph and exits non-zero. Malformed input is rejected regardless of its confidence. A human must
-confirm, or the agent must cross-reference against the source document before applying candidates.
-
-### Pattern 7: Revising an Arch Entity
+### Pattern 6: Revising an Arch Entity
 
 When an arch entity's meaning changes and the prior wording must stay on the record, use
 `entity revise` rather than editing in place. `entity update` rewrites history; `revise`
@@ -713,7 +682,7 @@ Constraints:
 
 `revise` is CLI-only. It is not exposed over RPC or MCP.
 
-### Pattern 8: Atomic Batch (RPC only)
+### Pattern 7: Atomic Batch (RPC only)
 
 Pattern 1 wires a plan with one command per entity and per relation. Each command commits on its
 own, so a failure partway through leaves a half-built plan that must be unwound by hand. The
@@ -749,7 +718,7 @@ Rules:
 - a ref must not be shaped like an entity ID, which is what keeps the two namespaces apart.
 - every entity is created before any relation, so ordering matters only among relations.
 - nothing is skipped. Any rejected item aborts the batch and leaves the graph untouched, unlike
-  `entity import` and `bootstrap import`, which skip already-existing items. Errors name the
+  `entity import`, which skips already-existing items. Errors name the
   position of the offending item, as in `relation 0: ...`.
 - each item faces the same validation as its single-item counterpart: the edge matrix, symmetric
   relation ownership, phase scope, and `delivers`-driven activation of a draft target all apply.
@@ -875,8 +844,6 @@ Key fields in `impact` JSON output:
 
 ## Caveats
 
-- `bootstrap import` defaults to `--mode review`, which does not write. Use `--mode apply` only
-  after review.
 - `supersedes` requires both entities to be the same type. It is directional: stored in the `from` entity's file, so `revision supersedes prior` means the `from` entity is newer. Prefer `entity revise` over adding this edge by hand — it wires the edge, moves relations, and deprecates the prior entity in one operation.
 - `conflicts_with` does not allow self-loops. It is symmetric: stored in the lexicographically smaller entity's file. Both directions are queryable via the index.
 - Adding a relation that violates the allowed edge matrix fails with exit code 3.

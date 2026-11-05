@@ -45,7 +45,6 @@ func NewDispatcher(engine *specgraph.Engine) *Dispatcher {
 		"export":           d.export,
 		"phase.next":       d.phaseNext,
 		"phase.context":    d.phaseContext,
-		"bootstrap.import": d.bootstrapImport,
 	}
 	return d
 }

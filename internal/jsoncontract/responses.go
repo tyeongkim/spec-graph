@@ -164,36 +164,14 @@ type EntityUpdateGateResponse struct {
 	Summary    ValidateSummary `json:"summary"`
 }
 
-type BootstrapEntityCandidate struct {
-	ID         string  `json:"id"`
-	Type       string  `json:"type"`
-	Layer      string  `json:"layer"`
-	Title      string  `json:"title"`
-	Confidence float64 `json:"confidence"`
-	Source     string  `json:"source"`
-}
-
-type BootstrapRelationCandidate struct {
-	From       string  `json:"from"`
-	To         string  `json:"to"`
-	Type       string  `json:"type"`
-	Confidence float64 `json:"confidence"`
-	Source     string  `json:"source"`
-}
-
-type BootstrapScanResponse struct {
-	Entities  []BootstrapEntityCandidate   `json:"entities"`
-	Relations []BootstrapRelationCandidate `json:"relations"`
-}
-
-type BootstrapSkippedItem struct {
+type ImportSkippedItem struct {
 	ID     string `json:"id"`
 	Reason string `json:"reason"`
 }
 
-type BootstrapImportResponse struct {
-	Created []string               `json:"created"`
-	Skipped []BootstrapSkippedItem `json:"skipped"`
+type ImportEntitiesResponse struct {
+	Created []string            `json:"created"`
+	Skipped []ImportSkippedItem `json:"skipped"`
 }
 
 // EntitySummary is a lightweight entity representation used in query responses.

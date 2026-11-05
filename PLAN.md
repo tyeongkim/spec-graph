@@ -18,7 +18,6 @@
 - 그래프는 자유 그래프가 아니라, **허용된 타입과 관계만 갖는 constrained typed graph**다.
 - `impact`는 단순 BFS가 아니라, **relation semantics + impact dimension**을 반영한다.
 - `validate`는 문서 lint가 아니라, **phase 진행 전후의 gate** 역할을 한다.
-- `bootstrap`은 자동 import가 아니라, **candidate extraction**이다.
 
 ---
 
@@ -44,7 +43,6 @@
 │  query       ─ 탐색 및 조회                               │
 │  export      ─ 전체/부분 그래프 export                    │
 │  history     ─ 변경 이력 및 change-set 조회               │
-│  bootstrap   ─ 문서에서 후보 개체/관계 추출              │
 └───────────────────────┬──────────────────────────────────┘
                         │ read / write
                         ▼
@@ -426,19 +424,6 @@ spec-graph export --format mermaid
 spec-graph export --center REQ-001 --depth 3 --format json
 ```
 
-## Bootstrap
-
-```bash
-spec-graph bootstrap scan --input ./docs/
-spec-graph bootstrap scan --input ./docs/ --format json
-spec-graph bootstrap import --input extracted.json --mode review
-```
-
-`bootstrap import`의 기본 모드는 자동 반영이 아니라 **review**다.
-즉, 추출된 후보를 보여주고 사용자가 승인하거나 에이전트가 후처리한 뒤 반영한다.
-
----
-
 ## JSON Output Contracts
 
 에이전트와의 안정적인 연동을 위해, 주요 커맨드는 출력 shape를 고정한다.
@@ -696,42 +681,6 @@ spec-graph validate --layer exec --check phase_order
 
 ---
 
-## Bootstrap Strategy
-
-`bootstrap`은 편리하지만 가장 위험한 부분이다. 따라서 다음 원칙을 둔다.
-
-- `bootstrap scan`은 후보만 추출한다.
-- 추출 결과는 `confidence`와 `source_span`을 포함해야 한다.
-- `bootstrap import`는 기본적으로 `--mode review`다.
-- low-confidence relation은 자동 import하지 않는다.
-
-### Candidate JSON example
-
-```json
-{
-  "entities": [
-    {
-      "id": "REQ-001",
-      "type": "requirement",
-      "title": "모든 API는 인증 필요",
-      "confidence": 0.94,
-      "source": "docs/auth.md#L12-L18"
-    }
-  ],
-  "relations": [
-    {
-      "from": "API-005",
-      "to": "REQ-001",
-      "type": "implements",
-      "confidence": 0.71,
-      "source": "docs/api.md#L30-L42"
-    }
-  ]
-}
-```
-
----
-
 ## Go Project Structure
 
 ```text
@@ -765,9 +714,6 @@ spec-graph/
 │   │   ├── mapping.go   ─ mapping 레이어 검증 (plan_coverage, delivery_completeness, ...)
 │   │   ├── runner.go    ─ 검증 오케스트레이션 및 레이어 라우팅
 │   │   └── types.go     ─ ValidationIssue, ValidationResult 타입 정의
-│   ├── bootstrap/
-│   │   ├── scan.go
-│   │   └── import.go
 │   └── jsoncontract/
 │       └── schema.go
 ├── go.mod
@@ -809,11 +755,9 @@ spec-graph/
 - [x] phase-scoped validation
 - [x] unresolved questions / assumptions detection
 
-### v0.4 — History + bootstrap
+### v0.4 — History
 - [x] changeset recording
 - [x] relation history
-- [x] `bootstrap scan`
-- [x] review-mode import
 
 ### v0.5 — Query / export / agent integration
 - [x] `query scope / path / unresolved`

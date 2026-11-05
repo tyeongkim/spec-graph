@@ -499,7 +499,12 @@ type ImportEntitiesRequest struct {
 // skipped because they already existed.
 type ImportEntitiesResult struct {
 	Created []string
-	Skipped []BootstrapSkippedItem
+	Skipped []ImportSkippedItem
+}
+
+type ImportSkippedItem struct {
+	ID     string
+	Reason string
 }
 
 // ImportEntities creates every entity in req as one unit. An entity that
@@ -520,7 +525,7 @@ func (t *txn) importEntities(req ImportEntitiesRequest) (ImportEntitiesResult, e
 		created, err := t.createEntity(item)
 		if err != nil {
 			if IsConflict(err) {
-				result.Skipped = append(result.Skipped, BootstrapSkippedItem{
+				result.Skipped = append(result.Skipped, ImportSkippedItem{
 					ID: item.ID, Reason: "already exists",
 				})
 				continue

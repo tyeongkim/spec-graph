@@ -1,2 +1,0 @@
-This is not a markdown file.
-REQ-999 should not be found.

@@ -146,7 +146,7 @@ func TestMCPToolsList(t *testing.T) {
 	}
 
 	// export stays a CLI and RPC surface: an agent has no use for a diagram string.
-	for _, name := range []string{"export", "import_entities", "bootstrap_import"} {
+	for _, name := range []string{"export", "import_entities"} {
 		if advertised[name] {
 			t.Errorf("tool %q is advertised but was excluded from the MCP surface", name)
 		}

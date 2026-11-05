@@ -11,10 +11,9 @@
 8. [query](#query)
 9. [export](#export)
 10. [phase](#phase)
-11. [bootstrap](#bootstrap)
-12. [migrate](#migrate)
-13. [doctor](#doctor)
-14. [serve / mcp](#serve--mcp)
+11. [migrate](#migrate)
+12. [doctor](#doctor)
+13. [serve / mcp](#serve--mcp)
 
 ---
 
@@ -547,48 +546,6 @@ spec-graph export --layer arch --format dot              # arch layer only
 spec-graph export --layer exec --format mermaid          # exec layer only
 spec-graph export --layer mapping --format json          # mapping relations only
 ```
-
----
-
-## bootstrap
-
-Extract entity/relation candidates from existing documents.
-
-### bootstrap scan
-```bash
-spec-graph bootstrap scan --input ./docs/
-spec-graph bootstrap scan --input ./docs/ --format json
-```
-Scans `.md` files and extracts candidate entities and relations using regex pattern matching.
-Extraction is based on entity ID patterns — not free-text NLP. Both ID forms are recognized:
-the current `PREFIX-<unixSeconds>-<rand3>` (e.g. `REQ-1752239482-k3f`) and legacy `PREFIX-NNN`
-(e.g. `REQ-001`). Documents must already contain one of these forms for candidates to be detected.
-
-Each candidate includes `confidence` (0.4–0.9), `source` (file path with line number),
-and an inferred type based on the ID prefix.
-
-### bootstrap import
-```bash
-spec-graph bootstrap import --input extracted.json --mode review
-```
-- `--mode review` (default): presents candidates for approval and does not write.
-- `--mode apply`: imports candidates as one transaction.
-
-Response for `--mode apply`:
-```json
-{
-  "created": ["REQ-1752239482-k3f"],
-  "skipped": [
-    {"id": "API-1752239500-t7n:REQ-1752239482-k3f:implements", "reason": "invalid edge"}
-  ]
-}
-```
-
-- `skipped` contains candidates below `0.5` confidence, entities or relations that already exist,
-  and relation candidates whose endpoint types fail the edge matrix.
-- An unknown entity or relation type, a malformed entity ID, a missing relation endpoint, or a
-  write failure aborts the entire import without writing and exits non-zero. Malformed input is
-  rejected regardless of its confidence.
 
 ---
 

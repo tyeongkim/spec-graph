@@ -53,9 +53,9 @@ type BatchResult struct {
 }
 
 // ApplyBatch creates every entity and relation in req as one unit. Any failure
-// aborts the batch and leaves the graph untouched: unlike ImportEntities and
-// BootstrapImport nothing is skipped, because a batch describes one intended
-// graph shape rather than a set of independently useful candidates.
+// aborts the batch and leaves the graph untouched: unlike ImportEntities nothing
+// is skipped, because a batch describes one intended graph shape rather than a
+// set of independently useful candidates.
 //
 // Each item goes through the same validation as its single-item counterpart, so
 // edge-matrix rules, symmetric-relation ownership, phase scope, and

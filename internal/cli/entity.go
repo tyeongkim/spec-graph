@@ -360,7 +360,17 @@ var entityImportCmd = &cobra.Command{
 			return handleError(cmd, err)
 		}
 
-		return writeJSON(cmd, toImportResponse(result.Created, result.Skipped))
+		created := result.Created
+		if created == nil {
+			created = []string{}
+		}
+		skipped := make([]jsoncontract.ImportSkippedItem, 0, len(result.Skipped))
+		for _, item := range result.Skipped {
+			skipped = append(skipped, jsoncontract.ImportSkippedItem{
+				ID: item.ID, Reason: item.Reason,
+			})
+		}
+		return writeJSON(cmd, jsoncontract.ImportEntitiesResponse{Created: created, Skipped: skipped})
 	},
 }
 
