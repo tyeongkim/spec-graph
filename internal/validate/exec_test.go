@@ -304,6 +304,20 @@ func TestCheckExecCycles(t *testing.T) {
 			},
 			wantCyclic: true,
 		},
+		{
+			name: "phase outside a cycle blocks a cycle member",
+			entities: []model.Entity{
+				execEntity("PHS-1", model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-2", model.EntityTypePhase, model.EntityStatusActive, nil),
+				execEntity("PHS-3", model.EntityTypePhase, model.EntityStatusActive, nil),
+			},
+			relations: []model.Relation{
+				rel(1, "PHS-1", "PHS-2", model.RelationBlocks),
+				rel(2, "PHS-2", "PHS-1", model.RelationBlocks),
+				rel(3, "PHS-3", "PHS-2", model.RelationBlocks),
+			},
+			wantCyclic: true,
+		},
 	}
 
 	for _, tt := range tests {

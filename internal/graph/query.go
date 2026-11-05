@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -179,7 +180,11 @@ func QueryPath(opts QueryPathOptions, rf RelationFetcher, ef EntityFetcher) (*Qu
 
 				ent, entErr := ef.Get(neighbor)
 				if entErr != nil {
-					continue
+					var notFound *model.ErrEntityNotFound
+					if errors.As(entErr, &notFound) {
+						continue
+					}
+					return nil, fmt.Errorf("fetching entity %s: %w", neighbor, entErr)
 				}
 
 				visited[neighbor] = &bfsNode{
@@ -257,7 +262,11 @@ func Neighbors(entityID string, depth int, rf RelationFetcher, ef EntityFetcher)
 
 				ent, entErr := ef.Get(neighbor)
 				if entErr != nil {
-					continue
+					var notFound *model.ErrEntityNotFound
+					if errors.As(entErr, &notFound) {
+						continue
+					}
+					return nil, fmt.Errorf("fetching entity %s: %w", neighbor, entErr)
 				}
 
 				visited[neighbor] = d + 1
@@ -269,12 +278,10 @@ func Neighbors(entityID string, depth int, rf RelationFetcher, ef EntityFetcher)
 		queue = nextQueue
 	}
 
-	// Collect relations between already-visited nodes that we haven't seen yet
-	// (edges within the last depth layer).
 	for _, current := range queue {
 		rels, relErr := rf.GetByEntity(current)
 		if relErr != nil {
-			continue
+			return nil, fmt.Errorf("fetching relations for %s: %w", current, relErr)
 		}
 		for _, rel := range rels {
 			_, fromIn := visited[rel.FromID]

@@ -297,6 +297,20 @@ func TestCheckCycles(t *testing.T) {
 			},
 			wantCyclic: true,
 		},
+		{
+			name: "entity outside a cycle depends on a cycle member",
+			entities: []model.Entity{
+				archEntity("REQ-1", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("REQ-2", model.EntityTypeRequirement, model.EntityStatusActive),
+				archEntity("REQ-3", model.EntityTypeRequirement, model.EntityStatusActive),
+			},
+			relations: []model.Relation{
+				rel(1, "REQ-1", "REQ-2", model.RelationDependsOn),
+				rel(2, "REQ-2", "REQ-1", model.RelationDependsOn),
+				rel(3, "REQ-3", "REQ-2", model.RelationDependsOn),
+			},
+			wantCyclic: true,
+		},
 	}
 
 	for _, tt := range tests {

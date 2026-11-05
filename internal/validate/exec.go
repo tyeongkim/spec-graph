@@ -87,8 +87,7 @@ type taskGraph struct {
 func checkTaskGraphFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
-		return []ValidationIssue{execIssue("task_graph", SeverityHigh, "",
-			fmt.Sprintf("could not resolve validation subjects: %v", err))}
+		return []ValidationIssue{subjectResolutionIssue("task_graph", model.LayerExec, err)}
 	}
 
 	tasks, err := execEntitiesOfType(ef, model.EntityTypeTask)
@@ -353,20 +352,18 @@ func checkOrphanPhases(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	return issues
 }
 
-// checkExecCycles detects circular blocks relations between phases using DFS.
 func checkExecCycles(rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	phases, err := execEntitiesOfType(ef, model.EntityTypePhase)
 	if err != nil {
 		return []ValidationIssue{listFailureIssue("exec_cycles", model.LayerExec, err)}
 	}
 
-	phaseIDs, adj, issues := buildBlocksGraph(phases, rf)
-	issues = append(issues, findBlocksCycles(phases, phaseIDs, adj)...)
+	phaseIDs, adj, issues := buildPhaseOrderingGraph(phases, rf)
+	issues = append(issues, findPhaseOrderingCycles(phases, phaseIDs, adj)...)
 	return issues
 }
 
-// buildBlocksGraph collects the blocks adjacency between phases.
-func buildBlocksGraph(phases []model.Entity, rf RelationFetcher) (map[string]bool, map[string][]string, []ValidationIssue) {
+func buildPhaseOrderingGraph(phases []model.Entity, rf RelationFetcher) (map[string]bool, map[string][]string, []ValidationIssue) {
 	phaseIDs := make(map[string]bool, len(phases))
 	adj := make(map[string][]string)
 	var issues []ValidationIssue
@@ -379,7 +376,7 @@ func buildBlocksGraph(phases []model.Entity, rf RelationFetcher) (map[string]boo
 			continue
 		}
 		for _, r := range rels {
-			if r.Type == model.RelationBlocks && r.FromID == p.ID {
+			if (r.Type == model.RelationPrecedes || r.Type == model.RelationBlocks) && r.FromID == p.ID {
 				adj[p.ID] = append(adj[p.ID], r.ToID)
 			}
 		}
@@ -388,14 +385,13 @@ func buildBlocksGraph(phases []model.Entity, rf RelationFetcher) (map[string]boo
 	return phaseIDs, adj, issues
 }
 
-// findBlocksCycles reports every phase participating in a blocks cycle.
-func findBlocksCycles(phases []model.Entity, phaseIDs map[string]bool, adj map[string][]string) []ValidationIssue {
+func findPhaseOrderingCycles(phases []model.Entity, phaseIDs map[string]bool, adj map[string][]string) []ValidationIssue {
 	var issues []ValidationIssue
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
 
-	var dfs func(node string, path []string) bool
-	dfs = func(node string, path []string) bool {
+	var dfs func(node string, path []string)
+	dfs = func(node string, path []string) {
 		visited[node] = true
 		recStack[node] = true
 		path = append(path, node)
@@ -405,9 +401,7 @@ func findBlocksCycles(phases []model.Entity, phaseIDs map[string]bool, adj map[s
 				continue
 			}
 			if !visited[next] {
-				if dfs(next, path) {
-					return true
-				}
+				dfs(next, path)
 				continue
 			}
 			if !recStack[next] {
@@ -418,13 +412,11 @@ func findBlocksCycles(phases []model.Entity, phaseIDs map[string]bool, adj map[s
 			cycleDesc := fmt.Sprintf("%s → %s", formatCyclePath(cycle), next)
 			for _, id := range cycle {
 				issues = append(issues, execIssue("exec_cycles", SeverityHigh, id,
-					fmt.Sprintf("circular blocks dependency detected: %s", cycleDesc)))
+					fmt.Sprintf("circular phase ordering dependency detected: %s", cycleDesc)))
 			}
-			return true
 		}
 
 		recStack[node] = false
-		return false
 	}
 
 	for _, p := range phases {
@@ -445,8 +437,7 @@ func checkInvalidExecEdges(rf RelationFetcher, ef EntityFetcher) []ValidationIss
 func checkInvalidExecEdgesFor(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	subjects, err := resolveValidationSubjects(opts, rf, ef)
 	if err != nil {
-		return []ValidationIssue{execIssue("invalid_exec_edges", SeverityHigh, "",
-			fmt.Sprintf("could not resolve validation subjects: %v", err))}
+		return []ValidationIssue{subjectResolutionIssue("invalid_exec_edges", model.LayerExec, err)}
 	}
 
 	entities, issues := execEdgeSubjects(subjects, ef)

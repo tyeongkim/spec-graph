@@ -39,11 +39,12 @@ type EntityFetcher interface {
 
 // ValidationIssue represents a single problem found during validation.
 type ValidationIssue struct {
-	Check    string      `json:"check"`
-	Severity Severity    `json:"severity"`
-	Entity   string      `json:"entity"`
-	Message  string      `json:"message"`
-	Layer    model.Layer `json:"layer"`
+	Check            string      `json:"check"`
+	Severity         Severity    `json:"severity"`
+	Entity           string      `json:"entity"`
+	Message          string      `json:"message"`
+	Layer            model.Layer `json:"layer"`
+	executionFailure bool
 }
 
 // ValidateOptions controls which checks are run during validation.

@@ -404,11 +404,12 @@ func checkPhaseSatisfaction(opts ValidateOptions, rf RelationFetcher, ef EntityF
 			entity = *opts.Phase
 		}
 		return []ValidationIssue{{
-			Check:    "phase_satisfaction",
-			Severity: SeverityHigh,
-			Entity:   entity,
-			Message:  fmt.Sprintf("could not select phases: %v", err),
-			Layer:    model.LayerMapping,
+			Check:            "phase_satisfaction",
+			Severity:         SeverityHigh,
+			Entity:           entity,
+			Message:          fmt.Sprintf("could not select phases: %v", err),
+			Layer:            model.LayerMapping,
+			executionFailure: true,
 		}}, nil
 	}
 
@@ -419,11 +420,12 @@ func checkPhaseSatisfaction(opts ValidateOptions, rf RelationFetcher, ef EntityF
 		report, err := computePhaseSatisfaction(phase.ID, opts.IncludeReferences, rf, ef)
 		if err != nil {
 			issues = append(issues, ValidationIssue{
-				Check:    "phase_satisfaction",
-				Severity: SeverityHigh,
-				Entity:   phase.ID,
-				Message:  fmt.Sprintf("could not compute phase %s satisfaction: %v", phase.ID, err),
-				Layer:    model.LayerMapping,
+				Check:            "phase_satisfaction",
+				Severity:         SeverityHigh,
+				Entity:           phase.ID,
+				Message:          fmt.Sprintf("could not compute phase %s satisfaction: %v", phase.ID, err),
+				Layer:            model.LayerMapping,
+				executionFailure: true,
 			})
 			continue
 		}

@@ -7,9 +7,6 @@ import (
 	"github.com/tyeongkim/spec-graph/internal/model"
 )
 
-// Validate runs layered validation checks and returns combined results.
-// It dispatches to per-layer validators based on opts.Layer, aggregates
-// issues, and optionally filters by EntityID or Phase.
 func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*ValidateResult, error) {
 	if err := validateCheckNames(opts); err != nil {
 		return nil, err
@@ -39,7 +36,7 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 	if opts.EntityID != "" {
 		filtered := allIssues[:0]
 		for _, issue := range allIssues {
-			if issue.Entity == opts.EntityID {
+			if issue.executionFailure || issue.Entity == opts.EntityID {
 				filtered = append(filtered, issue)
 			}
 		}
@@ -51,7 +48,7 @@ func Validate(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) (*Vali
 		if err == nil {
 			filtered := allIssues[:0]
 			for _, issue := range allIssues {
-				if issue.Check == "phase_satisfaction" || phaseScope[issue.Entity] {
+				if issue.executionFailure || issue.Check == "phase_satisfaction" || phaseScope[issue.Entity] {
 					filtered = append(filtered, issue)
 				}
 			}

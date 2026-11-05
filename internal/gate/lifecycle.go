@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -103,7 +104,14 @@ func unresolvedChildren(check, owner string, ids []string, entityType model.Enti
 	var issues []validate.ValidationIssue
 	for _, id := range ids {
 		entity, err := ef.Get(id)
-		if err != nil || entity.Type != entityType || entity.Status == model.EntityStatusDeprecated || entity.Status == model.EntityStatusDeleted {
+		if err != nil {
+			var notFound *model.ErrEntityNotFound
+			if !errors.As(err, &notFound) {
+				issues = append(issues, gateIssue(check, owner, fmt.Sprintf("could not read child %s: %v", id, err), model.LayerExec))
+			}
+			continue
+		}
+		if entity.Type != entityType || entity.Status == model.EntityStatusDeprecated || entity.Status == model.EntityStatusDeleted {
 			continue
 		}
 		if entity.Status != model.EntityStatusResolved {
@@ -142,7 +150,14 @@ func missingTaskDeliveries(taskID string, relations []model.Relation, ef validat
 	mapping := model.LayerMapping
 	for id := range covered {
 		entity, err := ef.Get(id)
-		if err != nil || !model.IsEdgeAllowed(model.RelationDelivers, model.EntityTypeTask, entity.Type, &mapping) || delivered[id] {
+		if err != nil {
+			var notFound *model.ErrEntityNotFound
+			if !errors.As(err, &notFound) {
+				issues = append(issues, gateIssue("task_delivery", taskID, fmt.Sprintf("could not read covered entity %s: %v", id, err), model.LayerMapping))
+			}
+			continue
+		}
+		if !model.IsEdgeAllowed(model.RelationDelivers, model.EntityTypeTask, entity.Type, &mapping) || delivered[id] {
 			continue
 		}
 		issues = append(issues, gateIssue("task_delivery", taskID, fmt.Sprintf("covered deliverable %s is not delivered", id), model.LayerMapping))

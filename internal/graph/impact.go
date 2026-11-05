@@ -100,11 +100,43 @@ func Impact(sources []string, opts ImpactOptions, rf RelationFetcher, ef EntityF
 	}, nil
 }
 
-// propagate walks the graph outward from the sources, keeping the highest score
-// found for each node. Nodes are expanded highest-score-first so that a node is
-// usually settled before it is expanded, and re-queued entries with a stale
-// score are discarded on pop.
 func propagate(sources []string, sourceSet map[string]bool, opts ImpactOptions, rf RelationFetcher) (map[string]*visitedEntry, error) {
+	if opts.Dimension != nil {
+		return propagateDimension(sources, sourceSet, opts, rf)
+	}
+
+	visited := make(map[string]*visitedEntry)
+	for _, dimension := range ValidDimensions {
+		dimensionOptions := opts
+		dimensionOptions.Dimension = &dimension
+		paths, err := propagateDimension(sources, sourceSet, dimensionOptions, rf)
+		if err != nil {
+			return nil, err
+		}
+		for id, path := range paths {
+			existing, seen := visited[id]
+			if !seen {
+				visited[id] = path
+				continue
+			}
+
+			scores := DimensionScores{
+				Structural: max(existing.scores.Structural, path.scores.Structural),
+				Behavioral: max(existing.scores.Behavioral, path.scores.Behavioral),
+				Planning:   max(existing.scores.Planning, path.scores.Planning),
+			}
+			if maxDim(path.scores) > maxDim(existing.scores) {
+				existing.path = path.path
+				existing.relationChain = path.relationChain
+				existing.depth = path.depth
+			}
+			existing.scores = scores
+		}
+	}
+	return visited, nil
+}
+
+func propagateDimension(sources []string, sourceSet map[string]bool, opts ImpactOptions, rf RelationFetcher) (map[string]*visitedEntry, error) {
 	followSet := followFilter(opts.Follow)
 	visited := make(map[string]*visitedEntry)
 

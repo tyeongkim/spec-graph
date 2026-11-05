@@ -63,17 +63,15 @@ func mappingIssue(check string, severity Severity, entity, message string) Valid
 	}
 }
 
-// phaseScopeIssue reports a failure to derive a phase's effective scope. Without
-// the scope a check has no subject set, so this cannot be silently skipped.
 func phaseScopeIssue(check, phaseID string, err error) ValidationIssue {
-	return mappingIssue(check, SeverityHigh, phaseID,
+	issue := mappingIssue(check, SeverityHigh, phaseID,
 		fmt.Sprintf("could not derive scope for phase %s: %v", phaseID, err))
+	issue.executionFailure = true
+	return issue
 }
 
-// subjectsIssue reports a failure to resolve the validation subject set.
 func subjectsIssue(check string, err error) ValidationIssue {
-	return mappingIssue(check, SeverityHigh, "",
-		fmt.Sprintf("could not resolve validation subjects: %v", err))
+	return subjectResolutionIssue(check, model.LayerMapping, err)
 }
 
 func checkPlanCoverage(opts ValidateOptions, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
@@ -289,8 +287,6 @@ func checkTaskMappings(subjects validationSubjects, rf RelationFetcher, ef Entit
 	return issues
 }
 
-// checkPhaseMappingStyle rejects a phase that maps entities both directly and
-// through its child tasks, since the two styles disagree about scope ownership.
 func checkPhaseMappingStyle(subjects validationSubjects, rf RelationFetcher, ef EntityFetcher) []ValidationIssue {
 	phases, err := execEntitiesOfType(ef, model.EntityTypePhase)
 	if err != nil {
@@ -307,7 +303,7 @@ func checkPhaseMappingStyle(subjects validationSubjects, rf RelationFetcher, ef 
 			issues = append(issues, phaseScopeIssue("task_scope", phase.ID, scopeErr))
 			continue
 		}
-		if !scope.TaskManaged || len(scope.Relations) == 0 {
+		if !scope.TaskManaged {
 			continue
 		}
 
@@ -322,7 +318,7 @@ func checkPhaseMappingStyle(subjects validationSubjects, rf RelationFetcher, ef 
 			}
 			if relation.Type == model.RelationCovers || relation.Type == model.RelationDelivers {
 				issues = append(issues, mappingIssue("task_scope", SeverityHigh, phase.ID,
-					"phase has mixed direct phase and child-task mappings"))
+					"task-managed phase must not have direct phase mappings"))
 				break
 			}
 		}

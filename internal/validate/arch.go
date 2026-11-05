@@ -239,8 +239,8 @@ func findDependencyCycles(entities []model.Entity, archIDs map[string]bool, adj 
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
 
-	var dfs func(node string, path []string) bool
-	dfs = func(node string, path []string) bool {
+	var dfs func(node string, path []string)
+	dfs = func(node string, path []string) {
 		visited[node] = true
 		recStack[node] = true
 		path = append(path, node)
@@ -250,9 +250,7 @@ func findDependencyCycles(entities []model.Entity, archIDs map[string]bool, adj 
 				continue
 			}
 			if !visited[next] {
-				if dfs(next, path) {
-					return true
-				}
+				dfs(next, path)
 				continue
 			}
 			if !recStack[next] {
@@ -265,11 +263,9 @@ func findDependencyCycles(entities []model.Entity, archIDs map[string]bool, adj 
 				issues = append(issues, archIssue("cycles", SeverityHigh, id,
 					fmt.Sprintf("circular dependency detected: %s", cycleDesc)))
 			}
-			return true
 		}
 
 		recStack[node] = false
-		return false
 	}
 
 	for _, e := range entities {
