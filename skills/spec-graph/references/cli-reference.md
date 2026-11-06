@@ -528,7 +528,8 @@ Returns the non-persisted execution contract:
 }
 ```
 
-RPC method `phase.context` and MCP tool `phase_context` return the same shape. Task contracts use
+RPC method `phase.context` returns the same shape, and MCP tool `phase_brief` returns it under
+`context` together with phase-scoped validation `issues` and a `clean` flag. Task contracts use
 the six closed fields `order`, `instructions`, `acceptance`, `must_not`, `references`, and `qa`.
 
 ---
@@ -582,6 +583,10 @@ spec-graph serve   # JSON-RPC over stdio
 spec-graph mcp     # MCP server over stdio
 ```
 
-`serve` exposes engine operations as JSON-RPC methods (e.g. `phase.context`); `mcp` exposes them as
-MCP tools (e.g. `phase_context`). Note that `entity revise` is CLI-only and is not available on
-either transport.
+`serve` exposes engine operations as JSON-RPC methods (e.g. `phase.context`). `mcp` exposes tools
+shaped around agent workflow steps rather than one tool per CLI command; the server's tool list is
+the authority for tool names, arguments, and effects.
+
+`entity revise` is CLI-only and is not available on either transport. These are also not exposed as
+MCP tools, so use the CLI for them: `query scope/unresolved/neighbors/sql`, general `validate`,
+`export`, `entity import/export`, `doctor`, `init`, and `migrate`.

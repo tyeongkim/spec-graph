@@ -420,6 +420,12 @@ PHS:  draft → active (gated: predecessors resolved)
 
 This section is the heart of this skill. Agents follow these patterns.
 
+The patterns are written as CLI commands. When the `spec-graph mcp` server is connected, take tool
+names and arguments from its tool list, and follow the same flow: `plan_status` → `next_phase`
+(`activate: true`) → `phase_brief` → work, with `change_impact` before modifying an entity →
+`phase_gate` → `update_entity` with `status: resolved`. Capabilities the server does not expose
+(see `references/cli-reference.md`, serve / mcp) remain CLI-only.
+
 ### Pattern 1: Plan and Phase Setup
 
 Create a graph-native plan, add phases and tasks, then wire task scope. This path creates no
@@ -476,7 +482,8 @@ spec-graph query sql "SELECT id, title FROM entities WHERE type = 'task' ORDER B
 
 `phase context` returns `{plan,phase,tasks,scope,delivery,blockers,ready_task_ids,blocked_task_ids}`.
 Each task entry is `{entity,contract,prerequisite_ids,covers,delivers}`. The same result is available
-as RPC `phase.context` and MCP `phase_context`.
+as RPC `phase.context`. MCP `phase_brief` returns it under `context`, alongside `issues` from the
+phase-scoped mapping and `task_graph` checks and a `clean` flag.
 
 ### Pattern 2: Change Handling
 
@@ -682,11 +689,12 @@ Constraints:
 
 `revise` is CLI-only. It is not exposed over RPC or MCP.
 
-### Pattern 7: Atomic Batch (RPC only)
+### Pattern 7: Atomic Batch (RPC and MCP)
 
 Pattern 1 wires a plan with one command per entity and per relation. Each command commits on its
 own, so a failure partway through leaves a half-built plan that must be unwound by hand. The
-`batch.apply` RPC method commits an entire graph shape as one transaction instead.
+`batch.apply` RPC method and the `apply_batch` MCP tool commit an entire graph shape as one
+transaction instead. Both take the same `{entities,relations}` arguments.
 
 Because IDs are generated, a relation cannot name an entity the same request is still creating.
 Each entity may therefore declare a `ref`, a name valid only inside that request, and relations
@@ -723,7 +731,7 @@ Rules:
 - each item faces the same validation as its single-item counterpart: the edge matrix, symmetric
   relation ownership, phase scope, and `delivers`-driven activation of a draft target all apply.
 
-`batch.apply` is RPC-only. There is no CLI command and no MCP tool for it.
+There is no CLI command for batch apply; use RPC `batch.apply` or MCP `apply_batch`.
 
 ---
 
