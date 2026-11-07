@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"modernc.org/sqlite"
@@ -38,6 +39,8 @@ type EntityRecord struct {
 	UpdatedAt        string
 	CompletionForced bool
 	CompletionReason string
+	AmendmentForced  bool
+	AmendmentReason  string
 }
 
 // RelationRecord is the data needed to populate the index.
@@ -294,10 +297,10 @@ func (idx *Index) Rebuild(entities []EntityRecord, relations []RelationRecord) e
 // GetEntity returns a single entity by ID, or nil if not found.
 func (idx *Index) GetEntity(id string) (*EntityRecord, error) {
 	row := idx.db.QueryRow(
-		`SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason FROM entities WHERE id = ?`, id,
+		`SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason, amendment_forced, amendment_reason FROM entities WHERE id = ?`, id,
 	)
 	var e EntityRecord
-	err := row.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason)
+	err := row.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason, &e.AmendmentForced, &e.AmendmentReason)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -310,7 +313,7 @@ func (idx *Index) GetEntity(id string) (*EntityRecord, error) {
 // ListEntities returns entities matching the given filters. Empty filter fields
 // are ignored.
 func (idx *Index) ListEntities(filters EntityFilters) ([]EntityRecord, error) {
-	query := `SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason FROM entities`
+	query := `SELECT id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason, amendment_forced, amendment_reason FROM entities`
 	var conditions []string
 	var args []any
 
@@ -397,7 +400,7 @@ func (idx *Index) GetRelationsByEntity(entityID string) ([]RelationRecord, error
 // SearchEntities performs a full-text search on entity titles.
 func (idx *Index) SearchEntities(query string) ([]EntityRecord, error) {
 	rows, err := idx.db.Query(
-		`SELECT e.id, e.type, e.layer, e.status, e.title, e.description, e.metadata, e.file_path, e.created_at, e.updated_at, e.completion_forced, e.completion_reason
+		`SELECT e.id, e.type, e.layer, e.status, e.title, e.description, e.metadata, e.file_path, e.created_at, e.updated_at, e.completion_forced, e.completion_reason, e.amendment_forced, e.amendment_reason
 		 FROM entities_fts f
 		 JOIN entities e ON e.id = f.id
 		 WHERE entities_fts MATCH ?
@@ -565,7 +568,7 @@ func insertEntities(db *sql.DB, entities []EntityRecord) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		`INSERT INTO entities(id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO entities(id, type, layer, status, title, description, metadata, file_path, created_at, updated_at, completion_forced, completion_reason, amendment_forced, amendment_reason) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return fmt.Errorf("prepare insert: %w", err)
@@ -573,7 +576,7 @@ func insertEntities(db *sql.DB, entities []EntityRecord) error {
 	defer stmt.Close()
 
 	for _, e := range entities {
-		if _, err := stmt.Exec(e.ID, e.Type, e.Layer, e.Status, e.Title, e.Description, e.Metadata, e.FilePath, e.CreatedAt, e.UpdatedAt, e.CompletionForced, e.CompletionReason); err != nil {
+		if _, err := stmt.Exec(e.ID, e.Type, e.Layer, e.Status, e.Title, e.Description, e.Metadata, e.FilePath, e.CreatedAt, e.UpdatedAt, e.CompletionForced, e.CompletionReason, e.AmendmentForced, e.AmendmentReason); err != nil {
 			return fmt.Errorf("insert entity %q: %w", e.ID, err)
 		}
 	}
@@ -617,7 +620,7 @@ func scanEntities(rows *sql.Rows) ([]EntityRecord, error) {
 	var result []EntityRecord
 	for rows.Next() {
 		var e EntityRecord
-		if err := rows.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason); err != nil {
+		if err := rows.Scan(&e.ID, &e.Type, &e.Layer, &e.Status, &e.Title, &e.Description, &e.Metadata, &e.FilePath, &e.CreatedAt, &e.UpdatedAt, &e.CompletionForced, &e.CompletionReason, &e.AmendmentForced, &e.AmendmentReason); err != nil {
 			return nil, fmt.Errorf("scan entity: %w", err)
 		}
 		result = append(result, e)
@@ -666,7 +669,16 @@ func migrateCompletionAudit(db *sql.DB) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	if columns["completion_forced"] && columns["completion_reason"] {
+	auditColumns := []struct{ name, definition string }{
+		{"completion_forced", "INTEGER NOT NULL DEFAULT 0"},
+		{"completion_reason", "TEXT NOT NULL DEFAULT ''"},
+		{"amendment_forced", "INTEGER NOT NULL DEFAULT 0"},
+		{"amendment_reason", "TEXT NOT NULL DEFAULT ''"},
+	}
+	allPresent := !slices.ContainsFunc(auditColumns, func(column struct{ name, definition string }) bool {
+		return !columns[column.name]
+	})
+	if allPresent {
 		return nil
 	}
 	tx, err := db.Begin()
@@ -674,10 +686,7 @@ func migrateCompletionAudit(db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, column := range []struct{ name, definition string }{
-		{"completion_forced", "INTEGER NOT NULL DEFAULT 0"},
-		{"completion_reason", "TEXT NOT NULL DEFAULT ''"},
-	} {
+	for _, column := range auditColumns {
 		if !columns[column.name] {
 			if _, err := tx.Exec("ALTER TABLE entities ADD COLUMN " + column.name + " " + column.definition); err != nil {
 				return err

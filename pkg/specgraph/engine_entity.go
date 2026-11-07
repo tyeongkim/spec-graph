@@ -164,6 +164,8 @@ func engineEntityFromRecord(rec *index.EntityRecord) model.Entity {
 		UpdatedAt:        rec.UpdatedAt,
 		CompletionForced: rec.CompletionForced,
 		CompletionReason: rec.CompletionReason,
+		AmendmentForced:  rec.AmendmentForced,
+		AmendmentReason:  rec.AmendmentReason,
 	}
 }
 
@@ -394,11 +396,11 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 		}
 		ef.Status = model.EntityStatus(*req.Status)
 		statusChanged = ef.Status != oldStatus
-		if ef.Type == model.EntityTypeTask && statusChanged {
-			if err := model.ValidateTaskTransition(oldStatus, ef.Status); err != nil {
+		if model.IsExecType(ef.Type) && statusChanged {
+			if err := model.ValidateExecTransition(ef.Type, oldStatus, ef.Status); err != nil {
 				return UpdateEntityResult{}, newError(CodeInvalidInput, err.Error(), err)
 			}
-			if ef.Status == model.EntityStatusDeprecated && strings.TrimSpace(req.Reason) == "" {
+			if ef.Type == model.EntityTypeTask && ef.Status == model.EntityStatusDeprecated && strings.TrimSpace(req.Reason) == "" {
 				return UpdateEntityResult{}, newError(CodeInvalidInput, "task deprecation requires a reason", nil)
 			}
 		}
@@ -426,6 +428,23 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 
 	var gateReport *gate.Report
 	outcome := UpdateOutcomeApplied
+	frozenChanges, err := frozenFieldChanges(storedEntity, ef)
+	if err != nil {
+		return UpdateEntityResult{}, err
+	}
+	if len(frozenChanges) > 0 {
+		report := frozenFieldReport(storedEntity, ef.Status, frozenChanges)
+		if !req.Force {
+			return UpdateEntityResult{Entity: storedEntity, Outcome: UpdateOutcomeBlocked, GateReport: report}, nil
+		}
+		if strings.TrimSpace(req.Reason) == "" {
+			return UpdateEntityResult{}, newError(CodeInvalidInput, "forced amendment of a started exec entity requires a reason", nil)
+		}
+		gateReport = report
+		outcome = UpdateOutcomeAppliedWithForce
+		ef.AmendmentForced = true
+		ef.AmendmentReason = strings.TrimSpace(req.Reason)
+	}
 	if statusChanged {
 		candidate, convErr := ef.ToEntity()
 		if convErr != nil {
@@ -439,6 +458,7 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 			Candidate:  candidate,
 			RepoRoot:   filepath.Dir(t.eng.root),
 		}
+		completionForced := false
 		if policy := gate.LookupPolicy(target); policy != nil {
 			report, err := gate.Enforce(target, &stagedRelationFetcher{tx: t}, &stagedEntityFetcher{tx: t})
 			if err != nil {
@@ -452,13 +472,14 @@ func (t *txn) updateEntity(req UpdateEntityRequest) (UpdateEntityResult, error) 
 				return UpdateEntityResult{}, newError(CodeInvalidInput, "forced completion requires a reason", nil)
 			}
 			if report.Blocked {
-				gateReport = report
+				gateReport = mergeGateReports(gateReport, report)
 				outcome = UpdateOutcomeAppliedWithForce
+				completionForced = true
 				ef.CompletionForced = true
 				ef.CompletionReason = strings.TrimSpace(req.Reason)
 			}
 		}
-		if ef.Status == model.EntityStatusResolved && outcome == UpdateOutcomeApplied {
+		if ef.Status == model.EntityStatusResolved && !completionForced {
 			ef.CompletionForced = false
 			ef.CompletionReason = ""
 		}
@@ -551,6 +572,18 @@ func (e *Engine) DeleteEntity(ctx context.Context, id string) error {
 }
 
 func (t *txn) deleteEntity(id string) error {
+	entity, err := (&stagedEntityFetcher{tx: t}).Get(id)
+	if err != nil {
+		return lookupError(fmt.Sprintf("get entity %q", id), id, err)
+	}
+	if model.IsExecType(entity.Type) && model.ExecLifecycleStarted(entity.Status) {
+		return newError(
+			CodeInvalidInput,
+			fmt.Sprintf("cannot delete %s %q: status is %s; only draft exec entities can be deleted, deprecate it instead", entity.Type, id, entity.Status),
+			nil,
+		)
+	}
+
 	relations, err := (&stagedRelationFetcher{tx: t}).GetByEntity(id)
 	if err != nil {
 		return newError(CodeRuntime, fmt.Sprintf("check relations for %q", id), err)
@@ -561,11 +594,6 @@ func (t *txn) deleteEntity(id string) error {
 			fmt.Sprintf("cannot delete entity %q: %d relation(s) reference it", id, len(relations)),
 			nil,
 		)
-	}
-
-	entity, err := (&stagedEntityFetcher{tx: t}).Get(id)
-	if err != nil {
-		return lookupError(fmt.Sprintf("get entity %q", id), id, err)
 	}
 
 	return t.remove(id, entity.Type)

@@ -78,10 +78,11 @@ func setupDeliveredRequirement(t *testing.T, dir, dbFile string) {
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "requirement", "--id", "REQ-001", "--title", "Query operations", "--status", "active"},
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "interface", "--id", "API-001", "--title", "Engine.QueryScope", "--status", "active"},
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "plan", "--id", "PLN-001", "--title", "Delivery plan", "--status", "active"},
-		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "API-001", "--to", "REQ-001", "--type", "implements"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "covers"},
+		{"--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "active"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "REQ-001", "--type", "delivers"},
 		{"--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "resolved", "--force", "--reason", "Accept for test setup"},
 	}

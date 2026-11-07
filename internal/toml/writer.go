@@ -36,6 +36,12 @@ func MarshalEntityFile(ef EntityFile) string {
 	if ef.CompletionReason != "" {
 		b.WriteString("completion_reason = " + tomlQuote(ef.CompletionReason) + "\n")
 	}
+	if ef.AmendmentForced {
+		b.WriteString("amendment_forced = true\n")
+	}
+	if ef.AmendmentReason != "" {
+		b.WriteString("amendment_reason = " + tomlQuote(ef.AmendmentReason) + "\n")
+	}
 
 	if len(ef.Metadata) > 0 {
 		b.WriteByte('\n')

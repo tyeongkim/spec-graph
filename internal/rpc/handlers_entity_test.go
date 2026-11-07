@@ -56,20 +56,26 @@ func TestEntityUpdateRPCDistinguishesForcedApplyFromBlocked(t *testing.T) {
 	t.Run("completion force is applied", func(t *testing.T) {
 		engine := newTestEngine(t)
 		ctx := context.Background()
-		if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{
-			Type: "phase", ID: "PHS-001", Title: "Phase", Status: "active",
-		}); err != nil {
-			t.Fatalf("create phase: %v", err)
+		for _, request := range []specgraph.CreateEntityRequest{
+			{Type: "plan", ID: "PLN-001", Title: "Plan", Status: "active"},
+			{Type: "phase", ID: "PHS-001", Title: "Phase"},
+			{Type: "question", ID: "QST-001", Title: "Question", Status: "active"},
+		} {
+			if _, err := engine.CreateEntity(ctx, request); err != nil {
+				t.Fatalf("create %s: %v", request.ID, err)
+			}
 		}
-		if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{
-			Type: "question", ID: "QST-001", Title: "Question", Status: "active",
-		}); err != nil {
-			t.Fatalf("create question: %v", err)
+		for _, request := range []specgraph.AddRelationRequest{
+			{From: "PHS-001", To: "PLN-001", Type: "belongs_to"},
+			{From: "PHS-001", To: "QST-001", Type: "covers"},
+		} {
+			if _, err := engine.AddRelation(ctx, request); err != nil {
+				t.Fatalf("add %s: %v", request.Type, err)
+			}
 		}
-		if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{
-			From: "PHS-001", To: "QST-001", Type: "covers",
-		}); err != nil {
-			t.Fatalf("add covers: %v", err)
+		active := "active"
+		if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &active}); err != nil {
+			t.Fatalf("activate phase: %v", err)
 		}
 
 		result := callEntityUpdate(t, NewDispatcher(engine),
@@ -85,7 +91,7 @@ func TestEntityUpdateRPCDistinguishesForcedApplyFromBlocked(t *testing.T) {
 		}
 	})
 
-	t.Run("structural force is blocked", func(t *testing.T) {
+	t.Run("terminal reopen is rejected as invalid input", func(t *testing.T) {
 		engine := newTestEngine(t)
 		if _, err := engine.CreateEntity(context.Background(), specgraph.CreateEntityRequest{
 			Type: "phase", ID: "PHS-001", Title: "Resolved phase", Status: "resolved",
@@ -93,13 +99,18 @@ func TestEntityUpdateRPCDistinguishesForcedApplyFromBlocked(t *testing.T) {
 			t.Fatalf("create phase: %v", err)
 		}
 
-		result := callEntityUpdate(t, NewDispatcher(engine),
-			`{"id":"PHS-001","status":"active","force":true,"reason":"Attempt reopen"}`)
-		if result.Outcome != "blocked" || !result.Blocked {
-			t.Fatalf("outcome = %q, blocked = %v", result.Outcome, result.Blocked)
+		envelope := callRPC(t, NewDispatcher(engine), "entity.update", map[string]any{
+			"id": "PHS-001", "status": "active", "force": true, "reason": "Attempt reopen",
+		})
+		if envelope.Error == nil || envelope.Error.Code != codeInvalidParams {
+			t.Fatalf("error = %+v; want invalid params", envelope.Error)
 		}
-		if result.Entity.Status != model.EntityStatusResolved {
-			t.Fatalf("status = %q; want resolved", result.Entity.Status)
+		stored, err := engine.GetEntity(context.Background(), "PHS-001")
+		if err != nil {
+			t.Fatalf("get phase: %v", err)
+		}
+		if stored.Status != model.EntityStatusResolved {
+			t.Fatalf("status = %q; want resolved", stored.Status)
 		}
 	})
 }

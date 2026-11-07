@@ -52,6 +52,19 @@ func setupPhaseNextProject(t *testing.T, dbFile string) {
 		"--from", "PHS-002", "--to", "REQ-002", "--type", "covers")
 }
 
+func resolvePhaseFixture(t *testing.T, dir, dbFile, id string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"entity", "update", id, "--status", "active"},
+		{"entity", "update", id, "--status", "resolved", "--force", "--reason", "Resolve test fixture"},
+	} {
+		r := runCLI(t, dir, append([]string{"--root", filepath.Dir(dbFile)}, args...)...)
+		if r.exitCode != 0 {
+			t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, r.exitCode, r.stdout, r.stderr)
+		}
+	}
+}
+
 func TestPhaseNextSelectsLowestOrder(t *testing.T) {
 	dbFile := initTestProject(t)
 	setupPhaseNextProject(t, dbFile)
@@ -127,8 +140,7 @@ func TestPhaseNextRespectsPrerequisites(t *testing.T) {
 	setupPhaseNextProject(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001",
-		"--status", "resolved", "--force", "--reason", "Advance test fixture")
+	resolvePhaseFixture(t, dir, dbFile, "PHS-001")
 
 	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "phase", "next")
 	if r.exitCode != 0 {
@@ -171,12 +183,9 @@ func TestPhaseNextAllResolved(t *testing.T) {
 	setupPhaseNextProject(t, dbFile)
 	dir := t.TempDir()
 
-	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001",
-		"--status", "resolved", "--force", "--reason", "Resolve test fixture")
-	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-002",
-		"--status", "resolved", "--force", "--reason", "Resolve test fixture")
-	runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-003",
-		"--status", "resolved", "--force", "--reason", "Resolve test fixture")
+	for _, id := range []string{"PHS-001", "PHS-002", "PHS-003"} {
+		resolvePhaseFixture(t, dir, dbFile, id)
+	}
 
 	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "phase", "next")
 	if r.exitCode == 0 {

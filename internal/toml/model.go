@@ -20,6 +20,8 @@ type EntityFile struct {
 	UpdatedAt        time.Time          `toml:"updated_at,omitempty"`
 	CompletionForced bool               `toml:"completion_forced,omitempty"`
 	CompletionReason string             `toml:"completion_reason,omitempty"`
+	AmendmentForced  bool               `toml:"amendment_forced,omitempty"`
+	AmendmentReason  string             `toml:"amendment_reason,omitempty"`
 	Metadata         map[string]any     `toml:"metadata,omitempty"`
 	Relations        []RelationEntry    `toml:"relations,omitempty"`
 }
@@ -107,6 +109,8 @@ func (ef *EntityFile) ToEntity() (model.Entity, error) {
 		UpdatedAt:        updatedAt,
 		CompletionForced: ef.CompletionForced,
 		CompletionReason: ef.CompletionReason,
+		AmendmentForced:  ef.AmendmentForced,
+		AmendmentReason:  ef.AmendmentReason,
 	}, nil
 }
 
@@ -196,6 +200,8 @@ func EntityFileFrom(e model.Entity, relations []model.Relation) (EntityFile, err
 		UpdatedAt:        updatedAt,
 		CompletionForced: e.CompletionForced,
 		CompletionReason: e.CompletionReason,
+		AmendmentForced:  e.AmendmentForced,
+		AmendmentReason:  e.AmendmentReason,
 		Metadata:         meta,
 		Relations:        entries,
 	}, nil

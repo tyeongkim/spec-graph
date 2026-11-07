@@ -12,10 +12,6 @@ import (
 )
 
 func evaluateLifecycle(target Target, rf validate.RelationFetcher, ef validate.EntityFetcher) ([]validate.ValidationIssue, []validate.ValidationIssue) {
-	if isTerminal(target.FromStatus) && target.ToStatus != target.FromStatus {
-		return []validate.ValidationIssue{gateIssue("lifecycle", target.EntityID, "terminal entities cannot transition to another status", model.LayerExec)}, nil
-	}
-
 	switch target.EntityType {
 	case model.EntityTypeTask:
 		return evaluateTask(target, rf, ef)
@@ -207,8 +203,4 @@ func incomingSources(relations []model.Relation, to string, relationTypes ...mod
 
 func gateIssue(check, entity, message string, layer model.Layer) validate.ValidationIssue {
 	return validate.ValidationIssue{Check: check, Severity: validate.SeverityHigh, Entity: entity, Message: message, Layer: layer}
-}
-
-func isTerminal(status model.EntityStatus) bool {
-	return status == model.EntityStatusResolved || status == model.EntityStatusDeprecated || status == model.EntityStatusDeleted
 }

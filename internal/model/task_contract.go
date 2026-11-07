@@ -102,16 +102,6 @@ func DecodeTaskContract(metadata json.RawMessage, status EntityStatus) (TaskCont
 	}, nil
 }
 
-// ValidateTaskTransition rejects task lifecycle transitions outside the strict state machine.
-func ValidateTaskTransition(from, to EntityStatus) error {
-	valid := (from == EntityStatusDraft && (to == EntityStatusActive || to == EntityStatusDeprecated)) ||
-		(from == EntityStatusActive && (to == EntityStatusResolved || to == EntityStatusDeprecated))
-	if !valid {
-		return fmt.Errorf("task status transition %q to %q is not allowed", from, to)
-	}
-	return nil
-}
-
 func ensureJSONEnd(decoder *json.Decoder) error {
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); err != nil {

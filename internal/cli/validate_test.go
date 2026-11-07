@@ -365,7 +365,7 @@ func TestValidatePhaseFlag_ValidPhase(t *testing.T) {
 func seedGateGraph(t *testing.T, dir, dbFile string) {
 	t.Helper()
 	entities := []struct{ typ, id, title, status string }{
-		{"phase", "PHS-001", "Phase One", "active"},
+		{"phase", "PHS-001", "Phase One", ""},
 		{"question", "QST-001", "Open Question", "active"},
 		{"risk", "RSK-001", "High Risk", "active"},
 		{"requirement", "REQ-001", "Auth Req", "active"},

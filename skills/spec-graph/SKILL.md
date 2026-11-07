@@ -394,13 +394,43 @@ PHS:  draft → active (gated: predecessors resolved)
 3. **PHS resolution is gated**: `entity update <PHS-ID> --status resolved` auto-runs
    `delivery_completeness` + `gates`. Blocked (exit 2) if issues exist.
 4. **PLN resolution is gated**: requires `plan_coverage` — all active arch entities must be covered.
-5. **No skipping states**: `draft → resolved` is invalid. Must pass through `active`.
-6. **deprecated is terminal for PLN/PHS/TSK**: the lifecycle gate rejects any transition out of a
-   terminal status, but it only runs on transitions into `active`/`resolved` for plan, phase, and
-   task. Arch entities reach no policy, so `deprecated → active` is accepted there — terminal is a
-   convention for them, not an enforced invariant. Deprecating never needs `--force`;
-   `entity update <ID> --status deprecated` is enough. Task deprecation requires `--reason`.
-   `question` entities cannot be deprecated — resolve them instead.
+5. **Exec transitions follow one matrix**: for PLN, PHS, TSK, and CHG the only legal moves are
+   `draft → active|deprecated` and `active → resolved|deprecated`. `draft → resolved`,
+   `active → draft`, and any exit from `resolved`/`deprecated` are rejected with exit 3 before any
+   gate runs, and `--force` does not apply. Arch entities are not covered by this matrix, so
+   `deprecated → active` is accepted there — terminal is a convention for them, not an enforced
+   invariant. Deprecating never needs `--force`; `entity update <ID> --status deprecated` is
+   enough. Task deprecation requires `--reason`. `question` entities cannot be deprecated —
+   resolve them instead.
+
+### Protection of Started Exec Entities
+
+Once a PLN, PHS, TSK, or CHG leaves `draft`, the structure it was activated under is fixed. The
+engine enforces this on every write path (CLI, RPC, MCP, `batch.apply`).
+
+**Frozen fields (forceable).** Changing the `title`, `description`, or `metadata` of a
+non-draft exec entity is blocked with a `frozen_fields` gate finding (exit 2). The one exception
+is `qa[].evidence` on a task, which is how resolution records its proof. Pass
+`--force --reason "..."` to amend anyway; the engine records `amendment_forced = true` and
+`amendment_reason` in the TOML, separate from the completion audit. The honest path for a
+contract that no longer fits is to deprecate the task and create a new one.
+
+**Fixed relations (not forceable, exit 3).** With a non-draft endpoint, these edge changes are
+rejected outright:
+
+| Relation | Rejected when |
+|----------|---------------|
+| `belongs_to` add/delete | the source is non-draft, or a task is attached to a non-draft phase |
+| `task_depends_on` add/delete | the dependent task is non-draft |
+| `precedes` / `blocks` add/delete | either phase is non-draft |
+| `covers` add/delete | the source phase/task/change is non-draft |
+| `delivers` add/delete | the source is resolved or deprecated |
+
+Attaching a new draft phase to an active plan stays allowed, and so does adding `delivers` from
+an active task or phase. Wire scope, ordering, and task membership while the entity is still
+draft; activate only after the graph shape is settled.
+
+**Deletion.** `entity delete` refuses any exec entity that is not `draft`. Deprecate it instead.
 
 ### Relation Types (18)
 
@@ -582,8 +612,11 @@ spec-graph validate --layer mapping --phase "$PHS_ID" --check delivery_completen
 Rules:
 - Deliver the covered entity itself. There is no proxy resolution — a "minimal proxy set" of
   implementing entities will not clear the finding.
-- If a phase covers something it did not actually deliver, the honest fix is to narrow the
-  `covers` scope, not to add a `delivers` edge that misstates what happened.
+- If a phase covers something it did not actually deliver, do not add a `delivers` edge that
+  misstates what happened. The `covers` scope of an active phase or task is fixed, so the honest
+  options are: finish the work, or complete with `--force --reason` naming the gap and move the
+  undelivered entity into a later draft phase. Deprecating the task and creating a narrower one
+  is the route when the contract itself was wrong.
 - Only entity types that may legally receive `delivers` from a phase are checked; others in scope
   are skipped by the edge matrix.
 - Before adding any `delivers`, ask whether it accurately represents work completed in this phase,
@@ -613,7 +646,9 @@ over-broad relations is worse than one that fails a check with an honest gap.
 ### Pattern 5: Adding a Requirement
 
 Typical flow for adding a new requirement and wiring it into the graph. `$PHS` and `$XCT` are
-existing IDs obtained from `entity list` or a prior capture.
+existing IDs obtained from `entity list` or a prior capture. `$PHS` must still be `draft`: the
+scope of an active phase is fixed, so a requirement that arrives mid-execution goes into a
+later draft phase (or a `change`), not the one already running.
 
 ```bash
 # 1. Create requirement, capturing the generated ID
@@ -915,7 +950,8 @@ related interface, state, and test to the phase.
 delivered IDs exactly, so delivering implementing entities never clears a finding on the
 requirement. It only pollutes the graph and skews impact analysis.
 **Correct approach**: add `delivers` for the covered entity itself, from the task that covers it in
-a task-managed phase. If the phase did not actually deliver it, narrow the `covers` scope instead.
+a task-managed phase. If the phase did not actually deliver it, accept the finding with
+`--force --reason` and carry the entity into a later draft phase; active scope cannot be narrowed.
 
 ### 7. Semantic ambiguity bypass
 **Symptom**: discover a model-level conflict (e.g. edge matrix prevents a relation type

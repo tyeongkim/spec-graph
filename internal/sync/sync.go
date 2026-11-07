@@ -108,6 +108,8 @@ func (s *Syncer) ForceRebuild() error {
 			UpdatedAt:        entity.UpdatedAt,
 			CompletionForced: entity.CompletionForced,
 			CompletionReason: entity.CompletionReason,
+			AmendmentForced:  entity.AmendmentForced,
+			AmendmentReason:  entity.AmendmentReason,
 		})
 
 		relations, err := ef.ToRelations()

@@ -96,6 +96,9 @@ func (t *txn) addRelation(req AddRelationRequest) (model.Relation, error) {
 			&model.ErrInvalidEdge{FromType: fromType, ToType: toType, RelationType: rt},
 		)
 	}
+	if err := checkRelationMutation("add", rt, from, to); err != nil {
+		return model.Relation{}, err
+	}
 
 	relations := &stagedRelationFetcher{tx: t}
 	if fromType == model.EntityTypePhase && (rt == model.RelationCovers || rt == model.RelationDelivers) {
@@ -294,6 +297,12 @@ func (t *txn) deleteRelation(req DeleteRelationRequest) error {
 	owner, err := (&stagedEntityFetcher{tx: t}).Get(ownerID)
 	if err != nil {
 		return lookupError(fmt.Sprintf("lookup owner entity %q", ownerID), ownerID, err)
+	}
+
+	if !spectoml.IsSymmetricRelation(rt) {
+		if err := t.checkRelationDeletion(rt, owner, targetID); err != nil {
+			return err
+		}
 	}
 
 	current, err := t.read(ownerID, owner.Type)

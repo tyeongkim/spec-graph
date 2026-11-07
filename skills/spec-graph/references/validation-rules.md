@@ -564,7 +564,7 @@ to each member. Use `--include-references` when you want the report to also surf
 | `unresolved`: unmitigated risk | add `mitigates` relation, or set risk to `resolved` |
 | `single_active_plan`: multiple active | set all but one plan to `deprecated` or `resolved` |
 | `orphan_phases`: phase not in plan | add `belongs_to` relation from phase to the active plan |
-| `delivery_completeness`: no delivers | add `delivers` for that exact covered entity (from its child task in a task-managed phase), or narrow the `covers` scope |
+| `delivery_completeness`: no delivers | add `delivers` for that exact covered entity (from its child task in a task-managed phase); active scope cannot be narrowed, so an undelivered entity is either forced through with `--reason` or carried into a later draft phase |
 | `mapping_consistency`: target deprecated or superseded | retarget the relation to the active replacement entity, or remove the stale relation |
 | `phase_satisfaction`: no inbound evidence relation | add the required relation (`delivers` for requirements, `answers` for questions, `mitigates` for risks); for assumptions/decisions, advance the entity status |
 | `phase_satisfaction`: evidence source status not in allowlist | progress the evidence source (e.g. activate the interface, mark the test verified, complete the phase) |

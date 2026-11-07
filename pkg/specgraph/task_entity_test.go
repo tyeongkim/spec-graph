@@ -206,19 +206,30 @@ func resolveTask(t *testing.T, engine *specgraph.Engine, id string) {
 func attachTaskToActivePhase(t *testing.T, engine *specgraph.Engine, taskID string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "phase", ID: "PHS-001", Title: "Active parent", Status: "active"}); err != nil {
-		t.Fatalf("create active parent phase: %v", err)
+	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "plan", ID: "PLN-001", Title: "Plan", Status: "active"}); err != nil {
+		t.Fatalf("create plan: %v", err)
 	}
-	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "PHS-001", Type: "belongs_to"}); err != nil {
-		t.Fatalf("attach task to active phase: %v", err)
+	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "phase", ID: "PHS-001", Title: "Active parent"}); err != nil {
+		t.Fatalf("create parent phase: %v", err)
 	}
 	if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "requirement", ID: "REQ-001", Title: "Task deliverable", Status: "active"}); err != nil {
 		t.Fatalf("create task deliverable: %v", err)
 	}
-	for _, relationType := range []string{"covers", "delivers"} {
-		if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "REQ-001", Type: relationType}); err != nil {
-			t.Fatalf("add task %s: %v", relationType, err)
+	for _, request := range []specgraph.AddRelationRequest{
+		{From: "PHS-001", To: "PLN-001", Type: "belongs_to"},
+		{From: taskID, To: "PHS-001", Type: "belongs_to"},
+		{From: taskID, To: "REQ-001", Type: "covers"},
+	} {
+		if _, err := engine.AddRelation(ctx, request); err != nil {
+			t.Fatalf("add %s relation: %v", request.Type, err)
 		}
+	}
+	active := string(model.EntityStatusActive)
+	if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &active}); err != nil {
+		t.Fatalf("activate parent phase: %v", err)
+	}
+	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "REQ-001", Type: "delivers"}); err != nil {
+		t.Fatalf("add task delivers: %v", err)
 	}
 }
 

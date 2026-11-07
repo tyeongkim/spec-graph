@@ -215,47 +215,16 @@ func TestTaskResolveRejectsInvalidEvidencePaths(t *testing.T) {
 	}
 }
 
-func TestTaskResolveRequiresResolvedPrerequisite(t *testing.T) {
-	root, engine := openTaskTestEngine(t)
+func TestActiveTaskRejectsNewPrerequisite(t *testing.T) {
+	_, engine := openTaskTestEngine(t)
 	setupTaskLifecycle(t, engine, "TSK-001", true)
 	createTask(t, engine, "TSK-002")
 
-	ctx := context.Background()
-	for _, request := range []specgraph.AddRelationRequest{
-		{From: "TSK-002", To: "PHS-001", Type: "belongs_to"},
-		{From: "TSK-001", To: "TSK-002", Type: "task_depends_on"},
-	} {
-		if _, err := engine.AddRelation(ctx, request); err != nil {
-			t.Fatalf("add %s relation: %v", request.Type, err)
-		}
-	}
-
-	contract := validTaskContract()
-	contract.QA[0].Evidence = writeTaskEvidence(t, root, "prerequisite-evidence.txt")
-	metadata := marshalTaskContract(t, contract)
-	resolved := string(model.EntityStatusResolved)
-	result, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{
-		ID: "TSK-001", Status: &resolved, Metadata: &metadata,
+	_, err := engine.AddRelation(context.Background(), specgraph.AddRelationRequest{
+		From: "TSK-001", To: "TSK-002", Type: "task_depends_on",
 	})
-	if err != nil {
-		t.Fatalf("resolve task: %v", err)
-	}
-	if result.Outcome != specgraph.UpdateOutcomeBlocked {
-		t.Fatalf("outcome = %q; want blocked", result.Outcome)
-	}
-	if result.GateReport == nil || !result.GateReport.Blocked {
-		t.Fatal("unresolved prerequisite did not block resolution")
-	}
-
-	found := false
-	for _, issue := range result.GateReport.BlockingIssues {
-		if issue.Check == "task_prerequisites" && issue.Entity == "TSK-001" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("missing task_prerequisites gate issue in %+v", result.GateReport.BlockingIssues)
+	if !specgraph.IsInvalidInput(err) {
+		t.Fatalf("add prerequisite to active task error = %v; want invalid input", err)
 	}
 }
 
@@ -294,17 +263,11 @@ func TestForceCannotBypassLifecycle(t *testing.T) {
 		t.Fatalf("create resolved phase: %v", err)
 	}
 	active := string(model.EntityStatusActive)
-	result, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
+	_, err := engine.UpdateEntity(context.Background(), specgraph.UpdateEntityRequest{
 		ID: "PHS-001", Status: &active, Force: true, Reason: "Attempt reopen",
 	})
-	if err != nil {
-		t.Fatalf("forced lifecycle update: %v", err)
-	}
-	if result.GateReport == nil || !result.GateReport.StructuralBlocked {
-		t.Fatal("force bypassed a terminal lifecycle transition")
-	}
-	if result.Outcome != specgraph.UpdateOutcomeBlocked {
-		t.Fatalf("outcome = %q; want blocked", result.Outcome)
+	if !specgraph.IsInvalidInput(err) {
+		t.Fatalf("forced reopen error = %v; want invalid input", err)
 	}
 	entity, getErr := engine.GetEntity(context.Background(), "PHS-001")
 	if getErr != nil {
@@ -340,7 +303,7 @@ func TestForceCannotActivateTaskWithoutStructuralInvariants(t *testing.T) {
 			_, engine := openTaskTestEngine(t)
 			ctx := context.Background()
 			if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{
-				Type: "phase", ID: "PHS-001", Title: "Phase", Status: test.parentStatus,
+				Type: "phase", ID: "PHS-001", Title: "Phase",
 			}); err != nil {
 				t.Fatalf("create parent phase: %v", err)
 			}
@@ -357,6 +320,17 @@ func TestForceCannotActivateTaskWithoutStructuralInvariants(t *testing.T) {
 					if _, err := engine.AddRelation(ctx, request); err != nil {
 						t.Fatalf("add %s relation: %v", request.Type, err)
 					}
+				}
+			}
+			if test.parentStatus != string(model.EntityStatusDraft) {
+				if _, err := engine.CreateEntity(ctx, specgraph.CreateEntityRequest{Type: "plan", ID: "PLN-001", Title: "Plan", Status: "active"}); err != nil {
+					t.Fatalf("create plan: %v", err)
+				}
+				if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: "PHS-001", To: "PLN-001", Type: "belongs_to"}); err != nil {
+					t.Fatalf("add phase parent: %v", err)
+				}
+				if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &test.parentStatus}); err != nil {
+					t.Fatalf("set parent status: %v", err)
 				}
 			}
 
@@ -471,7 +445,7 @@ func setupTaskLifecycle(t *testing.T, engine *specgraph.Engine, taskID string, w
 	ctx := context.Background()
 	for _, request := range []specgraph.CreateEntityRequest{
 		{Type: "plan", ID: "PLN-001", Title: "Plan", Status: "active"},
-		{Type: "phase", ID: "PHS-001", Title: "Phase", Status: "active"},
+		{Type: "phase", ID: "PHS-001", Title: "Phase"},
 	} {
 		if _, err := engine.CreateEntity(ctx, request); err != nil {
 			t.Fatalf("create %s: %v", request.ID, err)
@@ -492,12 +466,15 @@ func setupTaskLifecycle(t *testing.T, engine *specgraph.Engine, taskID string, w
 	if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "REQ-001", Type: "covers"}); err != nil {
 		t.Fatalf("add covers: %v", err)
 	}
+	active := string(model.EntityStatusActive)
+	if _, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: "PHS-001", Status: &active}); err != nil {
+		t.Fatalf("activate phase: %v", err)
+	}
 	if withDelivery {
 		if _, err := engine.AddRelation(ctx, specgraph.AddRelationRequest{From: taskID, To: "REQ-001", Type: "delivers"}); err != nil {
 			t.Fatalf("add delivers: %v", err)
 		}
 	}
-	active := string(model.EntityStatusActive)
 	result, err := engine.UpdateEntity(ctx, specgraph.UpdateEntityRequest{ID: taskID, Status: &active})
 	if err != nil {
 		t.Fatalf("activate task: %v", err)

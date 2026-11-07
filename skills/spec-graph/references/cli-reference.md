@@ -175,10 +175,20 @@ Transitions to `resolved` on a phase or plan are gated. The response carries an 
 `applied`, `applied_with_force`, or `blocked`; `blocked` exits 2 and leaves the TOML unchanged.
 `--force --reason "..."` accepts completion findings but cannot bypass structural ones.
 
+Exec entities (plan, phase, task, change) follow one transition matrix: `draft → active|deprecated`
+and `active → resolved|deprecated`. Any other status move exits 3 before gates run; `--force`
+does not apply.
+
+Once an exec entity leaves `draft`, its `title`, `description`, and `metadata` are frozen. An update
+that changes them is blocked with a `frozen_fields` finding (exit 2). `--force --reason "..."`
+applies the change and records `amendment_forced = true` plus `amendment_reason` in the TOML.
+A task may still fill `qa[].evidence` without force; that is the resolution path.
+
 To deprecate, pass `--status deprecated`. Run `validate --check superseded_refs` afterward to clean
 up references. Task deprecation requires `--reason`; elsewhere `--reason` is optional and is only
-persisted (as `completion_reason`) when it accompanies a `--force` bypass, so a reason given on an
-arch deprecation is accepted but not recorded. `question` entities do not accept `deprecated`
+persisted when it accompanies a `--force` bypass (as `completion_reason` for a forced completion,
+or `amendment_reason` for a forced edit of a frozen field), so a reason given on an arch
+deprecation is accepted but not recorded. `question` entities do not accept `deprecated`
 (INVALID_INPUT, exit 3) — resolve them instead.
 
 For a change in what an arch entity *means*, use `entity revise` instead — `update` discards the
@@ -265,7 +275,8 @@ field, or write failure, aborts the entire import without writing and exits non-
 spec-graph entity delete <ID>
 ```
 
-Deletes the entity and all connected relations.
+Removes the entity file. Refuses (exit 3) when any relation still references the entity, and
+refuses any exec entity (plan, phase, task, change) that is not `draft`; deprecate those instead.
 
 ---
 
@@ -286,8 +297,13 @@ Automatic validations on add:
 1. from/to entity existence
 2. relation type validity
 3. **allowed edge matrix** compliance for the relation's layer (violation → exit 3)
-4. duplicate edge check
-5. self-loop prohibition (supersedes, conflicts_with, etc.)
+4. **started exec entity guard** (violation → exit 3): once a plan, phase, task, or change has
+   left `draft`, its `belongs_to`, `task_depends_on`, `precedes`/`blocks`, and `covers` edges are
+   fixed, a task cannot be attached to a non-draft phase, and `delivers` cannot be added from a
+   resolved or deprecated source. Adding `delivers` from an active source and attaching a draft
+   phase to an active plan remain allowed.
+5. duplicate edge check
+6. self-loop prohibition (supersedes, conflicts_with, etc.)
 
 **Examples** (all IDs are shell variables captured from `entity add`):
 ```bash
@@ -323,6 +339,11 @@ spec-graph relation list --from <ID> --layer mapping   # outgoing mapping relati
 ```bash
 spec-graph relation delete --from <FROM-ID> --to <TO-ID> --type <RELATION_TYPE>
 ```
+
+The started exec entity guard from `relation add` applies to deletion as well: removing a
+`belongs_to`, `task_depends_on`, `precedes`/`blocks`, or `covers` edge whose source has left
+`draft`, or a `delivers` edge from a resolved or deprecated source, exits 3. An edge whose target
+entity no longer exists can always be removed.
 
 ---
 

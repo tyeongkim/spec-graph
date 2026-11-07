@@ -199,14 +199,20 @@ draft → active → resolved
 - `deleted`: permanently removed
 
 Enforcement: the schema allows all five statuses for every entity type except `question`, which
-does not permit `deprecated`. The sequence above is the intended convention rather than a validated
-state machine — for arch entities no generic transition guard exists, so `draft → resolved` will be
-accepted even though it skips a step. Real gating applies only to plan, phase, and task.
+does not permit `deprecated`. For arch entities the sequence above is a convention rather than a
+validated state machine — no generic transition guard exists, so `draft → resolved` will be
+accepted even though it skips a step.
 
-Tasks use the stricter lifecycle `draft → active → resolved` or `draft|active → deprecated`.
-`resolved` and `deprecated` are terminal; deprecation requires a reason. Activation requires exactly
-one parent, that parent must be an active phase, and prerequisites must be resolved. Resolution
-requires resolved prerequisites, QA evidence, and delivery for every deliverable covered target.
+Exec entities (plan, phase, task, change) follow one enforced matrix: `draft → active|deprecated`
+and `active → resolved|deprecated`. `resolved` and `deprecated` are terminal. Any other move is
+rejected as invalid input before gates run, and `--force` does not apply. Once an exec entity
+leaves `draft`, its title, description, and metadata are frozen (forceable with a recorded
+`amendment_reason`), its structural and `covers` relations are fixed, and it can no longer be
+deleted; see the SKILL.md section "Protection of Started Exec Entities".
+
+Tasks add their own requirements on top: deprecation requires a reason, activation requires
+exactly one parent that is an active phase and resolved prerequisites, and resolution requires
+resolved prerequisites, QA evidence, and delivery for every deliverable covered target.
 
 ---
 

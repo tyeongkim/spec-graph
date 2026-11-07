@@ -157,6 +157,8 @@ type Entity struct {
 	UpdatedAt        string          `json:"updated_at"`
 	CompletionForced bool            `json:"completion_forced,omitempty"`
 	CompletionReason string          `json:"completion_reason,omitempty"`
+	AmendmentForced  bool            `json:"amendment_forced,omitempty"`
+	AmendmentReason  string          `json:"amendment_reason,omitempty"`
 }
 
 var entityIDPattern = regexp.MustCompile(`^([A-Z]+)-([0-9]+)(?:-([0-9a-z]{3}))?$`)

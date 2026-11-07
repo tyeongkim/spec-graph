@@ -622,9 +622,12 @@ func TestEntityFullLifecycle(t *testing.T) {
 func setupGatedPhaseWithUnresolvedQuestion(t *testing.T, dir, dbFile string) {
 	t.Helper()
 	cmds := [][]string{
-		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "plan", "--id", "PLN-001", "--title", "Plan", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1"},
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Unresolved question", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
+		{"--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "active"},
 	}
 	for _, args := range cmds {
 		r := runCLI(t, dir, args...)
@@ -731,7 +734,7 @@ func TestGateForceBypassWithReason(t *testing.T) {
 	}
 }
 
-func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
+func TestForceCannotReopenResolvedPhase(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 	setup := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase",
@@ -742,15 +745,8 @@ func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
 
 	result := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001",
 		"--status", "active", "--force", "--reason", "Attempt structural bypass")
-	if result.exitCode != 2 {
-		t.Fatalf("exit = %d; want 2; stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
-	}
-	var response jsoncontract.EntityUpdateGateResponse
-	if err := json.Unmarshal([]byte(result.stdout), &response); err != nil {
-		t.Fatalf("unmarshal blocked response: %v\nraw: %s", err, result.stdout)
-	}
-	if !response.Blocked {
-		t.Fatal("blocked = false; want true")
+	if result.exitCode != 3 {
+		t.Fatalf("exit = %d; want 3; stdout=%s stderr=%s", result.exitCode, result.stdout, result.stderr)
 	}
 
 	stored := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "PHS-001")
@@ -766,23 +762,24 @@ func TestGateForceCannotFalseSucceedOnStructuralBlock(t *testing.T) {
 	}
 }
 
-func TestGateNotAppliedForNonResolvedTransition(t *testing.T) {
+func TestActivePhaseCannotReturnToDraft(t *testing.T) {
 	dbFile := initTestProject(t)
 	dir := t.TempDir()
 
 	setupGatedPhaseWithUnresolvedQuestion(t, dir, dbFile)
 
 	r := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "draft")
-	if r.exitCode != 0 {
-		t.Fatalf("expected exit 0 for non-gated transition, got %d; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
+	if r.exitCode != 3 {
+		t.Fatalf("exit = %d; want 3; stdout=%s stderr=%s", r.exitCode, r.stdout, r.stderr)
 	}
 
-	var resp jsoncontract.EntityUpdateSuccessResponse
-	if err := json.Unmarshal([]byte(r.stdout), &resp); err != nil {
-		t.Fatalf("unmarshal: %v\nraw: %s", err, r.stdout)
+	stored := runCLI(t, dir, "--root", filepath.Dir(dbFile), "entity", "get", "PHS-001")
+	var resp jsoncontract.EntityResponse
+	if err := json.Unmarshal([]byte(stored.stdout), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, stored.stdout)
 	}
-	if resp.Entity.Status != model.EntityStatusDraft {
-		t.Errorf("status = %q; want draft", resp.Entity.Status)
+	if resp.Entity.Status != model.EntityStatusActive {
+		t.Errorf("status = %q; want active", resp.Entity.Status)
 	}
 }
 
@@ -791,11 +788,14 @@ func TestGatePassesWhenNoIssues(t *testing.T) {
 	dir := t.TempDir()
 
 	cmds := [][]string{
-		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "plan", "--id", "PLN-001", "--title", "Plan", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "phase", "--id", "PHS-001", "--title", "Phase 1"},
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "question", "--id", "QST-001", "--title", "Resolved question", "--status", "active"},
 		{"--root", filepath.Dir(dbFile), "entity", "add", "--type", "decision", "--id", "DEC-001", "--title", "Answer", "--status", "active"},
+		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "PLN-001", "--type", "belongs_to"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "PHS-001", "--to", "QST-001", "--type", "covers"},
 		{"--root", filepath.Dir(dbFile), "relation", "add", "--from", "DEC-001", "--to", "QST-001", "--type", "answers"},
+		{"--root", filepath.Dir(dbFile), "entity", "update", "PHS-001", "--status", "active"},
 	}
 	for _, args := range cmds {
 		r := runCLI(t, dir, args...)
